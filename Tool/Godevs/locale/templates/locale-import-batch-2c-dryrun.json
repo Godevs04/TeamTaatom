@@ -1,0 +1,4810 @@
+{
+  "mode": "DRY_RUN",
+  "csv": "/Users/kavinkumar/Kavin/Godevs/Kavin/TeamTaatom/Tool/Godevs/locale/templates/locale-import-batch-2c.csv",
+  "totals": {
+    "ok": 157,
+    "fail": 0,
+    "warn": 157,
+    "imagesOk": 0,
+    "imagesFail": 0
+  },
+  "rows": [
+    {
+      "sourceId": "CA-ALBERTA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Banff National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Canada's oldest national park, renowned for Rocky Mountain peaks, glaciers, turquoise lakes and abundant wildlife.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.497,
+        "longitude": -115.928,
+        "altitude": 2119,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Lake Louise",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Iconic glacial lake surrounded by the Canadian Rockies and known for turquoise water and alpine scenery.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.425,
+        "longitude": -116.177,
+        "altitude": 1541,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Moraine Lake",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Spectacular glacial lake in the Valley of the Ten Peaks, famous for its vivid blue water.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.322,
+        "longitude": -116.186,
+        "altitude": 1853,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Peyto Lake",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Glacial-fed lake viewed from an elevated overlook along the Icefields Parkway.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.717,
+        "longitude": -116.49,
+        "altitude": 2074,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Johnston Canyon",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Popular canyon trail featuring limestone cliffs, waterfalls and forest scenery.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.245,
+        "longitude": -115.84,
+        "altitude": 1438,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Sulphur Mountain",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Mountain overlooking Banff with hiking trails and panoramic summit views.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.115,
+        "longitude": -115.564,
+        "altitude": 1788,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bow Falls",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Broad waterfall on the Bow River close to the town of Banff.\n\n(UNESCO World Heritage · Best season: May–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.167,
+        "longitude": -115.563,
+        "altitude": 1389,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-008",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Lake Minnewanka",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Banff",
+        "description": "Large mountain lake near Banff offering cruises, hiking and dramatic shoreline scenery.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.253,
+        "longitude": -115.5,
+        "altitude": 1557,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-009",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Jasper National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Vast Rocky Mountain national park known for glaciers, lakes, wildlife and dark skies.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 52.874,
+        "longitude": -117.954,
+        "altitude": 1945,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-010",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Athabasca Falls",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Powerful waterfall where the Athabasca River cuts through a narrow canyon.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 52.915,
+        "longitude": -117.929,
+        "altitude": 1577,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-011",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Maligne Lake",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Famous alpine lake known for Spirit Island and spectacular mountain surroundings.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 52.72,
+        "longitude": -117.636,
+        "altitude": 1706,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-012",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Spirit Island",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Small scenic island on Maligne Lake surrounded by dramatic Canadian Rockies.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Flight Required",
+        "latitude": 52.666,
+        "longitude": -117.505,
+        "altitude": 2124,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-013",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Maligne Canyon",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Deep limestone canyon featuring waterfalls, bridges and striking geological formations.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 52.925,
+        "longitude": -117.124,
+        "altitude": 1897,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-014",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Columbia Icefield",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Major icefield feeding several glaciers and a prominent landscape along the Icefields Parkway.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 52.221,
+        "longitude": -117.225,
+        "altitude": 2003,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-015",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Athabasca Glacier",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Jasper",
+        "description": "Accessible glacier of the Columbia Icefield and a major Icefields Parkway attraction.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 52.219,
+        "longitude": -117.225,
+        "altitude": 1970,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Yoho National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Field",
+        "description": "Rocky Mountain park known for waterfalls, alpine lakes, glaciers and dramatic geology.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.4,
+        "longitude": -116.487,
+        "altitude": 1249,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Emerald Lake",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Field",
+        "description": "Turquoise alpine lake surrounded by forest and rugged mountain peaks.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.443,
+        "longitude": -116.54,
+        "altitude": 1311,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Takakkaw Falls",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Field",
+        "description": "One of Canada's highest waterfalls, fed by glacial meltwater in Yoho National Park.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.497,
+        "longitude": -116.47,
+        "altitude": 1890,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kootenay National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Radium Hot Springs",
+        "description": "Rocky Mountain park featuring hot springs, canyons, glaciers and diverse ecosystems.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 50.885,
+        "longitude": -115.978,
+        "altitude": 1416,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Stanley Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Vancouver",
+        "description": "Large urban park surrounded by water and known for forest trails, gardens and the seawall.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 49.304,
+        "longitude": -123.144,
+        "altitude": 39,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Granville Island",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Vancouver",
+        "description": "Vibrant waterfront district featuring a public market, artisan shops, galleries and restaurants.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 49.271,
+        "longitude": -123.134,
+        "altitude": 6,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Capilano Suspension Bridge",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Vancouver",
+        "description": "Suspension bridge and forest attraction spanning the Capilano River canyon.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 49.343,
+        "longitude": -123.115,
+        "altitude": 32,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-008",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Grouse Mountain",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Vancouver",
+        "description": "Mountain resort offering hiking, skiing, wildlife experiences and views over Vancouver.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 49.373,
+        "longitude": -123.099,
+        "altitude": 310,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-009",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Whistler Blackcomb",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Whistler",
+        "description": "World-renowned mountain resort offering extensive winter sports and summer activities.\n\n(Best season: Dec–Mar)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 50.116,
+        "longitude": -122.957,
+        "altitude": 672,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-010",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Butchart Gardens",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Victoria",
+        "description": "Famous formal gardens created in a former limestone quarry near Victoria.\n\n(Best season: Mar–Oct)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 48.563,
+        "longitude": -123.465,
+        "altitude": 43,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-BRITISH-COLUMBIA-011",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Pacific Rim National Park Reserve",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "British Columbia",
+        "stateCode": "",
+        "city": "Tofino",
+        "description": "Protected Pacific coastline combining temperate rainforest, beaches and marine environments.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 49.066,
+        "longitude": -125.743,
+        "altitude": 18,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "CN Tower",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Toronto",
+        "description": "Iconic Toronto landmark with observation decks overlooking the city and Lake Ontario.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 43.643,
+        "longitude": -79.387,
+        "altitude": 90,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Royal Ontario Museum",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Toronto",
+        "description": "Major museum with extensive collections spanning natural history, world cultures and art.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 43.668,
+        "longitude": -79.395,
+        "altitude": 120,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Casa Loma",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Toronto",
+        "description": "Gothic Revival mansion and Toronto landmark with grand interiors, gardens and towers.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 43.678,
+        "longitude": -79.409,
+        "altitude": 155,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Toronto Islands",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Toronto",
+        "description": "Chain of islands offering beaches, parks, cycling and skyline views across Toronto Harbour.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Flight Required",
+        "latitude": 43.621,
+        "longitude": -79.378,
+        "altitude": 77,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Niagara Falls",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Niagara Falls",
+        "description": "World-famous group of waterfalls on the Niagara River and one of Canada's premier attractions.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 43.096,
+        "longitude": -79.038,
+        "altitude": 179,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Parliament Hill",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Ottawa",
+        "description": "Historic hilltop complex and seat of Canada's federal Parliament overlooking the Ottawa River.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.424,
+        "longitude": -75.7,
+        "altitude": 83,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ONTARIO-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Rideau Canal",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Ontario",
+        "stateCode": "",
+        "city": "Ottawa",
+        "description": "Historic canal connecting Ottawa with Kingston and a major engineering and recreational landmark.\n\n(UNESCO World Heritage · Best season: May–Oct)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.425,
+        "longitude": -75.696,
+        "altitude": 61,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Historic District of Old Québec",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Quebec City",
+        "description": "Walled historic district renowned for French colonial architecture and European character.\n\n(UNESCO World Heritage · Best season: May–Oct)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 46.814,
+        "longitude": -71.208,
+        "altitude": 51,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Montmorency Falls",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Quebec City",
+        "description": "Spectacular waterfall higher than Niagara Falls and located just outside Québec City.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 46.89,
+        "longitude": -71.146,
+        "altitude": 58,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Notre-Dame Basilica of Montreal",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Montreal",
+        "description": "Historic Gothic Revival basilica famous for its richly decorated interior.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.505,
+        "longitude": -73.556,
+        "altitude": 37,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Old Montreal",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Montreal",
+        "description": "Historic riverside district filled with preserved architecture, plazas, galleries and cafés.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.508,
+        "longitude": -73.554,
+        "altitude": 30,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mount Royal",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Montreal",
+        "description": "Urban mountain and park providing trails and panoramic views over Montreal.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.505,
+        "longitude": -73.588,
+        "altitude": 222,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NOVA-SCOTIA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Halifax Waterfront",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Nova Scotia",
+        "stateCode": "",
+        "city": "Halifax",
+        "description": "Lively harbourfront promenade featuring historic buildings, restaurants and attractions.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 44.645,
+        "longitude": -63.572,
+        "altitude": 21,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NOVA-SCOTIA-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Old Town Lunenburg",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Nova Scotia",
+        "stateCode": "",
+        "city": "Lunenburg",
+        "description": "Exceptionally preserved British colonial settlement and important Atlantic maritime heritage site.\n\n(UNESCO World Heritage · Best season: May–Oct)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 44.377,
+        "longitude": -64.31,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NOVA-SCOTIA-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Peggy's Cove Lighthouse",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Nova Scotia",
+        "stateCode": "",
+        "city": "Peggy's Cove",
+        "description": "Historic lighthouse standing on dramatic granite rocks along Nova Scotia's Atlantic coast.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Beach spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 44.501,
+        "longitude": -63.915,
+        "altitude": 23,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NEWFOUNDLAND-AND-LABRADO-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Gros Morne National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Newfoundland and Labrador",
+        "stateCode": "",
+        "city": "Gros Morne",
+        "description": "UNESCO-listed landscape featuring fjords, ancient rocks, mountains and exceptional geological formations.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 49.674,
+        "longitude": -57.872,
+        "altitude": 144,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NEWFOUNDLAND-AND-LABRADO-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "L'Anse aux Meadows National Historic Site",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Newfoundland and Labrador",
+        "stateCode": "",
+        "city": "L'Anse aux Meadows",
+        "description": "Archaeological site preserving evidence of a Norse settlement from around a thousand years ago.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 51.596,
+        "longitude": -55.531,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NEWFOUNDLAND-AND-LABRADO-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Signal Hill",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Newfoundland and Labrador",
+        "stateCode": "",
+        "city": "St. John's",
+        "description": "Historic hill overlooking St. John's Harbour and the Atlantic Ocean.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 47.571,
+        "longitude": -52.681,
+        "altitude": 125,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NEW-BRUNSWICK-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Hopewell Rocks",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "New Brunswick",
+        "stateCode": "",
+        "city": "Saint John",
+        "description": "Distinctive sea stacks and rock formations exposed by the Bay of Fundy's high tides.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.819,
+        "longitude": -64.57,
+        "altitude": 0,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NEW-BRUNSWICK-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Fundy National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "New Brunswick",
+        "stateCode": "",
+        "city": "Fundy",
+        "description": "Protected Bay of Fundy landscape featuring coastal cliffs, forests, waterfalls and tidal environments.\n\n(Best season: May–Oct)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 45.593,
+        "longitude": -65.01,
+        "altitude": 305,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-PRINCE-EDWARD-ISLAND-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Prince Edward Island National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Prince Edward Island",
+        "stateCode": "",
+        "city": "Cavendish",
+        "description": "Coastal park known for red cliffs, sandy beaches, dunes and scenic landscapes.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 46.414,
+        "longitude": -63.23,
+        "altitude": 0,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-MANITOBA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Churchill",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Manitoba",
+        "stateCode": "",
+        "city": "Churchill",
+        "description": "World-famous northern destination for polar bear viewing, beluga whales and aurora experiences.\n\n(Best season: Oct–Nov)",
+        "spotTypes": [
+          "Wildlife spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 58.768,
+        "longitude": -94.165,
+        "altitude": 9,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-016",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Royal Tyrrell Museum",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Drumheller",
+        "description": "Leading paleontology museum with extensive dinosaur fossils and interactive exhibits.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 51.488,
+        "longitude": -112.799,
+        "altitude": 718,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-SASKATCHEWAN-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Dinosaur Provincial Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Saskatchewan",
+        "stateCode": "",
+        "city": "Dinosaur Provincial Park",
+        "description": "Fossil-rich badlands landscape containing major dinosaur discoveries and exceptional geological formations.\n\n(UNESCO World Heritage · Best season: May–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 50.767,
+        "longitude": -111.585,
+        "altitude": 707,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-017",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Waterton Lakes National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Waterton",
+        "description": "Scenic park where prairie meets the Rocky Mountains, forming part of the Waterton-Glacier landscape.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 49.052,
+        "longitude": -113.901,
+        "altitude": 1277,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-YUKON-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kluane National Park and Reserve",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Yukon",
+        "stateCode": "",
+        "city": "Kluane",
+        "description": "Vast wilderness containing massive icefields, high mountains and Mount Logan.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 60.752,
+        "longitude": -137.511,
+        "altitude": 599,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NORTHWEST-TERRITORIES-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Nahanni National Park Reserve",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Northwest Territories",
+        "stateCode": "",
+        "city": "Nahanni",
+        "description": "Remote wilderness famous for the South Nahanni River, deep canyons, waterfalls and mountains.\n\n(UNESCO World Heritage · Best season: Jun–Aug)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 61.5,
+        "longitude": -125.75,
+        "altitude": 1032,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-NORTHWEST-TERRITORIES-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Virginia Falls",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Northwest Territories",
+        "stateCode": "",
+        "city": "Nahanni",
+        "description": "Massive waterfall on the South Nahanni River, roughly twice the height of Niagara Falls.\n\n(UNESCO World Heritage · Best season: Jun–Aug)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Flight Required",
+        "latitude": 61.56,
+        "longitude": -125.38,
+        "altitude": 812,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-ALBERTA-018",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Wood Buffalo National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Alberta",
+        "stateCode": "",
+        "city": "Fort Smith",
+        "description": "Canada's largest national park, protecting boreal ecosystems, wetlands and important wildlife populations.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 59.37,
+        "longitude": -112.9,
+        "altitude": 250,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Forillon National Park",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Gaspé",
+        "description": "Spectacular Gaspé peninsula park featuring sea cliffs, forests, beaches and marine wildlife.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 48.9,
+        "longitude": -64.35,
+        "altitude": 29,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CA-QUEBEC-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Percé Rock",
+        "country": "Canada",
+        "countryCode": "CA",
+        "stateProvince": "Quebec",
+        "stateCode": "",
+        "city": "Percé",
+        "description": "Iconic limestone sea stack rising from the Gulf of St. Lawrence near Percé.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 48.516,
+        "longitude": -64.21,
+        "altitude": 0,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-CENTRE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mefou National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Centre",
+        "stateCode": "",
+        "city": "Yaoundé",
+        "description": "Wildlife sanctuary near Yaoundé known for rescued primates and forest surroundings.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.583,
+        "longitude": 11.55,
+        "altitude": 700,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-CENTRE-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "National Museum of Cameroon",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Centre",
+        "stateCode": "",
+        "city": "Yaoundé",
+        "description": "Museum presenting Cameroonian history, traditional art and cultural heritage.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 3.866,
+        "longitude": 11.517,
+        "altitude": 750,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-CENTRE-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mvog-Betsi Zoo",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Centre",
+        "stateCode": "",
+        "city": "Yaoundé",
+        "description": "Urban zoological garden showcasing native Cameroonian wildlife and supporting conservation education.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.866,
+        "longitude": 11.483,
+        "altitude": 740,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-CENTRE-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mont Fébé",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Centre",
+        "stateCode": "",
+        "city": "Yaoundé",
+        "description": "Hill overlooking Yaoundé with panoramic views and a popular recreational setting.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.9,
+        "longitude": 11.483,
+        "altitude": 1000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-CENTRE-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Reunification Monument",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Centre",
+        "stateCode": "",
+        "city": "Yaoundé",
+        "description": "Landmark commemorating the reunification of the English- and French-speaking territories of Cameroon.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.868,
+        "longitude": 11.521,
+        "altitude": 750,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-CENTRE-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Benedictine Monastery of Mont Febe",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Centre",
+        "stateCode": "",
+        "city": "Yaoundé",
+        "description": "Religious complex on Mont Fébé associated with Benedictine traditions and scenic highland surroundings.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.905,
+        "longitude": 11.48,
+        "altitude": 1000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-LITTORAL-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "La Nouvelle Liberté",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Littoral",
+        "stateCode": "",
+        "city": "Douala",
+        "description": "Large public sculpture and prominent landmark in Douala's Deido district.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.07,
+        "longitude": 9.733,
+        "altitude": 15,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-LITTORAL-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Doual'art",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Littoral",
+        "stateCode": "",
+        "city": "Douala",
+        "description": "Contemporary art organization and cultural space supporting artistic projects in Douala.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.05,
+        "longitude": 9.7,
+        "altitude": 15,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-LITTORAL-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Eko Market",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Littoral",
+        "stateCode": "",
+        "city": "Douala",
+        "description": "Major urban market offering a lively introduction to local commerce and daily life.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 4.05,
+        "longitude": 9.708,
+        "altitude": 15,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-LITTORAL-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Wouri River",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Littoral",
+        "stateCode": "",
+        "city": "Douala",
+        "description": "Major river flowing through Douala and an important geographic feature of Cameroon's largest city.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.05,
+        "longitude": 9.7,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-WEST-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Chefferie Bandjoun",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "West",
+        "stateCode": "",
+        "city": "Bafoussam",
+        "description": "Traditional Bamileke chiefdom complex showcasing royal architecture, culture and craftsmanship.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 5.383,
+        "longitude": 10.4,
+        "altitude": 1500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-WEST-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bandjoun Museum",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "West",
+        "stateCode": "",
+        "city": "Bandjoun",
+        "description": "Cultural museum presenting Bamileke traditions, art and heritage.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 5.383,
+        "longitude": 10.4,
+        "altitude": 1500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-WEST-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Royal Palace of Foumban",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "West",
+        "stateCode": "",
+        "city": "Foumban",
+        "description": "Historic royal palace of the Bamoun kingdom and one of the region's major cultural attractions.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 5.733,
+        "longitude": 10.9,
+        "altitude": 1200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-WEST-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bamoun Royal Museum",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "West",
+        "stateCode": "",
+        "city": "Foumban",
+        "description": "Museum documenting the history, rulers, art and traditions of the Bamoun Kingdom.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 5.733,
+        "longitude": 10.9,
+        "altitude": 1200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-WEST-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Foumban Sultanate",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "West",
+        "stateCode": "",
+        "city": "Foumban",
+        "description": "Historic center of the Bamoun Kingdom known for royal traditions, crafts and cultural heritage.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 5.733,
+        "longitude": 10.9,
+        "altitude": 1200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-WEST-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Baleng Lake",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "West",
+        "stateCode": "",
+        "city": "Bafoussam",
+        "description": "Highland lake surrounded by agricultural and rural landscapes in western Cameroon.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 5.55,
+        "longitude": 10.3,
+        "altitude": 1400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTHWEST-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bamenda Highlands",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Northwest",
+        "stateCode": "",
+        "city": "Bamenda",
+        "description": "Scenic highland region characterized by rolling mountains, valleys and traditional communities.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 5.96,
+        "longitude": 10.15,
+        "altitude": 1400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTHWEST-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Menchum Falls",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Northwest",
+        "stateCode": "",
+        "city": "Bamenda",
+        "description": "Spectacular waterfall in the Northwest Region where the Menchum River drops through a dramatic landscape.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 6.35,
+        "longitude": 10.05,
+        "altitude": 900,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTHWEST-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bafut Palace",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Northwest",
+        "stateCode": "",
+        "city": "Bamenda",
+        "description": "Historic Fon's palace complex representing the cultural heritage of the Bafut people.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 6.083,
+        "longitude": 10.1,
+        "altitude": 1200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTHWEST-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bafut Museum",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Northwest",
+        "stateCode": "",
+        "city": "Bamenda",
+        "description": "Cultural museum associated with the Bafut traditional kingdom and its heritage.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 6.083,
+        "longitude": 10.1,
+        "altitude": 1200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTHWEST-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bamenda Main Market",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Northwest",
+        "stateCode": "",
+        "city": "Bamenda",
+        "description": "Busy city market providing an everyday view of commerce and local products.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 5.96,
+        "longitude": 10.15,
+        "altitude": 1400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTHWEST-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kumbo Highlands",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Northwest",
+        "stateCode": "",
+        "city": "Fundong",
+        "description": "Highland landscapes around the Kumbo area known for mountain scenery and rural culture.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 6.2,
+        "longitude": 10.67,
+        "altitude": 1800,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Limbe Botanical Garden",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Limbe",
+        "description": "Historic botanical garden containing tropical plant collections and scenic coastal vegetation.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.017,
+        "longitude": 9.2,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Limbe Wildlife Centre",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Limbe",
+        "description": "Wildlife rescue and rehabilitation center known for conservation work with threatened primates.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.02,
+        "longitude": 9.21,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Limbe Beach",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Limbe",
+        "description": "Black-sand coastal beach near Limbe with views of the Gulf of Guinea.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.01,
+        "longitude": 9.21,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Down Beach",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Limbe",
+        "description": "Popular waterfront area in Limbe known for coastal scenery, fishing activity and seafood.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.007,
+        "longitude": 9.214,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mount Cameroon",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Limbe",
+        "description": "West Africa's highest mountain and an active volcano offering challenging trekking and exceptional highland scenery.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.217,
+        "longitude": 9.172,
+        "altitude": 4040,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mount Cameroon National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Buea",
+        "description": "Protected volcanic landscape surrounding Mount Cameroon with montane forests, wildlife and trekking routes.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.2,
+        "longitude": 9.17,
+        "altitude": 2000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Buea Mountain View",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Buea",
+        "description": "Highland viewpoints around Buea offering broad views toward Mount Cameroon and the coast.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 4.156,
+        "longitude": 9.241,
+        "altitude": 900,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTHWEST-008",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kribi Beach",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Southwest",
+        "stateCode": "",
+        "city": "Kribi",
+        "description": "Popular Atlantic beach destination known for sandy shores and tropical coastal scenery.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.937,
+        "longitude": 9.908,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTH-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Lobé Falls",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "South",
+        "stateCode": "",
+        "city": "Kribi",
+        "description": "Rare coastal waterfall where the Lobé River cascades directly into the Atlantic Ocean.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.883,
+        "longitude": 9.9,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTH-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Lobé River",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "South",
+        "stateCode": "",
+        "city": "Kribi",
+        "description": "River flowing through tropical forest before reaching the Atlantic at the famous Lobé Falls.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.89,
+        "longitude": 9.9,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTH-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Chutes de la Lobé",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "South",
+        "stateCode": "",
+        "city": "Kribi",
+        "description": "Iconic waterfall system at the Atlantic coast and one of Cameroon's best-known natural attractions.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.883,
+        "longitude": 9.9,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTH-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Campo Ma'an National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "South",
+        "stateCode": "",
+        "city": "Campo",
+        "description": "Large protected rainforest landscape containing diverse wildlife and ecosystems; part of a major biodiversity region.\n\n(UNESCO World Heritage · Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.35,
+        "longitude": 10.05,
+        "altitude": 200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTH-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Campo Beach",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "South",
+        "stateCode": "",
+        "city": "Campo",
+        "description": "Remote Atlantic beach near the Campo area surrounded by tropical forest and coastal scenery.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.367,
+        "longitude": 9.817,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-SOUTH-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Grand Batanga",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "South",
+        "stateCode": "",
+        "city": "Kribi",
+        "description": "Coastal village area near Kribi known for beaches, seafood and traditional coastal culture.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.85,
+        "longitude": 9.9,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-EAST-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Dja Faunal Reserve",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "East",
+        "stateCode": "",
+        "city": "Lomié",
+        "description": "Vast Central African rainforest reserve renowned for exceptional biodiversity and wildlife.\n\n(UNESCO World Heritage · Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3,
+        "longitude": 13,
+        "altitude": 600,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-EAST-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Boumba-Bek National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "East",
+        "stateCode": "",
+        "city": "Yokadouma",
+        "description": "Remote rainforest protected area containing forest elephants, primates and other wildlife.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.5,
+        "longitude": 15,
+        "altitude": 500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-EAST-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Nki National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "East",
+        "stateCode": "",
+        "city": "Yokadouma",
+        "description": "Large remote rainforest park known for exceptional biodiversity and intact forest ecosystems.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.3,
+        "longitude": 14.5,
+        "altitude": 500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-EAST-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Lobéké National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "East",
+        "stateCode": "",
+        "city": "Bertoua",
+        "description": "Protected rainforest known for elephants, gorillas, forest buffalo and diverse birdlife; part of the Sangha landscape.\n\n(UNESCO World Heritage · Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 2.25,
+        "longitude": 15.7,
+        "altitude": 400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTH-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Benoué National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "North",
+        "stateCode": "",
+        "city": "Garoua",
+        "description": "Savannah park known for elephants, hippos, lions, buffalo and other wildlife.\n\n(UNESCO World Heritage · Best season: Nov–Mar)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 8.35,
+        "longitude": 13.85,
+        "altitude": 400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTH-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Benoué River",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "North",
+        "stateCode": "",
+        "city": "Garoua",
+        "description": "Major northern river supporting wildlife and wetlands around Benoué National Park.\n\n(Best season: Nov–Mar)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 8.35,
+        "longitude": 13.85,
+        "altitude": 350,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTH-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Faro National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "North",
+        "stateCode": "",
+        "city": "Poli",
+        "description": "Large protected savannah landscape with diverse mammals and rugged northern scenery.\n\n(Best season: Nov–Mar)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 8,
+        "longitude": 12.75,
+        "altitude": 500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTH-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Faro River",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "North",
+        "stateCode": "",
+        "city": "Poli",
+        "description": "River system flowing through northern Cameroon and supporting wildlife habitats.\n\n(Best season: Nov–Mar)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 8,
+        "longitude": 12.75,
+        "altitude": 450,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-NORTH-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Waza National Park",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "North",
+        "stateCode": "",
+        "city": "Waza",
+        "description": "Cameroon's most famous northern wildlife park, known for elephants, giraffes, antelopes and birdlife.\n\n(Best season: Nov–Mar)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.333,
+        "longitude": 14.667,
+        "altitude": 300,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Waza Wildlife Reserve",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Waza",
+        "description": "Protected Sahelian landscape supporting important populations of large mammals and migratory birds.\n\n(Best season: Nov–Mar)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.333,
+        "longitude": 14.667,
+        "altitude": 300,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mandara Mountains",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Maroua",
+        "description": "Dramatic mountain range in northern Cameroon known for rocky landscapes and distinctive traditional settlements.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.75,
+        "longitude": 13.75,
+        "altitude": 1000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Rhumsiki",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Mora",
+        "description": "Scenic village in the Mandara Mountains famous for volcanic-looking rock formations and traditional culture.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.567,
+        "longitude": 13.583,
+        "altitude": 900,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kapsiki Peak",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Rhumsiki",
+        "description": "Distinctive volcanic-looking peak and rock formation forming part of the dramatic Kapsiki landscape.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.55,
+        "longitude": 13.58,
+        "altitude": 1224,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Maroua Grand Market",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Maroua",
+        "description": "Large traditional market known for handicrafts, textiles, leather goods and regional products.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 10.591,
+        "longitude": 14.316,
+        "altitude": 400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mokolo Market",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Mokolo",
+        "description": "Lively market serving communities around the Mandara Mountains and known for local crafts and produce.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 10.74,
+        "longitude": 13.8,
+        "altitude": 800,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "CM-FAR-NORTH-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kapsiki Cultural Landscape",
+        "country": "Cameroon",
+        "countryCode": "CM",
+        "stateProvince": "Far North",
+        "stateCode": "",
+        "city": "Mora",
+        "description": "Mountain landscape combining distinctive rock formations with traditional Kapsiki settlements and cultural practices.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.567,
+        "longitude": 13.583,
+        "altitude": 900,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Angkor Wat",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Cambodia's most iconic temple complex and one of the world's greatest archaeological monuments, renowned for its monumental architecture and extensive Khmer-era bas-reliefs.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.413,
+        "longitude": 103.867,
+        "altitude": 65,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Angkor Thom",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "A monumental walled city within the Angkor complex, featuring imposing gates, temples, terraces and the famous Bayon.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.441,
+        "longitude": 103.86,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bayon Temple",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "A distinctive Khmer temple famous for its enormous carved stone faces and intricate bas-reliefs.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.441,
+        "longitude": 103.859,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Ta Prohm",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Atmospheric Angkor temple where enormous tree roots intertwine with ancient stone structures.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.435,
+        "longitude": 103.889,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Banteay Srei",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "A beautifully preserved 10th-century Khmer temple celebrated for its intricate pink sandstone carvings.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.599,
+        "longitude": 103.963,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Preah Khan",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Large 12th-century temple complex containing elaborate corridors, carvings and partially overgrown structures.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.462,
+        "longitude": 103.871,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Neak Pean",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "A unique temple built on an artificial island surrounded by pools and associated with ancient Khmer healing traditions.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.463,
+        "longitude": 103.895,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-008",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Ta Keo",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Massive unfinished sandstone temple representing the monumental architectural ambitions of the Khmer Empire.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.445,
+        "longitude": 103.887,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-009",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Phnom Bakheng",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Hilltop temple offering elevated views toward Angkor Wat and the surrounding archaeological landscape.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.424,
+        "longitude": 103.856,
+        "altitude": 80,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-010",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "East Mebon",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Ancient temple located on an island that once stood at the center of a large Khmer reservoir.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.447,
+        "longitude": 103.92,
+        "altitude": 40,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-011",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "West Mebon",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Khmer-era temple remains situated within the former West Baray reservoir.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.434,
+        "longitude": 103.801,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-012",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Phnom Kulen National Park",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Sacred mountain landscape known for waterfalls, ancient carvings in the riverbed and religious significance.\n\n(UNESCO World Heritage · Best season: Jun–Nov)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.612,
+        "longitude": 104.108,
+        "altitude": 400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-013",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kulen Waterfall",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Scenic waterfall in Phnom Kulen National Park and a popular destination for swimming and nature excursions.\n\n(Best season: Jun–Nov)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.57,
+        "longitude": 104.1,
+        "altitude": 300,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-014",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kbal Spean",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Forest archaeological site featuring Hindu carvings carved directly into the sandstone riverbed.\n\n(UNESCO World Heritage · Best season: Jun–Nov)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.68,
+        "longitude": 104.015,
+        "altitude": 150,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-015",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Banteay Kdei",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Large Buddhist temple complex surrounded by jungle and characterized by galleries and carved stone structures.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.43,
+        "longitude": 103.899,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-016",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Srah Srang",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Ancient Khmer reservoir offering a peaceful setting and especially attractive sunrise and sunset views.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.431,
+        "longitude": 103.907,
+        "altitude": 40,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-017",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Angkor National Museum",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Museum displaying Khmer art, sculptures and historical artifacts that provide context for the Angkor civilization.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.369,
+        "longitude": 103.857,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-018",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Cambodian Cultural Village",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Cultural attraction showcasing Cambodian traditions, architecture, performances and regional lifestyles.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.34,
+        "longitude": 103.825,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-019",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Siem Reap Old Market",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Lively central market area popular for Cambodian handicrafts, souvenirs, clothing and local food.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 13.355,
+        "longitude": 103.855,
+        "altitude": 15,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-SIEM-REAP-020",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Pub Street",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Siem Reap",
+        "stateCode": "",
+        "city": "Siem Reap",
+        "description": "Vibrant pedestrian entertainment area in central Siem Reap known for restaurants, cafés and evening activity.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.354,
+        "longitude": 103.855,
+        "altitude": 15,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Royal Palace",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Grand royal complex in Cambodia's capital featuring ornate buildings, courtyards and traditional Khmer architecture.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.563,
+        "longitude": 104.931,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Silver Pagoda",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Royal temple within the palace compound known for its ornate interior and valuable religious artworks.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.562,
+        "longitude": 104.932,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Wat Phnom",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Historic hilltop Buddhist temple traditionally associated with the founding of Phnom Penh.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.576,
+        "longitude": 104.922,
+        "altitude": 25,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "National Museum of Cambodia",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Major museum housing an extensive collection of Khmer sculpture, art and archaeological artifacts.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.564,
+        "longitude": 104.928,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-005",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Tuol Sleng Genocide Museum",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Former prison transformed into a museum documenting Cambodia's tragic Khmer Rouge period.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.549,
+        "longitude": 104.918,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-006",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Choeung Ek Genocidal Center",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Memorial site and former killing field that commemorates victims of the Khmer Rouge era.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.484,
+        "longitude": 104.902,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-007",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Independence Monument",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Landmark monument commemorating Cambodia's independence from French colonial rule.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.556,
+        "longitude": 104.928,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-008",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Wat Ounalom",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Important Buddhist temple complex near the Royal Palace and a significant center of Cambodian Buddhism.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.566,
+        "longitude": 104.931,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-009",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Central Market",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Iconic Phnom Penh market housed in a distinctive Art Deco structure and known for jewelry, clothing and local products.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 11.57,
+        "longitude": 104.921,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PHNOM-PENH-010",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Phnom Tamao Wildlife Rescue Centre",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Phnom Penh",
+        "stateCode": "",
+        "city": "Phnom Penh",
+        "description": "Wildlife rescue facility providing sanctuary and rehabilitation for rescued Cambodian animals.\n\n(Best season: Nov–Jun)",
+        "spotTypes": [
+          "Wildlife spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.3,
+        "longitude": 104.8,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KAMPOT-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bokor National Park",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kampot",
+        "stateCode": "",
+        "city": "Kampot",
+        "description": "Mountainous protected area known for forests, waterfalls, wildlife and panoramic views toward the coast.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.627,
+        "longitude": 104.05,
+        "altitude": 1000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KAMPOT-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bokor Hill Station",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kampot",
+        "stateCode": "",
+        "city": "Kampot",
+        "description": "Former French colonial mountain resort featuring atmospheric abandoned structures and dramatic highland scenery.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.627,
+        "longitude": 104.027,
+        "altitude": 1080,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KAMPOT-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Popokvil Waterfall",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kampot",
+        "stateCode": "",
+        "city": "Kampot",
+        "description": "Scenic waterfall located within Bokor National Park and surrounded by lush mountain forest.\n\n(Best season: Jun–Nov)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.63,
+        "longitude": 104.05,
+        "altitude": 900,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KAMPOT-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kampot River",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kampot",
+        "stateCode": "",
+        "city": "Kampot",
+        "description": "Picturesque river flowing through Kampot and providing opportunities for boat trips and riverside recreation.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.61,
+        "longitude": 104.18,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KEP-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kep National Park",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kep",
+        "stateCode": "",
+        "city": "Kep",
+        "description": "Compact coastal national park featuring forest trails, hills and views over the Gulf of Thailand.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.48,
+        "longitude": 104.32,
+        "altitude": 100,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KEP-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kep Beach",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kep",
+        "stateCode": "",
+        "city": "Kep",
+        "description": "Popular coastal beach destination known for its relaxed atmosphere and seafood restaurants.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 10.483,
+        "longitude": 104.317,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KEP-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Rabbit Island",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Kep",
+        "stateCode": "",
+        "city": "Kep",
+        "description": "Tropical island off Kep offering quiet beaches, simple accommodation and a laid-back atmosphere.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Flight Required",
+        "latitude": 10.437,
+        "longitude": 104.347,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-BATTAMBANG-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Phnom Sampeau",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Battambang",
+        "stateCode": "",
+        "city": "Battambang",
+        "description": "Limestone hill containing temples, caves and historical memorial sites overlooking the surrounding countryside.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.033,
+        "longitude": 103.1,
+        "altitude": 100,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-BATTAMBANG-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Battambang Bamboo Train",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Battambang",
+        "stateCode": "",
+        "city": "Battambang",
+        "description": "Popular tourism experience based on Cambodia's historic lightweight railway carts.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.1,
+        "longitude": 103.2,
+        "altitude": 40,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-BATTAMBANG-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Wat Banan",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Battambang",
+        "stateCode": "",
+        "city": "Battambang",
+        "description": "Hilltop Khmer temple reached by a long staircase and offering expansive views of the countryside.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 12.967,
+        "longitude": 103.15,
+        "altitude": 100,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-BATTAMBANG-004",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Phnom Banan",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Battambang",
+        "stateCode": "",
+        "city": "Battambang",
+        "description": "Scenic hill associated with the Angkorian-era Wat Banan temple complex.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 12.967,
+        "longitude": 103.15,
+        "altitude": 100,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-PREAH-VIHEAR-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Preah Vihear Temple",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Preah Vihear",
+        "stateCode": "",
+        "city": "Preah Vihear",
+        "description": "Spectacular Khmer temple complex dramatically positioned on a mountain ridge overlooking the Cambodian landscape.\n\n(UNESCO World Heritage · Best season: Nov–Feb)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 14.393,
+        "longitude": 104.68,
+        "altitude": 525,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KOH-KONG-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Botum Sakor National Park",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Koh Kong",
+        "stateCode": "",
+        "city": "Koh Kong",
+        "description": "One of Cambodia's largest protected areas, containing rainforest, wetlands, mangroves and diverse wildlife.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.1,
+        "longitude": 103.3,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-KOH-KONG-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Tatai Waterfalls",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Koh Kong",
+        "stateCode": "",
+        "city": "Koh Kong",
+        "description": "Forest waterfall destination surrounded by the tropical landscapes of southwestern Cambodia.\n\n(Best season: Jun–Nov)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 11.567,
+        "longitude": 103.117,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-RATANAKIRI-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Yeak Laom Lake",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Ratanakiri",
+        "stateCode": "",
+        "city": "Banlung",
+        "description": "Beautiful volcanic crater lake surrounded by forest and indigenous communities near Banlung.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.73,
+        "longitude": 107.017,
+        "altitude": 300,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-RATANAKIRI-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Virachey National Park",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Ratanakiri",
+        "stateCode": "",
+        "city": "Banlung",
+        "description": "Remote protected wilderness containing dense forests, mountains and diverse wildlife.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 14.2,
+        "longitude": 107,
+        "altitude": 400,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-MONDULKIRI-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bou Sra Waterfall",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Mondulkiri",
+        "stateCode": "",
+        "city": "Sen Monorom",
+        "description": "One of Cambodia's best-known waterfalls, surrounded by the forested highlands of Mondulkiri.\n\n(Best season: Jun–Nov)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 12.567,
+        "longitude": 107.417,
+        "altitude": 700,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "KH-MONDULKIRI-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mondulkiri Project",
+        "country": "Cambodia",
+        "countryCode": "KH",
+        "stateProvince": "Mondulkiri",
+        "stateCode": "",
+        "city": "Sen Monorom",
+        "description": "Ethical wildlife tourism project focused on elephant conservation and protection in Cambodia's eastern highlands.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Wildlife spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 12.45,
+        "longitude": 107.2,
+        "altitude": 700,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    }
+  ]
+}

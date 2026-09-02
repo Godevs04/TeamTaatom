@@ -1,0 +1,1172 @@
+{
+  "bamyan valley, bamyan, afghanistan": {
+    "lat": 34.83,
+    "lng": 67.812,
+    "alt": null,
+    "display": "Remains Bamyan Valley, Bamyan Road from Sar Kotal Shibar to Bazar Wales Wali Yakawlang, Shahidan, ولسوالی بامیان, ولایت بامیان, افغانستان"
+  },
+  "band-e-amir national park, bamyan, afghanistan": {
+    "lat": 34.89,
+    "lng": 67.284,
+    "alt": null,
+    "display": "پارک ملی بند امیر, ولسوالی یکاولنگ, ولایت بامیان, افغانستان"
+  },
+  "gardens of babur, kabul, afghanistan": {
+    "lat": 34.503,
+    "lng": 69.158,
+    "alt": null,
+    "display": "Bagh-e Babur, ناحیه هفتم, کابل, کابل ښاروالۍ, ولایت كابل, افغانستان"
+  },
+  "darul aman palace, kabul, afghanistan": {
+    "lat": 34.465,
+    "lng": 69.12,
+    "alt": null,
+    "display": "کاخ دارالامان, Chahar Qala-e-Chahardihi Road, ناحیه ششم, کابل, کابل ښاروالۍ, ولایت كابل, 1006, افغانستان"
+  },
+  "herat citadel, herat, afghanistan": {
+    "lat": 34.346,
+    "lng": 62.188,
+    "alt": null,
+    "display": "ارگ هرات, Bazarcheh Street, ناحیه هفتم, هرات, ولایت هرات, 3001, افغانستان"
+  },
+  "friday mosque (jami mosque), herat, afghanistan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "wakhan corridor, wakhan, afghanistan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "noshaq peak, fayzabad, afghanistan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "salang pass, charikar, afghanistan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "ancient city of balkh, balkh, afghanistan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "berat old town (mangalem & gorica), berat, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "berat castle (kalaja e beratit), berat, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "gjirokastër old town, gjirokastër, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "gjirokastër castle, gjirokastër, albania": {
+    "lat": 40.073,
+    "lng": 20.14,
+    "alt": null,
+    "display": "Kalaja e Gjirokastrës, Rruga Gjin Bue Shpata, Gjirokastër, Bashkia Gjirokastër, Qarku i Gjirokastrës, 6001, Shqipëria"
+  },
+  "ksamil islands, sarandë, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "blue eye (syri i kaltër), sarandë, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "albanian riviera, vlorë, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "lake shkodër, shkodër, albania": {
+    "lat": 42.188,
+    "lng": 19.373,
+    "alt": null,
+    "display": "Rezerva Natyrore e Menaxhuar Liqeni i Shkodres, Qarku i Shkodrës, 4007, Shqipëria"
+  },
+  "rozafa castle, shkodër, albania": {
+    "lat": 42.047,
+    "lng": 19.494,
+    "alt": null,
+    "display": "Kalaja e Rozafës, 10 Korriku, Lagjja 4, Shkodër, Bashkia Shkodër, Qarku i Shkodrës, Shqipëria"
+  },
+  "valbona valley national park, kukës, albania": {
+    "lat": 42.449,
+    "lng": 19.92,
+    "alt": null,
+    "display": "Parku Kombëtar Lugina e Valbonës, Qarku i Kukësit, Shqipëria"
+  },
+  "theth national park, theth, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "dardha village, korçë, albania": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "lake ohrid, pogradec, albania": {
+    "lat": 40.967,
+    "lng": 20.643,
+    "alt": null,
+    "display": "Peshku Ohrid Lake, SH3, Udenisht, Bashkia Pogradec, Qarku i Korçës, 7305, Shqipëria"
+  },
+  "durrës amphitheatre, durrës, albania": {
+    "lat": 41.312,
+    "lng": 19.445,
+    "alt": null,
+    "display": "Amfiteatri i Durrësit, Sheshi Iliria, Durrës, Bashkia Durrës, Qarku i Durrësit, 2001, Shqipëria"
+  },
+  "dajti mountain national park, tirana, albania": {
+    "lat": 41.384,
+    "lng": 19.947,
+    "alt": null,
+    "display": "Parku Kombëtar Mali i Dajtit, Qarku i Tiranës, Shqipëria"
+  },
+  "skanderbeg square, tirana, albania": {
+    "lat": 41.328,
+    "lng": 19.818,
+    "alt": null,
+    "display": "Sheshi Skënderbej, Tregu Çam, Njësia Bashkiake Nr. 10, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1002, Shqipëria"
+  },
+  "casbah of algiers, algiers, algeria": {
+    "lat": 36.784,
+    "lng": 3.058,
+    "alt": null,
+    "display": "القصبة Casbah ⵝⴰⵇⵚⴻⴲⵝ, القصبة, Daïra Bab El Oued, الجزائر ⴷⵣⴰⵢⴻⵔ, 16000, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "notre dame d'afrique, algiers, algeria": {
+    "lat": 36.801,
+    "lng": 3.043,
+    "alt": null,
+    "display": "Notre Dame d'Afrique, Route de Zghara, Village Marie قرية ماريا, Bologhine ⴱⵓⵍⵓⵖⵉⵏ بولوغين, Beau Fraisier, Daïra Bab El Oued, الجزائر ⴷⵣⴰⵢⴻⵔ, 16000, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "jardin d'essai du hamma, algiers, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "tlemcen national park, tlemcen, algeria": {
+    "lat": 34.828,
+    "lng": -1.401,
+    "alt": null,
+    "display": "Parc national de Tlemcen, Tlemcen, دائرة منصورة ⴰⴷⴷⴰⵢⵔⵜ ⵏ ⵎⵏⵚⵓⵔⴰ, تلمسان ⵜⵍⵎⵙⴰⵏ, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "mansourah ruins, tlemcen, algeria": {
+    "lat": 34.873,
+    "lng": -1.339,
+    "alt": null,
+    "display": "Ruines de Mansourah, RN 7, بوهناق ⴱⵓⵀⵏⵏⴰⴽ, بني بوبلان ⴰⵢⵜ ⴱⵓⵍⴱⴰⵏ, Mansourah ⵎⴻⵏⵙⵓⵔⴰ المنصورة, دائرة منصورة ⴰⴷⴷⴰⵢⵔⵜ ⵏ ⵎⵏⵚⵓⵔⴰ, تلمسان ⵜⵍⵎⵙⴰⵏ, 13108, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "timgad roman ruins, batna, algeria": {
+    "lat": 35.484,
+    "lng": 6.467,
+    "alt": null,
+    "display": "Ruines Romaines de Timgad, Timgad ⵜⴰⵎⵓⴳⴰⴷⵉ تيمقاد, دائرة تيمقاد ⴰⴷⴷⴰⵢⵔⵜ ⵏ ⵜⵉⵎⴳⴰⴷ, باتنة ⵜⴱⴰⵜⴻⵏⵜ, 05000, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "djémila roman ruins, batna, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "constantine city & bridges, constantine, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "palace of ahmed bey, constantine, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "jijel coast, jijel, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "gouraya national park, béjaïa, algeria": {
+    "lat": 36.784,
+    "lng": 5.016,
+    "alt": null,
+    "display": "Parc national de Gouraya, Béjaïa, Daïra Béjaïa, بجاية Béjaïa ⴲⴳⴰⵢⴻⵝ, 06000, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "cap carbon, béjaïa, algeria": {
+    "lat": 36.776,
+    "lng": 5.103,
+    "alt": null,
+    "display": "Cap Carbon, Amimoune, Béjaïa, Daïra Béjaïa, بجاية Béjaïa ⴲⴳⴰⵢⴻⵝ, 06000, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "ahaggar national park, tamanrasset, algeria": {
+    "lat": 23.147,
+    "lng": 5.729,
+    "alt": null,
+    "display": "Office National du Parc Culturel de L’Ahaggar, Tamanrasset ⵜⴰⵎⴻⵏⵖⴻⵙⵜ تمنراست, دائرة تامنغست ⴰⴷⴷⴰⵢⵔⵜ ⵏ ⵜⴰⵎⴰⵏⵖⴰⵙⵜ, تامنغست ⵜⴰⵎⴰⵏⵖⴰⵙⵜ, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "tassili n'ajjer national park, djanet, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "m'zab valley, ghardaïa, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "timimoun oasis, timimoun, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "fort santa cruz, oran, algeria": {
+    "lat": 35.709,
+    "lng": -0.665,
+    "alt": null,
+    "display": "Fort Santa Cruz, طريق المرسى الكبير, Oran, Daïra Oran, وهران Oran ⵡⴻⵀⵔⴰⵏ, 31000, ⵍⵣⵣⴰⵢⴻⵔ الجزائر"
+  },
+  "el oued sand dunes, el oued, algeria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "grandvalira ski resort, canillo, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "sanctuary of meritxell, canillo, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "lake engolasters, encamp, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "madriu-perafita-claror valley, encamp, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "vallnord – pal arinsal, la massana, andorra": {
+    "lat": 42.572,
+    "lng": 1.484,
+    "alt": null,
+    "display": "Arinsal, La Massana, AD400, Andorra"
+  },
+  "comapedrosa valley, la massana, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "ordino village, ordino, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "sorteny valley natural park, ordino, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "caldea spa, escaldes, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "casa de la vall, andorra la vella, andorra": {
+    "lat": 42.507,
+    "lng": 1.521,
+    "alt": null,
+    "display": "Casa de la Vall, Carrer Anna Maria Janer, Centre històric, La Comella, Andorra la Vella, AD500, Andorra"
+  },
+  "church of sant esteve, andorra la vella, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "naturland, sant julià de lòria, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "tobotronc alpine coaster, sant julià de lòria, andorra": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "fortaleza de são miguel, luanda, angola": {
+    "lat": -8.808,
+    "lng": 13.223,
+    "alt": null,
+    "display": "Fortaleza de São Miguel, Kinanga, Luanda, Município de Luanda, Luanda, Angola"
+  },
+  "ilha do cabo, luanda, angola": {
+    "lat": -8.792,
+    "lng": 13.228,
+    "alt": null,
+    "display": "Ilha do Cabo, Lelo, Luanda, Município de Luanda, Luanda, Angola"
+  },
+  "miradouro da lua (moon viewpoint), luanda, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "kissama national park (quiçama), barra do dande, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "muxima sanctuary, muxima, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "iona national park, namibe, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "welwitschia mirabilis fields, tômbwa, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "serra da leba pass, namibe, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "tundavala gap, lubango, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "christ the king statue, lubango, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "serra da chela mountains, lubango, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "bie plateau, huambo, angola": {
+    "lat": -12.45,
+    "lng": 15.25,
+    "alt": null,
+    "display": "Bié Plateau, Huambo, Angola"
+  },
+  "luiana partial reserve, menongue, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "okavango river region, dirico, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "historic centre of m'banza kongo, m'banza-kongo, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "maiombe forest, cabinda, angola": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "st. john's city, st. john's, antigua and barbuda": {
+    "lat": 51.519,
+    "lng": -0.165,
+    "alt": null,
+    "display": "High Commission for Antigua and Barbuda, 45, Crawford Place, Paddington, City of Westminster, Greater London, England, W1H 5NW, United Kingdom"
+  },
+  "nelson's dockyard, english harbour, antigua and barbuda": {
+    "lat": 17.008,
+    "lng": -61.765,
+    "alt": null,
+    "display": "Nelson's Dockyard National Park, English Harbour, Saint Paul, Antigua, Antigua and Barbuda"
+  },
+  "shirley heights lookout, english harbour, antigua and barbuda": {
+    "lat": 17.002,
+    "lng": -61.755,
+    "alt": null,
+    "display": "Shirley Heights, Lookout Trail, Shirley Heights, English Harbour, Saint Paul, Antigua, Antigua and Barbuda"
+  },
+  "half moon bay, st. philip, antigua and barbuda": {
+    "lat": 17.04,
+    "lng": -61.689,
+    "alt": null,
+    "display": "Half Moon Bay, Half Moon Bay Road, Freetown, Saint Philip, Antigua, Antigua and Barbuda"
+  },
+  "darkwood beach, saint mary, antigua and barbuda": {
+    "lat": 17.041,
+    "lng": -61.894,
+    "alt": null,
+    "display": "Darkwood Beach, Crab Hill, Saint Mary, Antigua, Antigua and Barbuda"
+  },
+  "falmouth harbour, saint paul, antigua and barbuda": {
+    "lat": 17.011,
+    "lng": -61.772,
+    "alt": null,
+    "display": "Falmouth Harbour Condominium, English Harbour, Saint Paul, Antigua, Antigua and Barbuda"
+  },
+  "fig tree drive, saint paul, antigua and barbuda": {
+    "lat": 17.05,
+    "lng": -61.805,
+    "alt": null,
+    "display": "Fig Tree Drive, Swetes, Saint Paul, Antigua, Antigua and Barbuda"
+  },
+  "fort james, st. john’s, antigua and barbuda": {
+    "lat": 17.131,
+    "lng": -61.864,
+    "alt": null,
+    "display": "Fort James, Fort Road, St. John's, Saint John, Antigua, Antigua and Barbuda"
+  },
+  "devil's bridge, st. philip, antigua and barbuda": {
+    "lat": 17.101,
+    "lng": -61.678,
+    "alt": null,
+    "display": "Devil's Bridge, Saint Philip, Antigua, Antigua and Barbuda"
+  },
+  "barbuda pink sand beach, codrington, antigua and barbuda": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "frigate bird sanctuary, codrington, antigua and barbuda": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "codrington lagoon national park, codrington, antigua and barbuda": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "fort barrington, saint john, antigua and barbuda": {
+    "lat": 17.13,
+    "lng": -61.886,
+    "alt": null,
+    "display": "Fort Barrington, Galley Bay Heights, Five Islands, Saint John, Antigua, Antigua and Barbuda"
+  },
+  "valley church beach, saint mary, antigua and barbuda": {
+    "lat": 17.057,
+    "lng": -61.891,
+    "alt": null,
+    "display": "Valley Church Beach, Ffryes, Saint Mary, Antigua, Antigua and Barbuda"
+  },
+  "buenos aires city, buenos aires, argentina": {
+    "lat": -34.605,
+    "lng": -58.373,
+    "alt": null,
+    "display": "Banco Central la República Argentina, 266, Reconquista, Microcentro, San Nicolás, Buenos Aires, Comuna 1, Ciudad Autónoma de Buenos Aires, C1038AAI, Argentina"
+  },
+  "recoleta cemetery, buenos aires, argentina": {
+    "lat": -34.588,
+    "lng": -58.394,
+    "alt": null,
+    "display": "Cementerio de la Recoleta, Avenida Pueyrredón, La Isla, Recoleta, Buenos Aires, Comuna 2, Ciudad Autónoma de Buenos Aires, C1128ACJ, Argentina"
+  },
+  "casa rosada, buenos aires, argentina": {
+    "lat": -34.608,
+    "lng": -58.37,
+    "alt": null,
+    "display": "Casa Rosada, 50, Balcarce, Monserrat, Buenos Aires, Comuna 1, Ciudad Autónoma de Buenos Aires, C1064AAB, Argentina"
+  },
+  "tigre delta, tigre, argentina": {
+    "lat": -34.426,
+    "lng": -58.577,
+    "alt": null,
+    "display": "Escuela Especial Nº506 Delta de Tigre, 1266, Avenida Daniel M. Cazón, Tigre, Partido de Tigre, Buenos Aires, B1648, Argentina"
+  },
+  "iguazú falls, puerto iguazú, argentina": {
+    "lat": -25.693,
+    "lng": -54.441,
+    "alt": null,
+    "display": "Cataratas del Iguazú, Circuito Garganta del Diablo, Municipio de Puerto Iguazú, Departamento Iguazú, Misiones, Argentina"
+  },
+  "iguazú national park, puerto iguazú, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "perito moreno glacier, el calafate, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "mount fitz roy, el chaltén, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "los glaciares national park, el chaltén, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "tierra del fuego national park, ushuaia, argentina": {
+    "lat": -54.835,
+    "lng": -68.562,
+    "alt": null,
+    "display": "Tierra del Fuego National Park, Departamento Ushuaia, Argentina"
+  },
+  "beagle channel, ushuaia, argentina": {
+    "lat": -54.791,
+    "lng": -68.376,
+    "alt": null,
+    "display": "Mirrador Ushuaia y beagle channel, Sendero del Filo, Ushuaia, Departamento Ushuaia, 1257, Argentina"
+  },
+  "aconcagua provincial park, mendoza, argentina": {
+    "lat": -32.676,
+    "lng": -69.945,
+    "alt": null,
+    "display": "Parque Provincial Aconcagua, Departamento Las Heras, Mendoza, Argentina"
+  },
+  "wine route of mendoza, mendoza, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "quebrada de humahuaca, salta, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "hill of seven colours, purmamarca, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "salinas grandes, jujuy, argentina": {
+    "lat": -23.596,
+    "lng": -65.882,
+    "alt": null,
+    "display": "Salinas Grandes, Municipio de El Moreno, Departamento Tumbaya, Jujuy, Argentina"
+  },
+  "nahuel huapi national park, villa la angostura, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "san carlos de bariloche, bariloche, argentina": {
+    "lat": -41.13,
+    "lng": -71.274,
+    "alt": null,
+    "display": "San Carlos de Bariloche, Avenida 12 de Octubre, Ñireco Norte, San Carlos de Bariloche, Municipio de San Carlos de Bariloche, Departamento Bariloche, Río Negro, 8400, Argentina"
+  },
+  "seven lakes route, bariloche, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "peninsula valdés, puerto madryn, argentina": {
+    "lat": -42.777,
+    "lng": -65.059,
+    "alt": null,
+    "display": "Península Valdés, Gobernador Fontana, Municipio de Puerto Madryn, Departamento Biedma, Chubut, U9120, Argentina"
+  },
+  "punta tombo penguin reserve, trelew, argentina": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "sierras de córdoba, córdoba, argentina": {
+    "lat": -31.986,
+    "lng": -64.936,
+    "alt": null,
+    "display": "Sierras de Córdoba, Pedanía Los Reartes, Departamento Calamuchita, Córdoba, X5191, Argentina"
+  },
+  "yerevan city, yerevan, armenia": {
+    "lat": 40.222,
+    "lng": 44.572,
+    "alt": null,
+    "display": "Yerevan City, 5, Ավան-Առինջ 1-ին միկրոշրջան, Ավան, Երևան, 0022, Հայաստան"
+  },
+  "republic square, yerevan, armenia": {
+    "lat": 40.178,
+    "lng": 44.516,
+    "alt": null,
+    "display": "Platz der Republik, Մելիք-Ադամյանի փողոց, Կենտրոն, Երևան, 0010, Հայաստան"
+  },
+  "cascade complex, yerevan, armenia": {
+    "lat": 40.191,
+    "lng": 44.516,
+    "alt": null,
+    "display": "Գաֆեսջյանի արվեստի կենտրոն, 10, Թամանյանի փողոց, Կենտրոն, Երևան, 0009, Հայաստան"
+  },
+  "garni temple, garni, armenia": {
+    "lat": 40.112,
+    "lng": 44.73,
+    "alt": null,
+    "display": "Գառնիի հեթանոսական տաճար, Մարզպետունի փողոց, Գառնի, Garni village, Գառնի համայնք, Կոտայքի մարզ, 2215, Հայաստան"
+  },
+  "garni gorge (symphony of stones), garni, armenia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "geghard monastery, geghard, armenia": {
+    "lat": 40.14,
+    "lng": 44.818,
+    "alt": null,
+    "display": "Գեղարդի վանք, Գեղարդի խճուղի, Գողթ, Գառնի համայնք, Կոտայքի մարզ, 2218, Հայաստան"
+  },
+  "mount aragats, mount aragats, armenia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "byurakan observatory, byurakan, armenia": {
+    "lat": 40.332,
+    "lng": 44.265,
+    "alt": null,
+    "display": "Բյուրականի աստղադիտարան, 1-ին փողոց, Բյուրական, Աշտարակ համայնք, Արագածոտնի մարզ, 0213, Հայաստան"
+  },
+  "areni wine region, areni, armenia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "noravank monastery, yeghegnadzor, armenia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "jermuk waterfall, jermuk, armenia": {
+    "lat": 39.837,
+    "lng": 45.668,
+    "alt": null,
+    "display": "Ջերմուկի ջրվեժ, Ջերմուկ, Ջերմուկ համայնք, Վայոց ձորի մարզ, 3701, Հայաստան"
+  },
+  "lake sevan, sevan, armenia": {
+    "lat": 40.151,
+    "lng": 45.299,
+    "alt": null,
+    "display": "Սևանա լիճ, Սևան-Մարտունի մայրուղի, Մարտունի, Մարտունի համայնք, Գեղարքունիքի մարզ, 1402, Հայաստան"
+  },
+  "sevanavank monastery, sevan, armenia": {
+    "lat": 40.564,
+    "lng": 45.01,
+    "alt": null,
+    "display": "Sevanavank Monastery, Ձկնորսների փողոց, Սևան, Սևան համայնք, Գեղարքունիքի մարզ, 1505, Հայաստան"
+  },
+  "haghpat monastery, alaverdi, armenia": {
+    "lat": 41.094,
+    "lng": 44.712,
+    "alt": null,
+    "display": "Հաղպատ վանք, Հ-25, Հաղպատ, Ալավերդի համայնք, Լոռու մարզ, 1708, Հայաստան"
+  },
+  "sanahin monastery, alaverdi, armenia": {
+    "lat": 41.087,
+    "lng": 44.666,
+    "alt": null,
+    "display": "Սանահին վանք, Տ-5-46, Սանահին գյուղ, Սանահին, Ալավերդի համայնք, Լոռու մարզ, 1705, Հայաստան"
+  },
+  "dilijan national park, dilijan, armenia": {
+    "lat": 40.737,
+    "lng": 45.099,
+    "alt": null,
+    "display": "Դիլիջան ազգային պարկ, Դիլիջան համայնք, Տավուշի մարզ, Հայաստան"
+  },
+  "haghartsin monastery, dilijan, armenia": {
+    "lat": 40.802,
+    "lng": 44.891,
+    "alt": null,
+    "display": "Հաղարծին վանական համալիր, Հ-51, Դիլիջան համայնք, Տավուշի մարզ, 3902, Հայաստան"
+  },
+  "gyumri historic centre, gyumri, armenia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "mesrop mashtots monument, oshakan, armenia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "tatev monastery, tatev, armenia": {
+    "lat": 39.379,
+    "lng": 46.25,
+    "alt": null,
+    "display": "Տաթևի վանք, Շինուհայր-Տաթև մայրուղի, Տաթև, Տաթև համայնք, Սյունիքի մարզ, 3218, Հայաստան"
+  },
+  "khndzoresk caves, goris, armenia": {
+    "lat": 39.494,
+    "lng": 46.43,
+    "alt": null,
+    "display": "Entrance to Khndzoresk caves, Խնձորեսկի ճոճվող կամուրջ, Խնձորեսկ, Գորիս համայնք, Սյունիքի մարզ, Հայաստան"
+  },
+  "sydney opera house, sydney, australia": {
+    "lat": -33.857,
+    "lng": 151.215,
+    "alt": null,
+    "display": "Sydney Opera House, 2, Macquarie Street, Quay Quarter, Sydney, New South Wales, 2000, Australia"
+  },
+  "sydney harbour bridge, sydney, australia": {
+    "lat": -33.852,
+    "lng": 151.211,
+    "alt": null,
+    "display": "Sydney Harbour Bridge, Glen Street, Milsons Point, Lower North Shore, Sydney, New South Wales, 2061, Australia"
+  },
+  "bondi beach, sydney, australia": {
+    "lat": -33.891,
+    "lng": 151.272,
+    "alt": null,
+    "display": "Bondi Beach, Eastern Suburbs, Sydney, New South Wales, 2026, Australia"
+  },
+  "blue mountains national park, sydney, australia": {
+    "lat": -33.727,
+    "lng": 150.303,
+    "alt": null,
+    "display": "Blue Mountains National Park, Prince Henry Cliff Walk, Sydney, New South Wales, 2780, Australia"
+  },
+  "port stephens, port stephens, australia": {
+    "lat": -32.762,
+    "lng": 151.742,
+    "alt": null,
+    "display": "Raymond Terrace Community Centre, Port Stephens St, Port Stephens Street, Raymond Terrace, Newcastle-Maitland, New South Wales, 2324, Australia"
+  },
+  "melbourne city, melbourne, australia": {
+    "lat": -37.818,
+    "lng": 144.97,
+    "alt": null,
+    "display": "Ian Potter Centre: NGV Australia, Russell Street, Melbourne, Victoria, 3000, Australia"
+  },
+  "twelve apostles, great ocean road, australia": {
+    "lat": -38.66,
+    "lng": 143.093,
+    "alt": null,
+    "display": "The Twelve Apostles, Great Ocean Road, Princetown, Victoria, 3269, Australia"
+  },
+  "grampians national park, grampians region, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "great barrier reef, cairns, australia": {
+    "lat": -16.919,
+    "lng": 145.777,
+    "alt": null,
+    "display": "Citizens Gateway to the Great Barrier Reef, Esplanade, Cairns City, Cairns, Queensland, 4870, Australia"
+  },
+  "daintree rainforest, cairns, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "whitehaven beach, whitsunday islands, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "surfers paradise, gold coast, australia": {
+    "lat": -27.999,
+    "lng": 153.424,
+    "alt": null,
+    "display": "Surfers Paradise, Gold Coast, Queensland, Australia"
+  },
+  "k’gari national park, fraser island (k’gari), australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "uluru (ayers rock), uluru-kata tjuta national park, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "kata tjuta (the olgas), uluru, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "kakadu national park, darwin, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "rottnest island, perth, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "lucky bay, esperance, australia": {
+    "lat": -33.821,
+    "lng": 121.94,
+    "alt": null,
+    "display": "Lucky Bay Brewing, 63, Bandy Creek Road, Bandy Creek, Esperance, Western Australia, 6450, Australia"
+  },
+  "bungle bungle range, kimberley, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "port arthur historic site, hobart, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "cradle mountain-lake st clair national park, cradle mountain, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "kangaroo island, adelaide, australia": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "wilpena pound, flinders ranges, australia": {
+    "lat": -31.526,
+    "lng": 138.606,
+    "alt": null,
+    "display": "Wilpena Pound, Flinders Ranges, South Australia, 5434, Australia"
+  },
+  "australian war memorial, canberra, australia": {
+    "lat": -35.281,
+    "lng": 149.149,
+    "alt": null,
+    "display": "Australian War Memorial, Treloar Crescent, Campbell, Canberra, District of Canberra Central, Australian Capital Territory, 2612, Australia"
+  },
+  "parliament house, canberra, australia": {
+    "lat": -35.308,
+    "lng": 149.125,
+    "alt": null,
+    "display": "Parliament House, Parliament Drive, Parliamentary Triangle, Capital Hill, Canberra, District of Canberra Central, Australian Capital Territory, 2600, Australia"
+  },
+  "schönbrunn palace, vienna, austria": {
+    "lat": 48.185,
+    "lng": 16.312,
+    "alt": null,
+    "display": "Schloss Schönbrunn, 47, Schönbrunner Schloßstraße, Katastralgemeinde Schönbrunn, Hietzing, Wien, 1130, Österreich"
+  },
+  "historic centre of vienna, vienna, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "st. stephen’s cathedral, vienna, austria": {
+    "lat": 48.208,
+    "lng": 16.373,
+    "alt": null,
+    "display": "Stephansdom, 3, Stephansplatz, Stubenviertel, Katastralgemeinde Innere Stadt, Innere Stadt, Wien, 1010, Österreich"
+  },
+  "belvedere palace, vienna, austria": {
+    "lat": 48.191,
+    "lng": 16.38,
+    "alt": null,
+    "display": "Schloss Belvedere, Prinz-Eugen-Straße, Wieden, Katastralgemeinde Landstraße, Landstraße, Wien, 1040, Österreich"
+  },
+  "prater park & giant ferris wheel, vienna, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "historic centre of salzburg, salzburg, austria": {
+    "lat": 47.8,
+    "lng": 13.044,
+    "alt": null,
+    "display": "Historisches Zentrum der Stadt Salzburg, Ignaz-Rieder-Kai, Parsch, Salzburg, 5020, Österreich"
+  },
+  "hohensalzburg fortress, salzburg, austria": {
+    "lat": 47.795,
+    "lng": 13.048,
+    "alt": null,
+    "display": "Festung Hohensalzburg, 34, Mönchsberg, Altstadt, Salzburg, 5020, Österreich"
+  },
+  "mirabell palace and gardens, salzburg, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "innsbruck old town, innsbruck, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "nordkette mountain range, innsbruck, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "hallstatt village, hallstatt, austria": {
+    "lat": 47.562,
+    "lng": 13.649,
+    "alt": null,
+    "display": "Hallstatt, Bezirk Gmunden, Oberösterreich, 4830, Österreich"
+  },
+  "lake wolfgang (wolfgangsee), salzkammergut, austria": {
+    "lat": 47.746,
+    "lng": 13.403,
+    "alt": null,
+    "display": "Wolfgangsee, Sankt Gilgen, Bezirk Salzburg-Umgebung, Salzburg, Österreich"
+  },
+  "dachstein ice cave, salzkammergut, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "graz historic centre, graz, austria": {
+    "lat": 47.07,
+    "lng": 15.431,
+    "alt": null,
+    "display": "UNESCO Welterbe - Graz Historisches Zentrum / Pufferzone (West), Gries, Graz, Steiermark, Österreich"
+  },
+  "schlossberg hill, graz, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "grossglockner high alpine road, heiligenblut, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "hohe tauern national park, hohe tauern, austria": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "baku old city (icherisheher), baku, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "maiden tower, baku, azerbaijan": {
+    "lat": 40.366,
+    "lng": 49.837,
+    "alt": null,
+    "display": "Qız Qalası, Asəf Zeynallı küçəsi, İçəri Şəhər, Səbail rayonu, 1095, Azərbaycan"
+  },
+  "palace of the shirvanshahs, baku, azerbaijan": {
+    "lat": 40.366,
+    "lng": 49.833,
+    "alt": null,
+    "display": "Şirvanşahlar Sarayı Bakı, 1-ci Qəsr döngəsi, İçəri Şəhər, Səbail rayonu, 0001, Azərbaycan"
+  },
+  "flame towers, baku, azerbaijan": {
+    "lat": 40.36,
+    "lng": 49.826,
+    "alt": null,
+    "display": "Flame Towers, Parlament prospekti, Bayıl, Səbail rayonu, 1066, Azərbaycan"
+  },
+  "heydar aliyev centre, baku, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "yanar dag (burning mountain), absheron peninsula, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "ateshgah fire temple, surakhani, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "gobustan rock art cultural landscape, gobustan, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "gobustan mud volcanoes, gobustan, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "mardakan castle, mardakan, azerbaijan": {
+    "lat": 40.492,
+    "lng": 50.141,
+    "alt": null,
+    "display": "Quadrangular castle Mardakan, Əzizbəyov küç., Xəzər rayonu, 1044, Azərbaycan"
+  },
+  "qechresh forest, quba, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "khinaliq village, khinaliq, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "shahdag national park, khinaliq, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "shahdag mountain resort, qusar, azerbaijan": {
+    "lat": 41.313,
+    "lng": 48.142,
+    "alt": null,
+    "display": "Şahdağ Xizək Kompleksi, Qusar rayonu, 3827, Azərbaycan"
+  },
+  "tufandag mountain resort, gabala, azerbaijan": {
+    "lat": 41.006,
+    "lng": 47.88,
+    "alt": null,
+    "display": "Tufan Dağ Xizək, Küsnət-Laza yolu, Küsnət, Qəbələ, Qəbələ rayonu, 3600, Azərbaycan"
+  },
+  "nohur lake, gabala, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "historic centre of sheki, sheki, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "palace of sheki khans, sheki, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "yeddi gumbaz mausoleum, shamakhi, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "hirkan national park, lankaran, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "caspian sea coast, lankaran, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "alinja castle, nakhchivan, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  },
+  "duzdag salt cave, nakhchivan, azerbaijan": {
+    "lat": null,
+    "lng": null,
+    "alt": null,
+    "error": "not found"
+  }
+}

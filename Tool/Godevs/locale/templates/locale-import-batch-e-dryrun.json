@@ -1,0 +1,1662 @@
+{
+  "mode": "DRY_RUN",
+  "csv": "/Users/kavinkumar/Kavin/Godevs/Kavin/TeamTaatom/Tool/Godevs/locale/templates/locale-import-batch-e.csv",
+  "totals": {
+    "ok": 54,
+    "fail": 0,
+    "warn": 54,
+    "imagesOk": 0,
+    "imagesFail": 0
+  },
+  "rows": [
+    {
+      "sourceId": "EC-GALAPAGOS-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Galápagos Islands",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Galápagos",
+        "stateCode": "",
+        "city": "Puerto Ayora",
+        "description": "Volcanic archipelago famous for unique wildlife species studied by Charles Darwin.\n\n(UNESCO World Heritage · Best season: Dec–May)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -0.954,
+        "longitude": -90.966,
+        "altitude": 0,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-PICHINCHA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Historic Centre of Quito",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Pichincha",
+        "stateCode": "",
+        "city": "Quito",
+        "description": "One of the largest, best-preserved historic centers in the Americas.\n\n(UNESCO World Heritage · Best season: Jun–Sep)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -0.22,
+        "longitude": -78.512,
+        "altitude": 2850,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-TUNGURAHUA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Baños de Agua Santa",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Tungurahua",
+        "stateCode": "",
+        "city": "Baños",
+        "description": "Gateway to the Amazon basin famous for waterfalls, thermal springs, and volcano views.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -1.396,
+        "longitude": -78.425,
+        "altitude": 1820,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-AZUAY-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Historic Centre of Santa Ana de los Ríos de Cuenca",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Azuay",
+        "stateCode": "",
+        "city": "Cuenca",
+        "description": "Charming colonial city known for cobblestone streets and cathedral architecture.\n\n(UNESCO World Heritage · Best season: Jun–Dec)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -2.9,
+        "longitude": -79.006,
+        "altitude": 2560,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-COTOPAXI-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Cotopaxi National Park",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Cotopaxi",
+        "stateCode": "",
+        "city": "Latacunga",
+        "description": "Active snow-capped stratovolcano and high-altitude grassland reserve.\n\n(Best season: Jul–Oct)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -0.681,
+        "longitude": -78.438,
+        "altitude": 3800,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-IMBABURA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Otavalo Market",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Imbabura",
+        "stateCode": "",
+        "city": "Otavalo",
+        "description": "World-famous Indigenous market showcasing handwoven textiles and crafts.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 0.233,
+        "longitude": -78.267,
+        "altitude": 2532,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-LOJA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Vilcabamba Valley of Longevity",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Loja",
+        "stateCode": "",
+        "city": "Vilcabamba",
+        "description": "Tranquil mountain valley celebrated for clean climate and peaceful hiking trails.\n\n(Best season: Year-round)",
+        "spotTypes": [
+          "Cultural spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -4.262,
+        "longitude": -79.222,
+        "altitude": 1500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-MANABI-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Machalilla National Park",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Manabí",
+        "stateCode": "",
+        "city": "Puerto López",
+        "description": "Coastal reserve famous for humpback whale migration and pristine beaches.\n\n(Best season: Jun–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -1.565,
+        "longitude": -80.813,
+        "altitude": 0,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-NAPO-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Amazon Rainforest Basin",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Napo",
+        "stateCode": "",
+        "city": "Tena",
+        "description": "Popular base for eco-lodges, jungle treks, and white-water rafting in the Amazon.\n\n(Best season: Dec–Mar)",
+        "spotTypes": [
+          "Wildlife spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -0.994,
+        "longitude": -77.813,
+        "altitude": 518,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EC-GUAYAS-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Las Peñas & Malecón 2000",
+        "country": "Ecuador",
+        "countryCode": "EC",
+        "stateProvince": "Guayas",
+        "stateCode": "",
+        "city": "Guayaquil",
+        "description": "Historic neighborhood on Santa Ana Hill with colorful houses and riverside promenade.\n\n(Best season: Jun–Dec)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -2.183,
+        "longitude": -79.883,
+        "altitude": 4,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-GIZA-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Great Pyramids of Giza & Sphinx",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Giza Governorate",
+        "stateCode": "",
+        "city": "Giza",
+        "description": "Iconic ancient complex holding the Great Pyramid of Khufu and Great Sphinx.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 29.979,
+        "longitude": 31.134,
+        "altitude": 73,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-LUXOR-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Karnak Temple Complex",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Luxor Governorate",
+        "stateCode": "",
+        "city": "Luxor",
+        "description": "Massive open-air temple complex dedicated to the Theban Triad.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 25.719,
+        "longitude": 32.657,
+        "altitude": 76,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-LUXOR-GOVERNORATE-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Valley of the Kings",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Luxor Governorate",
+        "stateCode": "",
+        "city": "Luxor",
+        "description": "Ancient burial ground containing rock-cut tombs of New Kingdom Pharaohs.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 25.74,
+        "longitude": 32.601,
+        "altitude": 140,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-LUXOR-GOVERNORATE-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Luxor Temple",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Luxor Governorate",
+        "stateCode": "",
+        "city": "Luxor",
+        "description": "Large ancient Egyptian temple complex located on the east bank of the Nile.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 25.7,
+        "longitude": 32.639,
+        "altitude": 76,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-ASWAN-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Abu Simbel Temples",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Aswan Governorate",
+        "stateCode": "",
+        "city": "Abu Simbel",
+        "description": "Colossal twin rock-cut temples carved out of the mountain side under Ramesses II.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 22.337,
+        "longitude": 31.626,
+        "altitude": 182,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-ASWAN-GOVERNORATE-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Philae Temple Complex",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Aswan Governorate",
+        "stateCode": "",
+        "city": "Aswan",
+        "description": "Island temple complex dedicated to the goddess Isis, relocated from floodwaters.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Beach spots",
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 24.026,
+        "longitude": 32.884,
+        "altitude": 95,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-RED-SEA-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Giftun Islands & Red Sea Reefs",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Red Sea Governorate",
+        "stateCode": "",
+        "city": "Hurghada",
+        "description": "Renowned Red Sea marine reserve famous for coral reefs and scuba diving.\n\n(Best season: Oct–May)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 27.23,
+        "longitude": 33.81,
+        "altitude": 2,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-SOUTH-SINAI-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Ras Muhammad National Park",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "South Sinai Governorate",
+        "stateCode": "",
+        "city": "Sharm El-Sheikh",
+        "description": "Protected peninsula at the southern tip of Sinai known for rich marine biodiversity.\n\n(Best season: Oct–Apr)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 27.73,
+        "longitude": 34.25,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-SOUTH-SINAI-GOVERNORATE-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mount Sinai & St. Catherine's Monastery",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "South Sinai Governorate",
+        "stateCode": "",
+        "city": "Saint Catherine",
+        "description": "Sacred mountain peak and one of the world's oldest working Christian monasteries.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 28.539,
+        "longitude": 33.975,
+        "altitude": 1586,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-CAIRO-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Khan el-Khalili Bazaar",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Cairo Governorate",
+        "stateCode": "",
+        "city": "Cairo",
+        "description": "Famous historic souk in Islamic Cairo brimming with spices, lamps, and crafts.\n\n(UNESCO World Heritage · Best season: Year-round)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Walkable",
+        "latitude": 30.048,
+        "longitude": 31.262,
+        "altitude": 23,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-NEW-VALLEY-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "White Desert National Park",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "New Valley Governorate",
+        "stateCode": "",
+        "city": "Farafra",
+        "description": "Surreal desert landscape featuring chalk rock formations carved by wind.\n\n(Best season: Oct–Mar)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 27.06,
+        "longitude": 27.97,
+        "altitude": 120,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EG-MATROUH-GOVERNORATE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Siwa Oasis & Temple of the Oracle",
+        "country": "Egypt",
+        "countryCode": "EG",
+        "stateProvince": "Matrouh Governorate",
+        "stateCode": "",
+        "city": "Siwa Oasis",
+        "description": "Isolated desert oasis rich in Berber culture, olive groves, and ancient ruins.\n\n(Best season: Oct–Apr)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 29.203,
+        "longitude": 25.52,
+        "altitude": -19,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-SANTA-ANA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Tazumal Archaeological Site",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "Santa Ana",
+        "stateCode": "",
+        "city": "Chalchuapa",
+        "description": "Most significant and best-preserved Maya ruin site in El Salvador.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.979,
+        "longitude": -89.674,
+        "altitude": 700,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-AHUACHAPAN-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Ruta de las Flores",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "Ahuachapán",
+        "stateCode": "",
+        "city": "Ataco / Juayúa",
+        "description": "Picturesque mountain route known for colorful towns, coffee farms, and food festivals.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.869,
+        "longitude": -89.848,
+        "altitude": 1200,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-SANTA-ANA-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Santa Ana Volcano (Ilamatepec)",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "Santa Ana",
+        "stateCode": "",
+        "city": "Santa Ana",
+        "description": "Highest volcano in El Salvador offering treks to a vivid turquoise crater lake.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.853,
+        "longitude": -89.631,
+        "altitude": 2381,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-LA-LIBERTAD-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "El Tunco & El Zonte Beaches",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "La Libertad",
+        "stateCode": "",
+        "city": "El Tunco",
+        "description": "World-renowned Pacific coast surf village with black sand beaches.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.493,
+        "longitude": -89.381,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-SAN-SALVADOR-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Historic Center of San Salvador",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "San Salvador",
+        "stateCode": "",
+        "city": "San Salvador",
+        "description": "Revitalized city core featuring the Metropolitan Cathedral and National Palace.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.699,
+        "longitude": -89.191,
+        "altitude": 658,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-LA-LIBERTAD-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Joya de Cerén Archaeological Site",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "La Libertad",
+        "stateCode": "",
+        "city": "Joya de Cerén",
+        "description": "Pre-Hispanic farming village buried in volcanic ash, known as the Pompeii of the Americas.\n\n(UNESCO World Heritage · Best season: Nov–Apr)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.827,
+        "longitude": -89.369,
+        "altitude": 450,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SV-USULUTAN-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Jiquilisco Bay Biosphere Reserve",
+        "country": "El Salvador",
+        "countryCode": "SV",
+        "stateProvince": "Usulután",
+        "stateCode": "",
+        "city": "Jiquilisco",
+        "description": "Vast coastal estuary protecting sea turtle nesting grounds and mangrove forests.\n\n(Best season: Nov–Apr)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.2,
+        "longitude": -88.583,
+        "altitude": 2,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "GQ-BIOKO-NORTE-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Malabo National Park & Cathedral",
+        "country": "Equatorial Guinea",
+        "countryCode": "GQ",
+        "stateProvince": "Bioko Norte",
+        "stateCode": "",
+        "city": "Malabo",
+        "description": "Capital city park featuring walking paths, artwork, and colonial Santa Isabel Cathedral.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Beach spots",
+          "Cultural spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.75,
+        "longitude": 8.783,
+        "altitude": 10,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "GQ-BIOKO-SUR-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Ureca Waterfalls & Turtle Beach",
+        "country": "Equatorial Guinea",
+        "countryCode": "GQ",
+        "stateProvince": "Bioko Sur",
+        "stateCode": "",
+        "city": "Luba",
+        "description": "Wet coastal region famous for pristine waterfalls and marine turtle nesting sites.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Beach spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 3.425,
+        "longitude": 8.575,
+        "altitude": 50,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "GQ-CENTRO-SUR-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Monte Alén National Park",
+        "country": "Equatorial Guinea",
+        "countryCode": "GQ",
+        "stateProvince": "Centro Sur",
+        "stateCode": "",
+        "city": "Evinayong",
+        "description": "Dense tropical rainforest sanctuary home to goliath frogs, gorillas, and elephants.\n\n(Best season: Dec–Feb)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 1.433,
+        "longitude": 10.333,
+        "altitude": 1100,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ER-MAEKEL-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Asmara Art Deco Architecture",
+        "country": "Eritrea",
+        "countryCode": "ER",
+        "stateProvince": "Maekel",
+        "stateCode": "",
+        "city": "Asmara",
+        "description": "Capital city recognized for exceptional Italian modernist and Art Deco architecture.\n\n(UNESCO World Heritage · Best season: Oct–Apr)",
+        "spotTypes": [
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 15.323,
+        "longitude": 38.925,
+        "altitude": 2325,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ER-NORTHERN-RED-SEA-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Massawa Old Town & Red Sea Coast",
+        "country": "Eritrea",
+        "countryCode": "ER",
+        "stateProvince": "Northern Red Sea",
+        "stateCode": "",
+        "city": "Massawa",
+        "description": "Historic port city featuring Ottoman-style coral-stone buildings and island harbors.\n\n(Best season: Oct–Mar)",
+        "spotTypes": [
+          "Beach spots",
+          "Historical spots",
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 15.608,
+        "longitude": 39.463,
+        "altitude": 2,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ER-NORTHERN-RED-SEA-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Dahlak Marine National Park",
+        "country": "Eritrea",
+        "countryCode": "ER",
+        "stateProvince": "Northern Red Sea",
+        "stateCode": "",
+        "city": "Dahlak Archipelago",
+        "description": "Unspoiled Red Sea island chain celebrated for crystal waters and rich marine life.\n\n(Best season: Nov–Mar)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 15.833,
+        "longitude": 40,
+        "altitude": 0,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ER-DEBUB-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Qohaito Archaeological Site",
+        "country": "Eritrea",
+        "countryCode": "ER",
+        "stateProvince": "Debub",
+        "stateCode": "",
+        "city": "Senafe",
+        "description": "High-altitude ancient city ruins with pre-Axumite structures and rock art.\n\n(Best season: Oct–Apr)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 14.883,
+        "longitude": 39.4,
+        "altitude": 2600,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EE-HARJU-COUNTY-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Tallinn Old Town (Toompea)",
+        "country": "Estonia",
+        "countryCode": "EE",
+        "stateProvince": "Harju County",
+        "stateCode": "",
+        "city": "Tallinn",
+        "description": "Exceptionally preserved 13th-century Hanseatic walled city with cobblestone streets.\n\n(UNESCO World Heritage · Best season: May–Sep)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 59.437,
+        "longitude": 24.754,
+        "altitude": 30,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EE-LAANE-VIRU-COUNTY-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Lahemaa National Park",
+        "country": "Estonia",
+        "countryCode": "EE",
+        "stateProvince": "Laane-Viru County",
+        "stateCode": "",
+        "city": "Palmse",
+        "description": "Estonia's oldest national park featuring coastal ecosystems, pine forests, and peat bogs.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 59.567,
+        "longitude": 25.8,
+        "altitude": 20,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EE-TARTU-COUNTY-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Tartu Old Town & University",
+        "country": "Estonia",
+        "countryCode": "EE",
+        "stateProvince": "Tartu County",
+        "stateCode": "",
+        "city": "Tartu",
+        "description": "Estonia's intellectual heart known for neo-classical university buildings and river parks.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 58.38,
+        "longitude": 26.723,
+        "altitude": 57,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EE-SAARE-COUNTY-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Kuressaare Episcopal Castle & Saaremaa",
+        "country": "Estonia",
+        "countryCode": "EE",
+        "stateProvince": "Saare County",
+        "stateCode": "",
+        "city": "Kuressaare",
+        "description": "Best-preserved medieval bishop's fortress in the Baltics set on Saaremaa Island.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Beach spots",
+          "Historical spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Flight Required",
+        "latitude": 58.248,
+        "longitude": 22.479,
+        "altitude": 5,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EE-PARNU-COUNTY-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Pärnu Beach & Resort",
+        "country": "Estonia",
+        "countryCode": "EE",
+        "stateProvince": "Pärnu County",
+        "stateCode": "",
+        "city": "Pärnu",
+        "description": "Estonia's summer capital famed for white sandy Baltic beaches and historic wooden villas.\n\n(Best season: Jun–Aug)",
+        "spotTypes": [
+          "Beach spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 58.385,
+        "longitude": 24.497,
+        "altitude": 3,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "EE-HARJU-COUNTY-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Keila Waterfall",
+        "country": "Estonia",
+        "countryCode": "EE",
+        "stateProvince": "Harju County",
+        "stateCode": "",
+        "city": "Keila-Joa",
+        "description": "Scenic 6-meter-high cascading waterfall set in a lush manor park near Tallinn.\n\n(Best season: Apr–Oct)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 59.397,
+        "longitude": 24.298,
+        "altitude": 15,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SZ-HHOHHO-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Ezulwini Valley (Valley of Heavens)",
+        "country": "Eswatini",
+        "countryCode": "SZ",
+        "stateProvince": "Hhohho",
+        "stateCode": "",
+        "city": "Lobamba",
+        "description": "Cultural heartland of Eswatini containing royal palaces, craft markets, and sanctuaries.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -26.417,
+        "longitude": 31.183,
+        "altitude": 700,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SZ-LUBOMBO-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Hlane Royal National Park",
+        "country": "Eswatini",
+        "countryCode": "SZ",
+        "stateProvince": "Lubombo",
+        "stateCode": "",
+        "city": "Simunye",
+        "description": "Eswatini's largest protected area, famous for white rhinos, lions, and elephants.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -26.267,
+        "longitude": 31.883,
+        "altitude": 300,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SZ-MANZINI-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Mlilwane Wildlife Sanctuary",
+        "country": "Eswatini",
+        "countryCode": "SZ",
+        "stateProvince": "Manzini",
+        "stateCode": "",
+        "city": "Malkerns",
+        "description": "Pioneer conservation area offering guided walking safaris and mountain biking.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Wildlife spots",
+          "Religious/spiritual spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -26.483,
+        "longitude": 31.183,
+        "altitude": 720,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "SZ-HHOHHO-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Phophonyane Falls Nature Reserve",
+        "country": "Eswatini",
+        "countryCode": "SZ",
+        "stateProvince": "Hhohho",
+        "stateCode": "",
+        "city": "Piggs Peak",
+        "description": "Lush forested reserve centered around cascading waterfalls and rich birdlife.\n\n(Best season: May–Sep)",
+        "spotTypes": [
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": -25.9,
+        "longitude": 31.25,
+        "altitude": 850,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-AMHARA-REGION-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Rock-Hewn Churches of Lalibela",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Amhara Region",
+        "stateCode": "",
+        "city": "Lalibela",
+        "description": "11 medieval monolithic cave churches hand-hewn directly out of solid volcanic rock.\n\n(UNESCO World Heritage · Best season: Oct–Mar)",
+        "spotTypes": [
+          "Religious/spiritual spots",
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 12.032,
+        "longitude": 39.041,
+        "altitude": 2500,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-AMHARA-REGION-002",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Fasil Ghebbi (Royal Enclosure)",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Amhara Region",
+        "stateCode": "",
+        "city": "Gondar",
+        "description": "Fortified castle complex served as the residence of 17th-century Ethiopian emperors.\n\n(UNESCO World Heritage · Best season: Oct–Mar)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 12.608,
+        "longitude": 37.468,
+        "altitude": 2133,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-AMHARA-REGION-003",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Simien Mountains National Park",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Amhara Region",
+        "stateCode": "",
+        "city": "Debark",
+        "description": "Dramatic jagged mountain plateau famous for Ras Dashen and endemic Gelada baboons.\n\n(UNESCO World Heritage · Best season: Oct–Mar)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 13.25,
+        "longitude": 38,
+        "altitude": 3300,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-TIGRAY-REGION-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Obelisk of Axum & St. Mary of Zion",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Tigray Region",
+        "stateCode": "",
+        "city": "Axum",
+        "description": "Ancient capital of the Aksumite Kingdom featuring monolithic granite obelisks.\n\n(UNESCO World Heritage · Best season: Oct–Mar)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 14.131,
+        "longitude": 38.719,
+        "altitude": 2130,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-AFAR-REGION-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Dallol & Erta Ale Volcano",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Afar Region",
+        "stateCode": "",
+        "city": "Danakil Depression",
+        "description": "One of the lowest, hottest, and most otherworldly geothermal volcanic landscapes on Earth.\n\n(Best season: Nov–Feb)",
+        "spotTypes": [
+          "Adventure spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 14.242,
+        "longitude": 40.3,
+        "altitude": -125,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-HARARI-REGION-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Harar Jugol (Fortified Historic Town)",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Harari Region",
+        "stateCode": "",
+        "city": "Harar",
+        "description": "Sacred walled city with 82 mosques, colorful alleyways, and nocturnal hyena feeding.\n\n(UNESCO World Heritage · Best season: Oct–Mar)",
+        "spotTypes": [
+          "Historical spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 9.31,
+        "longitude": 42.12,
+        "altitude": 1885,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-SNNPR-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Omo Valley",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "SNNPR",
+        "stateCode": "",
+        "city": "Jinka",
+        "description": "Culturally unique valley home to distinct indigenous groups including the Mursi and Hamer.\n\n(UNESCO World Heritage · Best season: Jun–Oct)",
+        "spotTypes": [
+          "Cultural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 5.65,
+        "longitude": 36.567,
+        "altitude": 1000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    },
+    {
+      "sourceId": "ET-OROMIA-REGION-001",
+      "status": "OK",
+      "errors": [],
+      "warnings": [
+        "no images resolved (admin create normally requires ≥1 image)"
+      ],
+      "mongoPreview": {
+        "name": "Bale Mountains National Park",
+        "country": "Ethiopia",
+        "countryCode": "ET",
+        "stateProvince": "Oromia Region",
+        "stateCode": "",
+        "city": "Batu",
+        "description": "High-altitude alpine plateau providing sanctuary for the endangered Ethiopian wolf.\n\n(UNESCO World Heritage · Best season: Oct–Mar)",
+        "spotTypes": [
+          "Adventure spots",
+          "Natural spots"
+        ],
+        "travelInfo": "Drivable",
+        "latitude": 6.883,
+        "longitude": 39.733,
+        "altitude": 3000,
+        "displayOrder": 0,
+        "isActive": true,
+        "storageKey": null,
+        "imageStorageKeys": [],
+        "createdBy": null
+      },
+      "images": []
+    }
+  ]
+}

@@ -243,7 +243,7 @@ const getLocales = async (req, res) => {
         // Fetch ALL matching locales for in-memory sorting
         // Fetch ALL matching locales for in-memory sorting
         const allLocales = await Locale.find(query)
-          .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
+          .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude altitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
           .lean()
           .maxTimeMS(5000);
           
@@ -321,7 +321,7 @@ const getLocales = async (req, res) => {
       }
 
       locales = await Locale.find(query)
-        .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
+        .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude altitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
         .sort({ displayOrder: 1, _id: 1 })
         .limit(parsedLimit + 1)
         .lean()
@@ -398,7 +398,7 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude altitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
       .lean();
 
     if (!locale) {
@@ -434,7 +434,7 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4001', 'Please upload at least one image file');
     }
 
-    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude, altitude } = req.body;
 
     if (!name || !country || !countryCode || !city) {
       logger.error('Missing required fields:', { name: !!name, country: !!country, countryCode: !!countryCode, city: !!city });
@@ -503,6 +503,7 @@ const uploadLocale = async (req, res) => {
     // Validate and process coordinates
     let processedLatitude = null;
     let processedLongitude = null;
+    let processedAltitude = null;
     
     if (latitude !== undefined && longitude !== undefined) {
       const lat = parseFloat(latitude);
@@ -515,6 +516,15 @@ const uploadLocale = async (req, res) => {
         } else {
           logger.warn('Invalid coordinates provided:', { latitude: lat, longitude: lng });
         }
+      }
+    }
+
+    if (altitude !== undefined && altitude !== null && String(altitude).trim() !== '') {
+      const alt = parseFloat(altitude);
+      if (!isNaN(alt) && alt >= -500 && alt <= 9000) {
+        processedAltitude = Math.round(alt);
+      } else {
+        logger.warn('Invalid altitude provided:', { altitude: alt });
       }
     }
 
@@ -536,14 +546,15 @@ const uploadLocale = async (req, res) => {
       spotTypes: processedSpotTypes,
       travelInfo: processedTravelInfo,
       latitude: processedLatitude,
-      longitude: processedLongitude
+      longitude: processedLongitude,
+      altitude: processedAltitude
     });
 
     await locale.save();
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude altitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
       .lean();
 
     if (localeResponse) {
@@ -650,7 +661,7 @@ const toggleLocaleStatus = async (req, res) => {
 const updateLocale = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude, altitude } = req.body;
 
     const locale = await Locale.findById(id);
     if (!locale) {
@@ -791,6 +802,19 @@ const updateLocale = async (req, res) => {
       }
     }
 
+    if (altitude !== undefined) {
+      if (altitude === null || String(altitude).trim() === '') {
+        locale.altitude = null;
+      } else {
+        const alt = parseFloat(altitude);
+        if (!isNaN(alt) && alt >= -500 && alt <= 9000) {
+          locale.altitude = Math.round(alt);
+        } else {
+          logger.warn('Invalid altitude provided for update:', { altitude: alt });
+        }
+      }
+    }
+
     // Also update legacy fields for backward compatibility
     // Ensure all storage key fields are synchronized
     const primaryStorageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
@@ -878,6 +902,7 @@ const updateLocale = async (req, res) => {
         travelInfo: updatedLean.travelInfo || 'Drivable',
         latitude: updatedLean.latitude,
         longitude: updatedLean.longitude,
+        altitude: updatedLean.altitude,
         imageUrl: updatedLean.imageUrl,
         imageUrls: updatedLean.imageUrls,
         cloudinaryUrl: updatedLean.cloudinaryUrl,

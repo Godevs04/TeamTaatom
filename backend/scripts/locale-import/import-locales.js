@@ -277,8 +277,10 @@ function normalizeRow(row, index) {
 
   let latitude = null;
   let longitude = null;
-  const latS = pick(row, 'latitude', 'lat');
-  const lngS = pick(row, 'longitude', 'lng', 'lon');
+  let altitude = null;
+  const latS = pick(row, 'latitude', 'lat', 'Latitude');
+  const lngS = pick(row, 'longitude', 'lng', 'lon', 'Longitude');
+  const altS = pick(row, 'altitude', 'Altitude', 'elevation');
   if (latS || lngS) {
     const lat = parseFloat(latS);
     const lng = parseFloat(lngS);
@@ -290,6 +292,14 @@ function normalizeRow(row, index) {
     }
   } else {
     warnings.push('missing coordinates (map features limited)');
+  }
+  if (altS) {
+    const alt = parseFloat(altS);
+    if (Number.isFinite(alt) && alt >= -500 && alt <= 9000) {
+      altitude = Math.round(alt);
+    } else {
+      warnings.push('invalid altitude ignored');
+    }
   }
 
   const displayOrder = parseInt(pick(row, 'display_order', 'displayOrder') || '0', 10) || 0;
@@ -312,10 +322,11 @@ function normalizeRow(row, index) {
     travelInfo,
     latitude,
     longitude,
+    altitude,
     displayOrder,
     isActive,
-    // images filled on apply
-    storageKey: null,
+    // Do NOT set storageKey/cloudinaryKey/imageKey to null — unique sparse
+    // indexes treat explicit null as a real key and reject the 2nd insert.
     imageStorageKeys: [],
     createdBy: CREATED_BY || null,
   };
@@ -493,13 +504,19 @@ async function main() {
           }
         }
         const primary = uploadedKeys[0] || null;
-        const doc = await Locale.create({
+        // Omit unique image key fields when --skip-images (or no files).
+        // Sparse unique indexes only allow one document with an explicit null value.
+        const createPayload = {
           ...n.mongoDoc,
           createdBy: new mongoose.Types.ObjectId(CREATED_BY),
-          storageKey: primary,
-          cloudinaryKey: primary,
           imageStorageKeys: uploadedKeys,
-        });
+        };
+        if (primary) {
+          createPayload.storageKey = primary;
+          createPayload.cloudinaryKey = primary;
+          createPayload.imageKey = primary;
+        }
+        const doc = await Locale.create(createPayload);
         rowReport.createdId = String(doc._id);
         rowReport.uploadedKeys = uploadedKeys;
       } catch (err) {
@@ -525,7 +542,7 @@ async function main() {
     );
     console.log(`  spotTypes: ${n.mongoDoc.spotTypes.join(', ') || '(none)'}`);
     console.log(
-      `  coords: ${n.mongoDoc.latitude ?? '—'}, ${n.mongoDoc.longitude ?? '—'}  travel: ${n.mongoDoc.travelInfo}  active: ${n.mongoDoc.isActive}`,
+      `  coords: ${n.mongoDoc.latitude ?? '—'}, ${n.mongoDoc.longitude ?? '—'}  alt: ${n.mongoDoc.altitude ?? '—'}m  travel: ${n.mongoDoc.travelInfo}  active: ${n.mongoDoc.isActive}`,
     );
     console.log(`  images: ${imageDetails.length}`);
     imageDetails.forEach((d) => console.log(`    - ${d.label} (${d.ok ? 'ok' : 'bad'})`));

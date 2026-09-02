@@ -115,6 +115,18 @@ const localeSchema = new mongoose.Schema({
       message: 'Longitude must be between -180 and 180'
     }
   },
+  /** Elevation in meters above sea level (optional; from geocoding / bulk import). */
+  altitude: {
+    type: Number,
+    required: false,
+    default: null,
+    validate: {
+      validator: function(v) {
+        return v === null || (v >= -500 && v <= 9000);
+      },
+      message: 'Altitude must be between -500 and 9000 meters'
+    }
+  },
   blurhash: {
     type: String,
     required: false,
@@ -144,7 +156,8 @@ localeSchema.index({ country: 1 }); // For faster regex searches
 localeSchema.index({ displayOrder: 1 });
 // Geospatial index for location-based queries
 localeSchema.index({ latitude: 1, longitude: 1 });
-// Sparse unique index on imageKey to prevent duplicate null values (allows multiple nulls)
+// Sparse unique: docs missing imageKey are not indexed. Do not store imageKey:null —
+// non-sparse unique indexes treat null/missing as one key and break --skip-images imports.
 localeSchema.index({ imageKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Locale', localeSchema);
