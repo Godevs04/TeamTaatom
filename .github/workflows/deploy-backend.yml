@@ -142,7 +142,7 @@ jobs:
             set -euo pipefail
 
             # Trim whitespace from secrets (trailing spaces break cd)
-            REPO_PATH="$(printf '%s' "${REPO_PATH:-/home/ubuntu/taatom/TeamTaatom}" | tr -d '[:space:]')"
+            REPO_PATH="$(printf '%s' "${REPO_PATH:-/home/ubuntu/TeamTaatom}" | tr -d '[:space:]')"
             BACKEND_PATH="$(printf '%s' "${BACKEND_PATH:-}" | tr -d '[:space:]')"
             HEALTH_URL="$(printf '%s' "${HEALTH_URL:-http://127.0.0.1:3000/health}" | tr -d '[:space:]')"
 
@@ -156,8 +156,8 @@ jobs:
 
             if [ ! -d "$REPO_PATH" ]; then
               echo "ERROR: REPO_PATH does not exist: [$REPO_PATH]"
-              echo "Set EC2_REPO_PATH secret to: /home/ubuntu/taatom/TeamTaatom"
-              ls -la /home/ubuntu/taatom || true
+              echo "Set EC2_REPO_PATH secret to: /home/ubuntu/TeamTaatom"
+              ls -la /home/ubuntu/TeamTaatom || true
               exit 1
             fi
 
