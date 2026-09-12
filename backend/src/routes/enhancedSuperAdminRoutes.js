@@ -1180,7 +1180,7 @@ router.post('/users/bulk-action', async (req, res) => {
  *         name: type
  *         schema:
  *           type: string
- *           enum: [photo, short, video, all]
+ *           enum: [photo, short, long_video, video, all]
  *       - in: query
  *         name: status
  *         schema:
@@ -1320,6 +1320,11 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
           thumbnailUrl = post.thumbnailUrl || post.imageUrl || null
           imageUrl = thumbnailUrl
         }
+      } else if (post.type === 'long_video') {
+        // Watch / YouTube — public thumbnail URLs, no signing
+        thumbnailUrl = post.thumbnailUrl || post.imageUrl || null
+        imageUrl = thumbnailUrl
+        videoUrl = post.youtubeUrl || null
       } else {
         // For photos: generate image URLs
         if (post.storageKeys && post.storageKeys.length > 0) {
@@ -5754,5 +5759,29 @@ router.get('/orders', authenticateSuperAdmin, async (req, res) => {
     return sendError(res, 'SRV_6001', 'Failed to fetch orders')
   }
 })
+
+// ---------------------------------------------------------------------------
+// Video Creators + uploaded long videos (SuperAdmin)
+// ---------------------------------------------------------------------------
+const {
+  listCreatorRequestsAdmin,
+  approveCreatorRequest,
+  rejectCreatorRequest,
+} = require('../controllers/videoCreatorController')
+const {
+  listLongVideosAdmin,
+  getLongVideoAdmin,
+  updateLongVideo,
+  deleteLongVideo,
+} = require('../controllers/longVideoController')
+
+router.get('/video-creators', checkPermission('canManageContent'), listCreatorRequestsAdmin)
+router.post('/video-creators/:id/approve', checkPermission('canManageContent'), approveCreatorRequest)
+router.post('/video-creators/:id/reject', checkPermission('canManageContent'), rejectCreatorRequest)
+
+router.get('/long-videos', checkPermission('canManageContent'), listLongVideosAdmin)
+router.get('/long-videos/:id', checkPermission('canManageContent'), getLongVideoAdmin)
+router.patch('/long-videos/:id', checkPermission('canManageContent'), updateLongVideo)
+router.delete('/long-videos/:id', checkPermission('canManageContent'), deleteLongVideo)
 
 module.exports = router

@@ -24,33 +24,34 @@ const authMiddleware = async (req, res, next) => {
     } catch (err) {
       logger.warn('Token verification failed:', err.name);
       if (err.name === 'JsonWebTokenError') {
-        return res.status(401).json({ 
+        return res.status(401).json({
           error: 'Access denied',
-          message: 'Your session is invalid. Please sign in again.' 
+          message: 'Your session is invalid. Please sign in again.',
         });
       }
       if (err.name === 'TokenExpiredError') {
+        // Allow expired access tokens only on refresh so a new JWT can be issued.
         const isRefreshRoute = req.path.endsWith('/refresh') || req.path.endsWith('/refresh/');
-        if (isRefreshRoute) {
-          try {
-            decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
-          } catch (innerErr) {
-            return res.status(401).json({ 
-              error: 'Access denied',
-              message: 'Your session has expired. Please sign in again.' 
-            });
-          }
-        } else {
-          return res.status(401).json({ 
+        if (!isRefreshRoute) {
+          return res.status(401).json({
             error: 'Access denied',
-            message: 'Your session has expired. Please sign in again.' 
+            message: 'Your session has expired. Please sign in again.',
           });
         }
+        try {
+          decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+        } catch (innerErr) {
+          return res.status(401).json({
+            error: 'Access denied',
+            message: 'Your session has expired. Please sign in again.',
+          });
+        }
+      } else {
+        return res.status(500).json({
+          error: 'Internal server error',
+          message: 'Error verifying token',
+        });
       }
-      return res.status(500).json({ 
-        error: 'Internal server error',
-        message: 'Error verifying token' 
-      });
     }
     
     const userId = decoded.userId || decoded.id || decoded._id;

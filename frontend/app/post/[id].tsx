@@ -45,6 +45,11 @@ export default function PostDetail() {
           router.back();
           return;
         }
+        // Deep link: Watch videos open the embed player screen
+        if (response.post.type === 'long_video') {
+          router.replace(`/watch/${response.post._id}` as any);
+          return;
+        }
         let postData = response.post;
         if (isRefresh) {
           // Explicit refresh: override the local savedEvents cache with the server's fresh data

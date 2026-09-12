@@ -32,6 +32,7 @@
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for video recording.",
+        "NSUserTrackingUsageDescription": "Taatom uses this identifier to deliver more relevant ads and measure ad performance.",
         "UIBackgroundModes": [
           "location",
           "remote-notification"
@@ -130,6 +131,12 @@
     },
     "plugins": [
       "expo-secure-store",
+      [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "Taatom uses this identifier to deliver more relevant ads and measure ad performance."
+        }
+      ],
       "expo-router",
       [
         "expo-notifications",

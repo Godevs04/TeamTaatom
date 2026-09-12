@@ -66,6 +66,9 @@ const buildMediaKey = ({ type, userId, filename, extension }) => {
       // Organize posts by user ID for better organization and management
       basePath = `posts/${userId || 'unknown'}/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
       break;
+    case 'long_video':
+      basePath = `long_videos/${userId || 'unknown'}/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
+      break;
     case 'profile':
       basePath = `profiles/${userId || 'unknown'}/${timestamp}-${uniqueId}`;
       break;

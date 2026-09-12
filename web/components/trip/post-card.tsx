@@ -360,13 +360,17 @@ export function PostCard({
 
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
   const isShort = post.type === "short";
+  const isLongVideo = post.type === "long_video";
   const videoUrl = post.videoUrl || post.mediaUrl || "";
   // Only ever a genuine image -- never mediaUrl, which for a short with no
   // dedicated thumbnail file is the video's own URL (see getPostById).
   const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const isOwnPost = !!currentUser && post.user?._id === currentUser._id;
-  const displayName = post.user?.fullName || post.user?.username || "Traveler";
+  const displayName = post.user?.fullName || post.user?.username || (isLongVideo ? "Taatom" : "Traveler");
   const avatarInitial = displayName.trim().charAt(0).toUpperCase();
+  const locationLine = isLongVideo
+    ? post.user?.fullName || post.user?.username || "Videos"
+    : getPostDisplayLocation(post);
 
   return (
     <article className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium dark:border-zinc-800/80 dark:bg-zinc-900/95">
@@ -393,7 +397,7 @@ export function PostCard({
               {displayName}
             </div>
             <div className="line-clamp-1 text-xs font-medium leading-snug text-slate-500 dark:text-zinc-400">
-              {getPostDisplayLocation(post)}
+              {locationLine}
             </div>
           </div>
         </Link>
@@ -554,6 +558,29 @@ export function PostCard({
             aria-label="Open post"
           />
         </div>
+      ) : isLongVideo ? (
+        <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
+          <div className="relative aspect-video w-full overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={media}
+              alt={post.caption || "Watch"}
+              className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+              loading="lazy"
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/55 ring-1 ring-white/40">
+                <span className="ml-1 border-y-[8px] border-l-[14px] border-y-transparent border-l-white" />
+              </span>
+            </div>
+            {typeof post.durationSeconds === "number" && post.durationSeconds > 0 ? (
+              <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                {Math.floor(post.durationSeconds / 60)}:
+                {String(Math.floor(post.durationSeconds % 60)).padStart(2, "0")}
+              </span>
+            ) : null}
+          </div>
+        </Link>
       ) : (
         <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
           <div className="relative aspect-[4/3] w-full overflow-hidden">

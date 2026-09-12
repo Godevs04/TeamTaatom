@@ -40,8 +40,8 @@ const postSchema = new mongoose.Schema({
   imageUrl: {
     type: String,
     required: function() {
-      // If type is 'short', imageUrl is not required
-      if (this.type === 'short') {
+      // Shorts and Watch (YouTube) posts do not require imageUrl
+      if (this.type === 'short' || this.type === 'long_video') {
         return false;
       }
       // For 'photo' type, imageUrl is required only if storageKey/storageKeys are not present
@@ -81,8 +81,47 @@ const postSchema = new mongoose.Schema({
   }],
   type: {
     type: String,
-    enum: ['photo', 'short'],
+    enum: ['photo', 'short', 'long_video'],
     default: 'photo'
+  },
+  /** Watch tab — YouTube embed source (no rehosted binary). */
+  youtubeUrl: {
+    type: String,
+    required: false,
+    default: null
+  },
+  youtubeVideoId: {
+    type: String,
+    required: false,
+    default: null,
+    trim: true
+  },
+  youtubeChannelTitle: {
+    type: String,
+    required: false,
+    default: null,
+    trim: true
+  },
+  durationSeconds: {
+    type: Number,
+    required: false,
+    default: null
+  },
+  source: {
+    type: String,
+    enum: ['upload', 'youtube'],
+    required: false,
+    default: undefined
+  },
+  createdByAdmin: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SuperAdmin',
+    required: false,
+    default: null
+  },
+  displayOrder: {
+    type: Number,
+    default: 0
   },
   // Display aspect ratio chosen at post creation — used by feed to render container.
   // Original image is stored untouched; aspect ratio only affects display box (cover fit).
@@ -286,6 +325,8 @@ postSchema.index({ createdAt: -1 }); // All posts sorted by date
 postSchema.index({ isActive: 1 }); // Filter active posts
 postSchema.index({ type: 1, isActive: 1, createdAt: -1 }); // Type-based feed queries
 postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 }); // User posts by type
+postSchema.index({ type: 1, displayOrder: 1, createdAt: -1 }); // Watch curation
+postSchema.index({ youtubeVideoId: 1 }, { unique: true, sparse: true }); // Unique YouTube id
 postSchema.index({ tags: 1 }); // For hashtag/tag searches
 postSchema.index({ 'location.coordinates': '2dsphere' }); // For geospatial location queries
 postSchema.index({ likesCount: -1, createdAt: -1 }); // Compound index for sorting popular feed
@@ -301,12 +342,15 @@ postSchema.virtual('viewsCount').get(function() {
   return this.views || 0;
 });
 
-// Virtual for media URL (returns videoUrl for shorts, imageUrl for photos)
+// Virtual for media URL (shorts → video, Watch → thumb, photos → image)
 postSchema.virtual('mediaUrl').get(function() {
   if (this.type === 'short') {
-    return this.videoUrl; // For shorts, always use videoUrl
+    return this.videoUrl;
   }
-  return this.imageUrl; // For photos, use imageUrl
+  if (this.type === 'long_video') {
+    return this.thumbnailUrl || this.imageUrl;
+  }
+  return this.imageUrl;
 });
 
 // Ensure virtual fields are serialized

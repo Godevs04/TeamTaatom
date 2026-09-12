@@ -1868,6 +1868,11 @@ export default function ProfileScreen() {
               iconSize={22}
               items={[
                 {
+                  label: 'Upload long video',
+                  icon: 'videocam-outline',
+                  onPress: () => router.push('/upload-long-video' as any),
+                },
+                {
                   label: 'Settings',
                   icon: 'settings-outline',
                   onPress: () => router.push('/settings'),

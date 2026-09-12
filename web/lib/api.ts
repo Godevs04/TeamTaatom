@@ -566,6 +566,47 @@ export async function getUserShorts(userId: string, page = 1, limit = 20) {
   };
 }
 
+/** Watch tab — YouTube long videos */
+export async function getLongVideos(params?: { page?: number; limit?: number }) {
+  const search = new URLSearchParams();
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.limit) search.set("limit", String(params.limit));
+  const res = await api.get(`/long-videos?${search.toString()}`);
+  const data = res.data as {
+    videos?: Post[];
+    posts?: Post[];
+    pagination?: PaginationOffset & { hasMore?: boolean; page?: number; totalPages?: number; total?: number };
+  };
+  const list = data.videos ?? data.posts ?? [];
+  const page = data.pagination?.page ?? params?.page ?? 1;
+  const hasMore =
+    data.pagination?.hasMore ??
+    (typeof data.pagination?.totalPages === "number"
+      ? page < data.pagination.totalPages
+      : false);
+  return {
+    posts: list,
+    videos: list,
+    pagination: {
+      currentPage: page,
+      totalPages: data.pagination?.totalPages ?? 1,
+      totalPosts: data.pagination?.total ?? list.length,
+      hasNextPage: hasMore,
+      hasPrevPage: page > 1,
+      limit: data.pagination?.limit ?? params?.limit ?? 15,
+    } as PaginationOffset,
+  };
+}
+
+export async function getLongVideoById(id: string) {
+  if (!isValidPostId(id)) {
+    throw new Error("Invalid video ID");
+  }
+  const res = await api.get(`/long-videos/${id}`);
+  const data = res.data as { video?: Post; post?: Post };
+  return (data.video ?? data.post ?? res.data) as Post;
+}
+
 // Locale type (places) - aligned with app/backend
 export type Locale = {
   _id: string;

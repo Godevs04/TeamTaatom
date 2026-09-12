@@ -15,7 +15,12 @@ export interface PostType {
   cloudinaryPublicId?: string;
   cloudinaryPublicIds?: string[]; // Multiple public IDs
   tags?: string[];
-  type?: 'photo' | 'short';
+  type?: 'photo' | 'short' | 'long_video';
+  youtubeUrl?: string | null;
+  youtubeVideoId?: string | null;
+  youtubeChannelTitle?: string | null;
+  durationSeconds?: number | null;
+  source?: 'upload' | 'youtube' | null;
   aspectRatio?: '1:1' | '16:9' | 'full' | '1.91:1';
   filter?: 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
   location?: {

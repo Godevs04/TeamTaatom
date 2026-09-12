@@ -34,6 +34,7 @@ const navItems = [
   { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
   { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
   { name: 'Songs', href: '/songs', icon: Music, permission: 'canManageContent' },
+  { name: 'Video Creators', href: '/watch', icon: Users, permission: 'canManageContent' },
   { name: 'Locales', href: '/locales', icon: MapPin, permission: 'canManageContent' },
   { name: 'Subscriptions', href: '/connect-subscriptions', icon: Star, permission: 'canManageContent' },
   { name: 'Connect', href: '/connect-dashboard', icon: Layers, permission: 'canManageContent' },
