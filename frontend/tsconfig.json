@@ -1,14 +1,22 @@
 {
-  "extends": "expo/tsconfig.base",
+  "extends": "./node_modules/expo/tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
     "strict": false,
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
   "exclude": [
+    "node_modules",
     "dist",
     "build",
     ".expo",
+    "android",
+    "ios"
   ]
 }

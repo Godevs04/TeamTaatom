@@ -21,6 +21,8 @@ export interface Locale {
   distanceKm?: number | null;
   latitude?: number;
   longitude?: number;
+  /** Elevation in meters above sea level. */
+  altitude?: number;
   isActive: boolean;
   displayOrder?: number;
   createdAt: string;

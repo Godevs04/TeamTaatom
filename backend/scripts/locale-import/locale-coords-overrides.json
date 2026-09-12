@@ -1,0 +1,1027 @@
+{
+  "Afghanistan|Friday Mosque (Jami Mosque)": {
+    "lat": 34.3436,
+    "lng": 62.2033,
+    "alt": 980
+  },
+  "Afghanistan|Wakhan Corridor": {
+    "lat": 37.0667,
+    "lng": 73.2667,
+    "alt": 3500
+  },
+  "Afghanistan|Noshaq Peak": {
+    "lat": 36.4317,
+    "lng": 70.8125,
+    "alt": 7492
+  },
+  "Afghanistan|Salang Pass": {
+    "lat": 35.3167,
+    "lng": 69.0833,
+    "alt": 3878
+  },
+  "Afghanistan|Ancient City of Balkh": {
+    "lat": 36.7581,
+    "lng": 66.8981,
+    "alt": 365
+  },
+  "Albania|Berat Old Town (Mangalem & Gorica)": {
+    "lat": 40.7058,
+    "lng": 19.9522,
+    "alt": 58
+  },
+  "Albania|Berat Castle (Kalaja e Beratit)": {
+    "lat": 40.7064,
+    "lng": 19.9436,
+    "alt": 214
+  },
+  "Albania|Gjirokastër Old Town": {
+    "lat": 40.0758,
+    "lng": 20.1389,
+    "alt": 300
+  },
+  "Albania|Ksamil Islands": {
+    "lat": 39.7667,
+    "lng": 20.0167,
+    "alt": 5
+  },
+  "Albania|Blue Eye (Syri i Kaltër)": {
+    "lat": 39.918,
+    "lng": 20.069,
+    "alt": 152
+  },
+  "Albania|Albanian Riviera": {
+    "lat": 40.15,
+    "lng": 19.75,
+    "alt": 450
+  },
+  "Albania|Theth National Park": {
+    "lat": 42.395,
+    "lng": 19.774,
+    "alt": 750
+  },
+  "Albania|Dardha Village": {
+    "lat": 40.516,
+    "lng": 20.683,
+    "alt": 1340
+  },
+  "Algeria|Jardin d'Essai du Hamma": {
+    "lat": 36.752,
+    "lng": 3.061,
+    "alt": 10
+  },
+  "Algeria|Djémila Roman Ruins": {
+    "lat": 36.316,
+    "lng": 5.736,
+    "alt": 900
+  },
+  "Algeria|Constantine City & Bridges": {
+    "lat": 36.365,
+    "lng": 6.614,
+    "alt": 694
+  },
+  "Algeria|Palace of Ahmed Bey": {
+    "lat": 36.365,
+    "lng": 6.615,
+    "alt": 694
+  },
+  "Algeria|Jijel Coast": {
+    "lat": 36.821,
+    "lng": 5.766,
+    "alt": 10
+  },
+  "Algeria|Tassili n'Ajjer National Park": {
+    "lat": 25.5,
+    "lng": 8.5,
+    "alt": 1000
+  },
+  "Algeria|M'zab Valley": {
+    "lat": 32.483,
+    "lng": 3.683,
+    "alt": 450
+  },
+  "Algeria|Timimoun Oasis": {
+    "lat": 29.263,
+    "lng": 0.241,
+    "alt": 288
+  },
+  "Algeria|El Oued Sand Dunes": {
+    "lat": 33.368,
+    "lng": 6.867,
+    "alt": 80
+  },
+  "Andorra|Grandvalira Ski Resort": {
+    "lat": 42.533,
+    "lng": 1.733,
+    "alt": 2100
+  },
+  "Andorra|Sanctuary of Meritxell": {
+    "lat": 42.553,
+    "lng": 1.583,
+    "alt": 1280
+  },
+  "Andorra|Lake Engolasters": {
+    "lat": 42.517,
+    "lng": 1.567,
+    "alt": 1616
+  },
+  "Andorra|Madriu-Perafita-Claror Valley": {
+    "lat": 42.517,
+    "lng": 1.617,
+    "alt": 2000
+  },
+  "Andorra|Comapedrosa Valley": {
+    "lat": 42.592,
+    "lng": 1.442,
+    "alt": 2200
+  },
+  "Andorra|Ordino Village": {
+    "lat": 42.556,
+    "lng": 1.533,
+    "alt": 1296
+  },
+  "Andorra|Sorteny Valley Natural Park": {
+    "lat": 42.633,
+    "lng": 1.533,
+    "alt": 1800
+  },
+  "Andorra|Caldea Spa": {
+    "lat": 42.508,
+    "lng": 1.533,
+    "alt": 1050
+  },
+  "Andorra|Church of Sant Esteve": {
+    "lat": 42.508,
+    "lng": 1.521,
+    "alt": 1023
+  },
+  "Andorra|Naturland": {
+    "lat": 42.517,
+    "lng": 1.533,
+    "alt": 1600
+  },
+  "Andorra|Tobotronc Alpine Coaster": {
+    "lat": 42.467,
+    "lng": 1.483,
+    "alt": 1200
+  },
+  "Angola|Miradouro da Lua (Moon Viewpoint)": {
+    "lat": -9.183,
+    "lng": 13.183,
+    "alt": 50
+  },
+  "Angola|Kissama National Park (Quiçama)": {
+    "lat": -9.417,
+    "lng": 13.25,
+    "alt": 50
+  },
+  "Angola|Muxima Sanctuary": {
+    "lat": -9.55,
+    "lng": 13.683,
+    "alt": 20
+  },
+  "Angola|Iona National Park": {
+    "lat": -16.667,
+    "lng": 12.667,
+    "alt": 200
+  },
+  "Angola|Welwitschia Mirabilis Fields": {
+    "lat": -15.5,
+    "lng": 12.5,
+    "alt": 100
+  },
+  "Angola|Serra da Leba Pass": {
+    "lat": -15.117,
+    "lng": 13.383,
+    "alt": 1850
+  },
+  "Angola|Tundavala Gap": {
+    "lat": -14.867,
+    "lng": 13.533,
+    "alt": 2200
+  },
+  "Angola|Christ the King Statue": {
+    "lat": -14.917,
+    "lng": 13.533,
+    "alt": 1760
+  },
+  "Angola|Serra da Chela Mountains": {
+    "lat": -15.5,
+    "lng": 13.5,
+    "alt": 2000
+  },
+  "Angola|Luiana Partial Reserve": {
+    "lat": -15.667,
+    "lng": 21.667,
+    "alt": 1100
+  },
+  "Angola|Okavango River Region": {
+    "lat": -17.5,
+    "lng": 21.5,
+    "alt": 1100
+  },
+  "Angola|Historic Centre of M'banza Kongo": {
+    "lat": -6.267,
+    "lng": 14.233,
+    "alt": 570
+  },
+  "Angola|Maiombe Forest": {
+    "lat": -5,
+    "lng": 12.5,
+    "alt": 400
+  },
+  "Antigua and Barbuda|St. John's City": {
+    "lat": 17.127,
+    "lng": -61.847,
+    "alt": 15
+  },
+  "Antigua and Barbuda|Barbuda Pink Sand Beach": {
+    "lat": 17.633,
+    "lng": -61.833,
+    "alt": 5
+  },
+  "Antigua and Barbuda|Frigate Bird Sanctuary": {
+    "lat": 17.633,
+    "lng": -61.817,
+    "alt": 3
+  },
+  "Antigua and Barbuda|Codrington Lagoon National Park": {
+    "lat": 17.633,
+    "lng": -61.833,
+    "alt": 5
+  },
+  "Argentina|Iguazú National Park": {
+    "lat": -25.683,
+    "lng": -54.433,
+    "alt": 200
+  },
+  "Argentina|Perito Moreno Glacier": {
+    "lat": -50.483,
+    "lng": -73.05,
+    "alt": 200
+  },
+  "Argentina|Mount Fitz Roy": {
+    "lat": -49.271,
+    "lng": -73.053,
+    "alt": 3405
+  },
+  "Argentina|Los Glaciares National Park": {
+    "lat": -50,
+    "lng": -73,
+    "alt": 500
+  },
+  "Argentina|Wine Route of Mendoza": {
+    "lat": -33,
+    "lng": -68.85,
+    "alt": 750
+  },
+  "Argentina|Quebrada de Humahuaca": {
+    "lat": -23.2,
+    "lng": -65.35,
+    "alt": 2800
+  },
+  "Argentina|Hill of Seven Colours": {
+    "lat": -23.742,
+    "lng": -65.496,
+    "alt": 2324
+  },
+  "Argentina|Nahuel Huapi National Park": {
+    "lat": -41,
+    "lng": -71.5,
+    "alt": 800
+  },
+  "Argentina|Seven Lakes Route": {
+    "lat": -40.85,
+    "lng": -71.5,
+    "alt": 800
+  },
+  "Argentina|Punta Tombo Penguin Reserve": {
+    "lat": -44.033,
+    "lng": -65.217,
+    "alt": 20
+  },
+  "Armenia|Garni Gorge (Symphony of Stones)": {
+    "lat": 40.112,
+    "lng": 44.733,
+    "alt": 1200
+  },
+  "Armenia|Mount Aragats": {
+    "lat": 40.517,
+    "lng": 44.183,
+    "alt": 4090
+  },
+  "Armenia|Areni Wine Region": {
+    "lat": 39.733,
+    "lng": 45.183,
+    "alt": 990
+  },
+  "Armenia|Noravank Monastery": {
+    "lat": 39.687,
+    "lng": 45.233,
+    "alt": 1200
+  },
+  "Armenia|Gyumri Historic Centre": {
+    "lat": 40.789,
+    "lng": 43.847,
+    "alt": 1523
+  },
+  "Armenia|Mesrop Mashtots Monument": {
+    "lat": 40.267,
+    "lng": 44.367,
+    "alt": 860
+  },
+  "Australia|Grampians National Park": {
+    "lat": -37.2,
+    "lng": 142.4,
+    "alt": 400
+  },
+  "Australia|Daintree Rainforest": {
+    "lat": -16.17,
+    "lng": 145.417,
+    "alt": 50
+  },
+  "Australia|Whitehaven Beach": {
+    "lat": -20.283,
+    "lng": 149.033,
+    "alt": 5
+  },
+  "Australia|K’gari National Park": {
+    "lat": -25.267,
+    "lng": 153.133,
+    "alt": 20
+  },
+  "Australia|Uluru (Ayers Rock)": {
+    "lat": -25.344,
+    "lng": 131.037,
+    "alt": 863
+  },
+  "Australia|Kata Tjuta (The Olgas)": {
+    "lat": -25.3,
+    "lng": 130.733,
+    "alt": 546
+  },
+  "Australia|Kakadu National Park": {
+    "lat": -13.033,
+    "lng": 132.433,
+    "alt": 30
+  },
+  "Australia|Rottnest Island": {
+    "lat": -32,
+    "lng": 115.517,
+    "alt": 20
+  },
+  "Australia|Bungle Bungle Range": {
+    "lat": -17.483,
+    "lng": 128.483,
+    "alt": 578
+  },
+  "Australia|Port Arthur Historic Site": {
+    "lat": -43.158,
+    "lng": 147.851,
+    "alt": 15
+  },
+  "Australia|Cradle Mountain-Lake St Clair National Park": {
+    "lat": -41.583,
+    "lng": 145.95,
+    "alt": 900
+  },
+  "Australia|Kangaroo Island": {
+    "lat": -35.833,
+    "lng": 137.217,
+    "alt": 50
+  },
+  "Austria|Historic Centre of Vienna": {
+    "lat": 48.208,
+    "lng": 16.373,
+    "alt": 171
+  },
+  "Austria|Prater Park & Giant Ferris Wheel": {
+    "lat": 48.217,
+    "lng": 16.395,
+    "alt": 165
+  },
+  "Austria|Mirabell Palace and Gardens": {
+    "lat": 47.805,
+    "lng": 13.042,
+    "alt": 424
+  },
+  "Austria|Innsbruck Old Town": {
+    "lat": 47.269,
+    "lng": 11.394,
+    "alt": 574
+  },
+  "Austria|Nordkette Mountain Range": {
+    "lat": 47.317,
+    "lng": 11.383,
+    "alt": 2334
+  },
+  "Austria|Dachstein Ice Cave": {
+    "lat": 47.517,
+    "lng": 13.617,
+    "alt": 2100
+  },
+  "Austria|Schlossberg Hill": {
+    "lat": 47.075,
+    "lng": 15.437,
+    "alt": 437
+  },
+  "Austria|Grossglockner High Alpine Road": {
+    "lat": 47.083,
+    "lng": 12.842,
+    "alt": 2500
+  },
+  "Austria|Hohe Tauern National Park": {
+    "lat": 47.083,
+    "lng": 12.842,
+    "alt": 2500
+  },
+  "Azerbaijan|Baku Old City (Icherisheher)": {
+    "lat": 40.366,
+    "lng": 49.835,
+    "alt": 28
+  },
+  "Azerbaijan|Heydar Aliyev Centre": {
+    "lat": 40.395,
+    "lng": 49.867,
+    "alt": 50
+  },
+  "Azerbaijan|Yanar Dag (Burning Mountain)": {
+    "lat": 40.467,
+    "lng": 49.883,
+    "alt": 30
+  },
+  "Azerbaijan|Ateshgah Fire Temple": {
+    "lat": 40.417,
+    "lng": 49.883,
+    "alt": 30
+  },
+  "Azerbaijan|Gobustan Rock Art Cultural Landscape": {
+    "lat": 40.117,
+    "lng": 49.383,
+    "alt": 200
+  },
+  "Azerbaijan|Gobustan Mud Volcanoes": {
+    "lat": 40.183,
+    "lng": 49.25,
+    "alt": 150
+  },
+  "Azerbaijan|Qechresh Forest": {
+    "lat": 41.367,
+    "lng": 48.517,
+    "alt": 600
+  },
+  "Azerbaijan|Khinaliq Village": {
+    "lat": 41.183,
+    "lng": 48.133,
+    "alt": 2350
+  },
+  "Azerbaijan|Shahdag National Park": {
+    "lat": 41.317,
+    "lng": 48.133,
+    "alt": 2800
+  },
+  "Azerbaijan|Nohur Lake": {
+    "lat": 40.983,
+    "lng": 47.883,
+    "alt": 900
+  },
+  "Azerbaijan|Historic Centre of Sheki": {
+    "lat": 41.192,
+    "lng": 47.17,
+    "alt": 545
+  },
+  "Azerbaijan|Palace of Sheki Khans": {
+    "lat": 41.204,
+    "lng": 47.191,
+    "alt": 550
+  },
+  "Azerbaijan|Yeddi Gumbaz Mausoleum": {
+    "lat": 40.633,
+    "lng": 48.633,
+    "alt": 750
+  },
+  "Azerbaijan|Hirkan National Park": {
+    "lat": 38.667,
+    "lng": 48.833,
+    "alt": 500
+  },
+  "Azerbaijan|Caspian Sea Coast": {
+    "lat": 38.75,
+    "lng": 48.867,
+    "alt": 0
+  },
+  "Azerbaijan|Alinja Castle": {
+    "lat": 39.583,
+    "lng": 45.867,
+    "alt": 1200
+  },
+  "Azerbaijan|Duzdag Salt Cave": {
+    "lat": 39.2,
+    "lng": 45.417,
+    "alt": 900
+  },
+  "Canada|Wood Buffalo National Park": {
+    "lat": 59.37,
+    "lng": -112.9,
+    "alt": 250
+  },
+  "Cameroon|Mefou National Park": {
+    "lat": 3.583,
+    "lng": 11.55,
+    "alt": 700
+  },
+  "Cameroon|National Museum of Cameroon": {
+    "lat": 3.866,
+    "lng": 11.517,
+    "alt": 750
+  },
+  "Cameroon|Mvog-Betsi Zoo": {
+    "lat": 3.866,
+    "lng": 11.483,
+    "alt": 740
+  },
+  "Cameroon|Mont Fébé": {
+    "lat": 3.9,
+    "lng": 11.483,
+    "alt": 1000
+  },
+  "Cameroon|Reunification Monument": {
+    "lat": 3.868,
+    "lng": 11.521,
+    "alt": 750
+  },
+  "Cameroon|Benedictine Monastery of Mont Febe": {
+    "lat": 3.905,
+    "lng": 11.48,
+    "alt": 1000
+  },
+  "Cameroon|La Nouvelle Liberté": {
+    "lat": 4.07,
+    "lng": 9.733,
+    "alt": 15
+  },
+  "Cameroon|Doual'art": {
+    "lat": 4.05,
+    "lng": 9.7,
+    "alt": 15
+  },
+  "Cameroon|Eko Market": {
+    "lat": 4.05,
+    "lng": 9.708,
+    "alt": 15
+  },
+  "Cameroon|Wouri River": {
+    "lat": 4.05,
+    "lng": 9.7,
+    "alt": 5
+  },
+  "Cameroon|Chefferie Bandjoun": {
+    "lat": 5.383,
+    "lng": 10.4,
+    "alt": 1500
+  },
+  "Cameroon|Bandjoun Museum": {
+    "lat": 5.383,
+    "lng": 10.4,
+    "alt": 1500
+  },
+  "Cameroon|Royal Palace of Foumban": {
+    "lat": 5.733,
+    "lng": 10.9,
+    "alt": 1200
+  },
+  "Cameroon|Bamoun Royal Museum": {
+    "lat": 5.733,
+    "lng": 10.9,
+    "alt": 1200
+  },
+  "Cameroon|Foumban Sultanate": {
+    "lat": 5.733,
+    "lng": 10.9,
+    "alt": 1200
+  },
+  "Cameroon|Baleng Lake": {
+    "lat": 5.55,
+    "lng": 10.3,
+    "alt": 1400
+  },
+  "Cameroon|Bamenda Highlands": {
+    "lat": 5.96,
+    "lng": 10.15,
+    "alt": 1400
+  },
+  "Cameroon|Menchum Falls": {
+    "lat": 6.35,
+    "lng": 10.05,
+    "alt": 900
+  },
+  "Cameroon|Bafut Palace": {
+    "lat": 6.083,
+    "lng": 10.1,
+    "alt": 1200
+  },
+  "Cameroon|Bafut Museum": {
+    "lat": 6.083,
+    "lng": 10.1,
+    "alt": 1200
+  },
+  "Cameroon|Bamenda Main Market": {
+    "lat": 5.96,
+    "lng": 10.15,
+    "alt": 1400
+  },
+  "Cameroon|Kumbo Highlands": {
+    "lat": 6.2,
+    "lng": 10.67,
+    "alt": 1800
+  },
+  "Cameroon|Limbe Botanical Garden": {
+    "lat": 4.017,
+    "lng": 9.2,
+    "alt": 20
+  },
+  "Cameroon|Limbe Wildlife Centre": {
+    "lat": 4.02,
+    "lng": 9.21,
+    "alt": 20
+  },
+  "Cameroon|Limbe Beach": {
+    "lat": 4.01,
+    "lng": 9.21,
+    "alt": 5
+  },
+  "Cameroon|Down Beach": {
+    "lat": 4.007,
+    "lng": 9.214,
+    "alt": 5
+  },
+  "Cameroon|Mount Cameroon": {
+    "lat": 4.217,
+    "lng": 9.172,
+    "alt": 4040
+  },
+  "Cameroon|Mount Cameroon National Park": {
+    "lat": 4.2,
+    "lng": 9.17,
+    "alt": 2000
+  },
+  "Cameroon|Buea Mountain View": {
+    "lat": 4.156,
+    "lng": 9.241,
+    "alt": 900
+  },
+  "Cameroon|Kribi Beach": {
+    "lat": 2.937,
+    "lng": 9.908,
+    "alt": 5
+  },
+  "Cameroon|Lobé Falls": {
+    "lat": 2.883,
+    "lng": 9.9,
+    "alt": 10
+  },
+  "Cameroon|Lobé River": {
+    "lat": 2.89,
+    "lng": 9.9,
+    "alt": 10
+  },
+  "Cameroon|Chutes de la Lobé": {
+    "lat": 2.883,
+    "lng": 9.9,
+    "alt": 10
+  },
+  "Cameroon|Campo Ma'an National Park": {
+    "lat": 2.35,
+    "lng": 10.05,
+    "alt": 200
+  },
+  "Cameroon|Campo Beach": {
+    "lat": 2.367,
+    "lng": 9.817,
+    "alt": 5
+  },
+  "Cameroon|Grand Batanga": {
+    "lat": 2.85,
+    "lng": 9.9,
+    "alt": 10
+  },
+  "Cameroon|Dja Faunal Reserve": {
+    "lat": 3,
+    "lng": 13,
+    "alt": 600
+  },
+  "Cameroon|Boumba-Bek National Park": {
+    "lat": 2.5,
+    "lng": 15,
+    "alt": 500
+  },
+  "Cameroon|Nki National Park": {
+    "lat": 2.3,
+    "lng": 14.5,
+    "alt": 500
+  },
+  "Cameroon|Lobéké National Park": {
+    "lat": 2.25,
+    "lng": 15.7,
+    "alt": 400
+  },
+  "Cameroon|Benoué National Park": {
+    "lat": 8.35,
+    "lng": 13.85,
+    "alt": 400
+  },
+  "Cameroon|Benoué River": {
+    "lat": 8.35,
+    "lng": 13.85,
+    "alt": 350
+  },
+  "Cameroon|Faro National Park": {
+    "lat": 8,
+    "lng": 12.75,
+    "alt": 500
+  },
+  "Cameroon|Faro River": {
+    "lat": 8,
+    "lng": 12.75,
+    "alt": 450
+  },
+  "Cameroon|Waza National Park": {
+    "lat": 11.333,
+    "lng": 14.667,
+    "alt": 300
+  },
+  "Cameroon|Waza Wildlife Reserve": {
+    "lat": 11.333,
+    "lng": 14.667,
+    "alt": 300
+  },
+  "Cameroon|Mandara Mountains": {
+    "lat": 10.75,
+    "lng": 13.75,
+    "alt": 1000
+  },
+  "Cameroon|Rhumsiki": {
+    "lat": 10.567,
+    "lng": 13.583,
+    "alt": 900
+  },
+  "Cameroon|Kapsiki Peak": {
+    "lat": 10.55,
+    "lng": 13.58,
+    "alt": 1224
+  },
+  "Cameroon|Maroua Grand Market": {
+    "lat": 10.591,
+    "lng": 14.316,
+    "alt": 400
+  },
+  "Cameroon|Mokolo Market": {
+    "lat": 10.74,
+    "lng": 13.8,
+    "alt": 800
+  },
+  "Cameroon|Kapsiki Cultural Landscape": {
+    "lat": 10.567,
+    "lng": 13.583,
+    "alt": 900
+  },
+  "Cambodia|Angkor Wat": {
+    "lat": 13.4125,
+    "lng": 103.867,
+    "alt": 65
+  },
+  "Cambodia|Angkor Thom": {
+    "lat": 13.441,
+    "lng": 103.86,
+    "alt": 50
+  },
+  "Cambodia|Bayon Temple": {
+    "lat": 13.441,
+    "lng": 103.859,
+    "alt": 50
+  },
+  "Cambodia|Ta Prohm": {
+    "lat": 13.435,
+    "lng": 103.889,
+    "alt": 50
+  },
+  "Cambodia|Banteay Srei": {
+    "lat": 13.599,
+    "lng": 103.963,
+    "alt": 50
+  },
+  "Cambodia|Preah Khan": {
+    "lat": 13.462,
+    "lng": 103.871,
+    "alt": 50
+  },
+  "Cambodia|Neak Pean": {
+    "lat": 13.463,
+    "lng": 103.895,
+    "alt": 50
+  },
+  "Cambodia|Ta Keo": {
+    "lat": 13.445,
+    "lng": 103.887,
+    "alt": 50
+  },
+  "Cambodia|Phnom Bakheng": {
+    "lat": 13.424,
+    "lng": 103.856,
+    "alt": 80
+  },
+  "Cambodia|East Mebon": {
+    "lat": 13.447,
+    "lng": 103.92,
+    "alt": 40
+  },
+  "Cambodia|West Mebon": {
+    "lat": 13.434,
+    "lng": 103.801,
+    "alt": 20
+  },
+  "Cambodia|Phnom Kulen National Park": {
+    "lat": 13.612,
+    "lng": 104.108,
+    "alt": 400
+  },
+  "Cambodia|Kulen Waterfall": {
+    "lat": 13.57,
+    "lng": 104.1,
+    "alt": 300
+  },
+  "Cambodia|Kbal Spean": {
+    "lat": 13.68,
+    "lng": 104.015,
+    "alt": 150
+  },
+  "Cambodia|Banteay Kdei": {
+    "lat": 13.43,
+    "lng": 103.899,
+    "alt": 50
+  },
+  "Cambodia|Srah Srang": {
+    "lat": 13.431,
+    "lng": 103.907,
+    "alt": 40
+  },
+  "Cambodia|Angkor National Museum": {
+    "lat": 13.369,
+    "lng": 103.857,
+    "alt": 20
+  },
+  "Cambodia|Cambodian Cultural Village": {
+    "lat": 13.34,
+    "lng": 103.825,
+    "alt": 20
+  },
+  "Cambodia|Siem Reap Old Market": {
+    "lat": 13.355,
+    "lng": 103.855,
+    "alt": 15
+  },
+  "Cambodia|Pub Street": {
+    "lat": 13.354,
+    "lng": 103.855,
+    "alt": 15
+  },
+  "Cambodia|Royal Palace": {
+    "lat": 11.563,
+    "lng": 104.931,
+    "alt": 10
+  },
+  "Cambodia|Silver Pagoda": {
+    "lat": 11.562,
+    "lng": 104.932,
+    "alt": 10
+  },
+  "Cambodia|Wat Phnom": {
+    "lat": 11.576,
+    "lng": 104.922,
+    "alt": 25
+  },
+  "Cambodia|National Museum of Cambodia": {
+    "lat": 11.564,
+    "lng": 104.928,
+    "alt": 10
+  },
+  "Cambodia|Tuol Sleng Genocide Museum": {
+    "lat": 11.549,
+    "lng": 104.918,
+    "alt": 10
+  },
+  "Cambodia|Choeung Ek Genocidal Center": {
+    "lat": 11.484,
+    "lng": 104.902,
+    "alt": 10
+  },
+  "Cambodia|Independence Monument": {
+    "lat": 11.556,
+    "lng": 104.928,
+    "alt": 10
+  },
+  "Cambodia|Wat Ounalom": {
+    "lat": 11.566,
+    "lng": 104.931,
+    "alt": 10
+  },
+  "Cambodia|Central Market": {
+    "lat": 11.57,
+    "lng": 104.921,
+    "alt": 10
+  },
+  "Cambodia|Phnom Tamao Wildlife Rescue Centre": {
+    "lat": 11.3,
+    "lng": 104.8,
+    "alt": 50
+  },
+  "Cambodia|Bokor National Park": {
+    "lat": 10.627,
+    "lng": 104.05,
+    "alt": 1000
+  },
+  "Cambodia|Bokor Hill Station": {
+    "lat": 10.627,
+    "lng": 104.027,
+    "alt": 1080
+  },
+  "Cambodia|Popokvil Waterfall": {
+    "lat": 10.63,
+    "lng": 104.05,
+    "alt": 900
+  },
+  "Cambodia|Kampot River": {
+    "lat": 10.61,
+    "lng": 104.18,
+    "alt": 5
+  },
+  "Cambodia|Kep National Park": {
+    "lat": 10.48,
+    "lng": 104.32,
+    "alt": 100
+  },
+  "Cambodia|Kep Beach": {
+    "lat": 10.483,
+    "lng": 104.317,
+    "alt": 5
+  },
+  "Cambodia|Rabbit Island": {
+    "lat": 10.437,
+    "lng": 104.347,
+    "alt": 5
+  },
+  "Cambodia|Phnom Sampeau": {
+    "lat": 13.033,
+    "lng": 103.1,
+    "alt": 100
+  },
+  "Cambodia|Battambang Bamboo Train": {
+    "lat": 13.1,
+    "lng": 103.2,
+    "alt": 40
+  },
+  "Cambodia|Wat Banan": {
+    "lat": 12.967,
+    "lng": 103.15,
+    "alt": 100
+  },
+  "Cambodia|Phnom Banan": {
+    "lat": 12.967,
+    "lng": 103.15,
+    "alt": 100
+  },
+  "Cambodia|Preah Vihear Temple": {
+    "lat": 14.393,
+    "lng": 104.68,
+    "alt": 525
+  },
+  "Cambodia|Botum Sakor National Park": {
+    "lat": 11.1,
+    "lng": 103.3,
+    "alt": 50
+  },
+  "Cambodia|Tatai Waterfalls": {
+    "lat": 11.567,
+    "lng": 103.117,
+    "alt": 50
+  },
+  "Cambodia|Yeak Laom Lake": {
+    "lat": 13.73,
+    "lng": 107.017,
+    "alt": 300
+  },
+  "Cambodia|Virachey National Park": {
+    "lat": 14.2,
+    "lng": 107,
+    "alt": 400
+  },
+  "Cambodia|Bou Sra Waterfall": {
+    "lat": 12.567,
+    "lng": 107.417,
+    "alt": 700
+  },
+  "Cambodia|Mondulkiri Project": {
+    "lat": 12.45,
+    "lng": 107.2,
+    "alt": 700
+  }
+}

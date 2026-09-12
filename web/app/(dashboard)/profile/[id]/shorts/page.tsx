@@ -66,7 +66,7 @@ export default function ProfileShortsPage() {
         </div>
       </div>
 
-      {q.isLoading ? (
+      {q.isPending ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="aspect-[9/16] rounded-2xl" />
@@ -74,7 +74,7 @@ export default function ProfileShortsPage() {
         </div>
       ) : null}
 
-      {!q.isLoading && shorts.length === 0 ? (
+      {!q.isPending && shorts.length === 0 ? (
         <Card className="p-10 text-center">
           <p className="text-sm text-muted-foreground">No shorts yet for this profile.</p>
           <Button className="mt-4 rounded-xl" variant="outline" asChild>

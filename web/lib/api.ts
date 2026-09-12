@@ -581,6 +581,8 @@ export type Locale = {
   spotTypes?: string[];
   latitude?: number;
   longitude?: number;
+  /** Elevation in meters above sea level. */
+  altitude?: number;
 };
 
 // Locales (places) - params aligned with app/backend: search, countryCode, stateCode, spotTypes, page, limit

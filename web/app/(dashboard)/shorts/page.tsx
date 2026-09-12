@@ -315,7 +315,7 @@ export default function ShortsPage() {
 
   return (
     <div className="h-full bg-transparent">
-      {q.isLoading ? (
+      {q.isPending ? (
         <div className="grid h-full place-items-center p-6">
           <div className="w-full max-w-[440px] space-y-4">
             {Array.from({ length: 2 }).map((_, i) => (

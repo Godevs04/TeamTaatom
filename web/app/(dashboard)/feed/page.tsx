@@ -287,7 +287,7 @@ function FeedContent() {
 
         {/* Feed posts */}
         <div className="grid gap-4 sm:gap-6 lg:gap-8">
-          {q.isLoading ? (
+          {q.isPending ? (
             Array.from({ length: 3 }).map((_, i) => (
               <motion.div
                 key={i}

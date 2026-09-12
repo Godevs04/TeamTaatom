@@ -75,7 +75,7 @@ export default function ChatListPage() {
   const myId = user?._id ?? "";
   const queryClient = useQueryClient();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ["chat", "list"],
     queryFn: listChats,
     enabled: !!myId,
@@ -149,7 +149,7 @@ export default function ChatListPage() {
         <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Your conversations</p>
       </header>
 
-      {isLoading ? (
+      {isPending ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div
