@@ -67,7 +67,7 @@ const ContentCard = memo(({
       return item.thumbnailUrl || item.imageUrl || item.videoUrl
     }
     // Return full media when expanded
-    return item.type === 'short' ? item.videoUrl : item.imageUrl
+    return item.type === 'short' ? item.videoUrl : (item.thumbnailUrl || item.imageUrl)
   }, [isExpanded, item])
   
   return (
@@ -92,12 +92,12 @@ const ContentCard = memo(({
             className="w-full h-48 bg-gray-200 flex items-center justify-center cursor-pointer"
             onClick={() => onToggleExpand(item._id)}
           >
-            {item.type === 'short' ? (
-              // For shorts, show thumbnail image (not video)
+            {item.type === 'short' || item.type === 'long_video' ? (
+              // For shorts / Watch, show thumbnail image (not video)
               (item.thumbnailUrl || item.imageUrl) && !imageError ? (
                 <img
                   src={item.thumbnailUrl || item.imageUrl}
-                  alt={item.caption || 'Short thumbnail'}
+                  alt={item.caption || 'Video thumbnail'}
                   className="w-full h-48 object-cover"
                   onError={() => setImageError(true)}
                   loading="lazy"
@@ -979,6 +979,7 @@ const TravelContent = () => {
                 <option value="all">All Types</option>
                 <option value="photo">Photos</option>
                 <option value="short">Shorts</option>
+                <option value="long_video">Watch</option>
               </select>
               <button 
                 onClick={() => setShowMoreFilters(!showMoreFilters)}
@@ -1250,18 +1251,18 @@ const TravelContent = () => {
           {selectedContent?.action === 'view' && (
             <div className="space-y-4">
               {/* Display image or video thumbnail in modal */}
-              {selectedContent.type === 'short' ? (
-                // For shorts, show thumbnail in modal preview, video on expand
+              {selectedContent.type === 'short' || selectedContent.type === 'long_video' ? (
+                // For shorts / Watch, show thumbnail in modal preview
                 selectedContent.thumbnailUrl || selectedContent.imageUrl ? (
                   <img
                     src={selectedContent.thumbnailUrl || selectedContent.imageUrl}
                     onError={(e) => {
                       e.target.src = '/placeholder.svg'
                     }}
-                    alt={selectedContent.caption || 'Short thumbnail'}
+                    alt={selectedContent.caption || 'Video thumbnail'}
                     className="w-full h-64 object-cover rounded-lg"
                   />
-                ) : selectedContent.videoUrl ? (
+                ) : selectedContent.videoUrl && selectedContent.type === 'short' ? (
                   <video
                     src={selectedContent.videoUrl}
                     className="w-full h-64 object-cover rounded-lg"

@@ -1917,15 +1917,20 @@ exports.sharePost = async (req, res) => {
     // Build post preview for attachment
     const authorProfilePic = post.user ? (await resolveProfilePic(post.user) || '') : '';
 
-    // Get first image URL from post media
+    // Get first image URL from post media — prefer YouTube thumb for Watch posts
     let postImageUrl = '';
-    if (post.media && post.media.length > 0) {
+    if (post.type === 'long_video') {
+      postImageUrl = post.thumbnailUrl || post.imageUrl || '';
+    } else if (post.media && post.media.length > 0) {
       const firstMedia = post.media[0];
       if (firstMedia.storageKey) {
         postImageUrl = await generateSignedUrl(firstMedia.storageKey, 'IMAGE') || '';
       } else if (firstMedia.url) {
         postImageUrl = firstMedia.url;
       }
+    }
+    if (!postImageUrl) {
+      postImageUrl = post.thumbnailUrl || post.imageUrl || '';
     }
 
     const attachment = {

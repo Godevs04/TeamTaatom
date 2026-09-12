@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useFeed } from "../../../hooks/useFeed";
+import { useWatch } from "../../../hooks/useWatch";
 import { PostCard } from "../../../components/trip/post-card";
 import { CommentsDrawer } from "../../../components/trip/comments-drawer";
 import { Skeleton } from "../../../components/ui/skeleton";
@@ -16,13 +17,70 @@ import { getLikedPostIds, getSavedPostIds, mergeLikedIntoPosts, mergeSavedIntoPo
 import { getFriendlyErrorMessage, isUnauthorizedError } from "../../../lib/auth-errors";
 import { SocialConnect } from "../../../components/layout/social-connect";
 import type { Post } from "../../../types/post";
+import { api } from "../../../lib/axios";
+import { toast } from "sonner";
 
-type FeedTabId = "recents" | "friends" | "popular";
+type HomeTabId = "feed" | "watch";
 
-const feedTabs: { id: FeedTabId; label: string }[] = [
-  { id: "recents", label: "Recents" },
-  { id: "friends", label: "Friends" },
-  { id: "popular", label: "Popular" },
+function CreatorRequestCta() {
+  const { user } = useAuth();
+  const [status, setStatus] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!user) return;
+    api
+      .get("/video-creator/status")
+      .then((res) => setStatus(res.data?.status || "none"))
+      .catch(() => setStatus(null));
+  }, [user]);
+
+  const onRequest = async () => {
+    if (!user || busy || status === "pending" || status === "approved") return;
+    setBusy(true);
+    try {
+      const res = await api.post("/video-creator/request", {
+        message: "I want to upload long-form travel videos",
+      });
+      setStatus(res.data?.status || "pending");
+      toast.success("Creator request submitted");
+    } catch (e: unknown) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <motion.div className="mt-6 inline-block" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+        <Button className="rounded-xl shadow-premium" asChild>
+          <Link href="/auth/login?next=/feed">Sign in to request creator access</Link>
+        </Button>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div className="mt-6 inline-block" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+      <Button
+        className="rounded-xl shadow-premium"
+        onClick={onRequest}
+        disabled={busy || status === "pending" || status === "approved"}
+      >
+        {status === "approved"
+          ? "You are an approved creator"
+          : status === "pending"
+            ? "Creator request pending"
+            : "Creator Request"}
+      </Button>
+    </motion.div>
+  );
+}
+
+const feedTabs: { id: HomeTabId; label: string }[] = [
+  { id: "feed", label: "Feed" },
+  { id: "watch", label: "Videos" },
 ];
 
 const easeOut = [0.22, 1, 0.36, 1] as const;
@@ -63,13 +121,15 @@ const postItemVariants = {
 };
 
 function FeedContent() {
-  const [activeTab, setActiveTab] = React.useState<FeedTabId>("recents");
+  const [activeTab, setActiveTab] = React.useState<HomeTabId>("feed");
   const [loadMoreError, setLoadMoreError] = React.useState(false);
   const [commentsPost, setCommentsPost] = React.useState<Post | null>(null);
   const searchParams = useSearchParams();
   const deepLinkPostId = searchParams.get("postId");
   const mounted = useMounted();
-  const q = useFeed(activeTab);
+  const feedQuery = useFeed("recents");
+  const watchQuery = useWatch();
+  const q = activeTab === "watch" ? watchQuery : feedQuery;
   const { user } = useAuth();
 
   React.useEffect(() => {
@@ -155,21 +215,23 @@ function FeedContent() {
                   variants={feedHeroItemVariants}
                   className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-zinc-500"
                 >
-                  News feed
+                  {activeTab === "watch" ? "Videos" : "News feed"}
                 </motion.p>
                 <motion.h1
                   variants={feedHeroItemVariants}
                   className="mt-3 font-display text-[1.65rem] font-semibold leading-[1.15] tracking-[-0.02em] text-slate-950 sm:text-3xl lg:text-[2.125rem] dark:text-zinc-50"
                 >
                   <span className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-zinc-100 dark:via-zinc-200 dark:to-zinc-400">
-                    Stories that move with you
+                    {activeTab === "watch" ? "Long-form from creators" : "Stories that move with you"}
                   </span>
                 </motion.h1>
                 <motion.p
                   variants={feedHeroItemVariants}
                   className="mt-3 max-w-lg text-sm leading-[1.65] text-slate-600 dark:text-zinc-400 sm:text-[15px]"
                 >
-                  Trips and moments from travelers you follow — calm, visual, and easy to browse.
+                  {activeTab === "watch"
+                    ? "Videos from approved creators — play, like, comment, and share."
+                    : "Trips and moments from travelers you follow — calm, visual, and easy to browse."}
                 </motion.p>
                 <motion.div variants={feedHeroItemVariants} className="mt-5 hidden sm:block">
                   <div className="border-t border-slate-100/90 pt-4 dark:border-zinc-800/80">
@@ -231,7 +293,14 @@ function FeedContent() {
           </div>
         </motion.header>
 
-        {/* Composer */}
+        {activeTab === "watch" ? (
+          <div className="relative z-10">
+            <CreatorRequestCta />
+          </div>
+        ) : null}
+
+        {/* Composer — photo Feed only */}
+        {activeTab === "feed" ? (
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
@@ -284,6 +353,7 @@ function FeedContent() {
             </motion.div>
           </Link>
         </motion.div>
+        ) : null}
 
         {/* Feed posts */}
         <div className="grid gap-4 sm:gap-6 lg:gap-8">
@@ -350,42 +420,23 @@ function FeedContent() {
               >
                 <Compass className="h-8 w-8 text-primary/70" />
               </motion.div>
-              {activeTab === "friends" && !user ? (
+              {activeTab === "watch" ? (
                 <>
                   <h3 className="mt-6 font-display text-lg font-semibold text-slate-900 dark:text-zinc-50">
-                    Sign in to see posts from people you follow
+                    Nothing in Videos yet
                   </h3>
                   <p className="mt-2 text-[15px] leading-relaxed text-slate-500 dark:text-zinc-400">
-                    The Friends feed shows trips from travelers you follow. Create an account or sign in to start
-                    building your circle.
+                    Long-form videos from approved creators will show up here.
                   </p>
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2, duration: 0.4 }}
-                    className="mt-6 flex justify-center gap-3"
-                  >
-                    <Button variant="outline" className="rounded-xl border-slate-200/80 dark:border-zinc-700" asChild>
-                      <Link href="/auth/login">Sign in</Link>
-                    </Button>
-                    <Button className="rounded-xl shadow-premium" asChild>
-                      <Link href="/auth/register">Create account</Link>
-                    </Button>
-                  </motion.div>
+                  <CreatorRequestCta />
                 </>
               ) : (
                 <>
                   <h3 className="mt-6 font-display text-lg font-semibold text-slate-900 dark:text-zinc-50">
-                    {activeTab === "friends"
-                      ? "No posts from people you follow"
-                      : activeTab === "popular"
-                        ? "No posts yet"
-                        : "No posts yet"}
+                    No posts yet
                   </h3>
                   <p className="mt-2 text-[15px] leading-relaxed text-slate-500 dark:text-zinc-400">
-                    {activeTab === "friends"
-                      ? "Follow travelers to see their trips here, or switch to Recents to see all posts."
-                      : "Be the first to share a trip or follow travelers to see their stories."}
+                    Be the first to share a trip or follow travelers to see their stories.
                   </p>
                   <motion.div
                     className="mt-6 inline-block"
@@ -393,9 +444,7 @@ function FeedContent() {
                     whileTap={{ scale: 0.98 }}
                   >
                     <Button className="rounded-xl shadow-premium" asChild>
-                      <Link href={activeTab === "friends" ? "/search" : "/create"}>
-                        {activeTab === "friends" ? "Find travelers" : "Create post"}
-                      </Link>
+                      <Link href="/create">Create post</Link>
                     </Button>
                   </motion.div>
                 </>

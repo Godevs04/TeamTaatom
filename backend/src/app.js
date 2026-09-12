@@ -304,6 +304,7 @@ app.use('/api/v1/songs', songRoutes);
 app.use('/api/v1/locales', localeRoutes);
 app.use('/api/v1/maps', mapsRoutes);
 app.use('/api/v1/journey', journeyRoutes);
+app.use('/api/v1/long-videos', require('./routes/longVideoRoutes'));
 
 // Swagger API Documentation
 // Enable in development or when ENABLE_SWAGGER=true (for production)

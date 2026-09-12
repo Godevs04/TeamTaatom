@@ -19,7 +19,7 @@ export type Song = {
 
 export type Post = {
   _id: string;
-  type?: "post" | "short";
+  type?: "post" | "short" | "photo" | "long_video";
   caption?: string;
   imageUrl?: string;
   imageUrls?: string[];
@@ -27,6 +27,11 @@ export type Post = {
   videoUrl?: string;
   mediaUrl?: string;
   thumbnailUrl?: string;
+  youtubeUrl?: string | null;
+  youtubeVideoId?: string | null;
+  youtubeChannelTitle?: string | null;
+  durationSeconds?: number | null;
+  source?: "upload" | "youtube" | null;
   user: User;
 
   // social
@@ -57,7 +62,6 @@ export type Post = {
     longitude?: number;
   };
   hasExifGps?: boolean;
-  source?: string;
 
   // music
   song?: Song;

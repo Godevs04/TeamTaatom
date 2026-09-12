@@ -10,12 +10,14 @@ export function PostDetailMedia({
   isShort,
   videoUrl,
   posterUrl,
+  isLongVideo,
 }: {
   images: string[];
   caption?: string;
   isShort?: boolean;
   videoUrl?: string;
   posterUrl?: string;
+  isLongVideo?: boolean;
 }) {
   const [index, setIndex] = React.useState(0);
   const [lightbox, setLightbox] = React.useState(false);
@@ -50,6 +52,21 @@ export function PostDetailMedia({
           playsInline
           preload="metadata"
           className="max-h-[min(70vh,720px)] w-full object-contain"
+        />
+      </div>
+    );
+  }
+
+  if (isLongVideo && videoUrl) {
+    return (
+      <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black">
+        <video
+          src={videoUrl}
+          poster={posterUrl}
+          controls
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 h-full w-full object-contain"
         />
       </div>
     );

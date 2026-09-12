@@ -62,6 +62,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   }
 
   const isShort = post.type === "short";
+  const isLongVideo = post.type === "long_video";
   const videoUrl = post.videoUrl || post.mediaUrl || "";
   const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
@@ -70,10 +71,12 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   const images: string[] = (imagesArray?.length ? imagesArray : [media]).filter(
     (src): src is string => typeof src === "string" && src.length > 0
   );
-  const coords = getPostCoordinates(post);
+  const coords = isLongVideo ? null : getPostCoordinates(post);
   const hasCoords = coords !== null;
   const audioUrl = post.song?.s3Url;
-  const locationText = getPostDisplayLocation(post);
+  const locationText = isLongVideo
+    ? post.user?.fullName || post.user?.username || "Videos"
+    : getPostDisplayLocation(post);
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6 pb-16">
@@ -123,6 +126,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           isShort={isShort}
           videoUrl={videoUrl}
           posterUrl={posterUrl}
+          isLongVideo={isLongVideo}
         />
 
         <PostDetailActionBar post={post} />

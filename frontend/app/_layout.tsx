@@ -711,6 +711,8 @@ function RootLayoutInner() {
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
                               segments[0] === 'help' ||
+                              segments[0] === 'watch' ||
+                              segments[0] === 'upload-long-video' ||
                               normalizedPath.startsWith('/post/') ||
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||
@@ -731,7 +733,9 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
                               normalizedPath.startsWith('/connect') ||
-                              normalizedPath.startsWith('/onboarding');
+                              normalizedPath.startsWith('/onboarding') ||
+                              normalizedPath.startsWith('/watch') ||
+                              normalizedPath.startsWith('/upload-long-video');
       
       // Double-check storage before trusting isAuthenticated state
       // This ensures we detect signout even if state hasn't updated yet
@@ -1202,6 +1206,9 @@ function RootLayoutInner() {
           <Stack.Screen name="connect" options={{ presentation: 'card' }} />
           {/* Map routes */}
           <Stack.Screen name="map/current-location" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
+          {/* Creator long videos */}
+          <Stack.Screen name="watch/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
+          <Stack.Screen name="upload-long-video" options={{ presentation: 'modal', gestureEnabled: true }} />
         </Stack>
       </Suspense>
     </ResponsiveContainer>

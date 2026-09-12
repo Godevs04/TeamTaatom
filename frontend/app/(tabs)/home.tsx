@@ -19,9 +19,13 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { getPosts, getPostById, toggleLike } from '../../services/posts';
+import { getLongVideos } from '../../services/longVideos';
+import { getVideoCreatorStatus, requestVideoCreatorAccess } from '../../services/videoCreator';
+import type { CreatorStatusResponse } from '../../services/videoCreator';
 import { listChats } from '../../services/chat';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
+import LongVideoCard from '../../components/LongVideoCard';
 import { getImageAspectRatio } from '../../components/post/PostImage';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -61,6 +65,10 @@ import {
 import { flushPendingLikes } from '../../utils/likePersistence';
 import { realtimePostsService } from '../../services/realtimePosts';
 import type { FeedMode } from '../../services/posts';
+
+/** Home top tabs: photo Feed + Videos (creator long-form). */
+type HomeTab = 'feed' | 'watch';
+const HOME_TABS: HomeTab[] = ['feed', 'watch'];
 
 /** Feed list item: either a post or a native ad placeholder (inserted every 5 posts). */
 export type FeedItem = PostType | {
@@ -234,6 +242,9 @@ const FeedListItem = React.memo(
         />
       );
     }
+    if ((item as PostType).type === 'long_video') {
+      return <LongVideoCard post={item as PostType} />;
+    }
     return (
       <OptimizedPhotoCard
         post={item}
@@ -345,7 +356,7 @@ export default function HomeScreen() {
       }));
 
       // 3. Update tab caches (feedCacheRef.current)
-      const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+      const modes: HomeTab[] = HOME_TABS;
       modes.forEach(mode => {
         const cache = feedCacheRef.current[mode];
         if (cache && cache.posts) {
@@ -371,7 +382,7 @@ export default function HomeScreen() {
       }));
 
       // Update tab caches (feedCacheRef.current)
-      const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+      const modes: HomeTab[] = HOME_TABS;
       modes.forEach(mode => {
         const cache = feedCacheRef.current[mode];
         if (cache && cache.posts) {
@@ -408,7 +419,7 @@ export default function HomeScreen() {
         }));
 
         // Update tab caches
-        const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+        const modes: HomeTab[] = HOME_TABS;
         modes.forEach(mode => {
           const cache = feedCacheRef.current[mode];
           if (cache && cache.posts) {
@@ -435,7 +446,7 @@ export default function HomeScreen() {
         }));
 
         // Update tab caches
-        const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+        const modes: HomeTab[] = HOME_TABS;
         modes.forEach(mode => {
           const cache = feedCacheRef.current[mode];
           if (cache && cache.posts) {
@@ -461,7 +472,7 @@ export default function HomeScreen() {
           }));
 
           // Update tab caches
-          const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+          const modes: HomeTab[] = HOME_TABS;
           modes.forEach(mode => {
             const cache = feedCacheRef.current[mode];
             if (cache && cache.posts) {
@@ -480,7 +491,7 @@ export default function HomeScreen() {
         setPosts(prev => prev.filter(post => normalizeId(post._id) !== normDeletedId));
 
         // Update tab caches
-        const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+        const modes: HomeTab[] = HOME_TABS;
         modes.forEach(mode => {
           const cache = feedCacheRef.current[mode];
           if (cache && cache.posts) {
@@ -505,7 +516,9 @@ export default function HomeScreen() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
-  const [feedMode, setFeedMode] = useState<FeedMode>('recents');
+  const [feedMode, setFeedMode] = useState<HomeTab>('feed');
+  const [creatorStatus, setCreatorStatus] = useState<CreatorStatusResponse | null>(null);
+  const [creatorRequesting, setCreatorRequesting] = useState(false);
   const { theme, mode, isDark } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
@@ -539,7 +552,7 @@ export default function HomeScreen() {
   // in flight — we allow concurrent fetches across DIFFERENT tabs (so a tab
   // switch never gets blocked by a previous tab's still-running request) but
   // de-duplicate concurrent first-page fetches WITHIN the same tab.
-  const fetchingTabsRef = useRef<Set<FeedMode>>(new Set());
+  const fetchingTabsRef = useRef<Set<HomeTab>>(new Set());
   const isPaginatingRef = useRef(false);
   
   // View tracking de-duplication: track last viewed post ID and timestamp
@@ -575,16 +588,44 @@ export default function HomeScreen() {
   const likedPostIdsRef = useRef<Set<string>>(new Set());
 
   // In-memory cache of posts per feed tab — switching tabs restores instantly without image reload
-  const feedCacheRef = useRef<Record<FeedMode, { posts: PostType[]; page: number; hasMore: boolean }>>({
-    recents: { posts: [], page: 1, hasMore: true },
-    friends: { posts: [], page: 1, hasMore: true },
-    popular: { posts: [], page: 1, hasMore: true },
+  const feedCacheRef = useRef<Record<HomeTab, { posts: PostType[]; page: number; hasMore: boolean }>>({
+    feed: { posts: [], page: 1, hasMore: true },
+    watch: { posts: [], page: 1, hasMore: true },
   });
 
-  const feedModeRef = useRef<FeedMode>(feedMode);
+  const feedModeRef = useRef<HomeTab>(feedMode);
   useEffect(() => {
     feedModeRef.current = feedMode;
   }, [feedMode]);
+
+  useEffect(() => {
+    if (feedMode !== 'watch') return;
+    let cancelled = false;
+    getVideoCreatorStatus()
+      .then((s) => {
+        if (!cancelled) setCreatorStatus(s);
+      })
+      .catch(() => {
+        if (!cancelled) setCreatorStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [feedMode]);
+
+  const handleCreatorRequest = useCallback(async () => {
+    if (creatorRequesting) return;
+    if (creatorStatus?.status === 'approved' || creatorStatus?.status === 'pending') return;
+    setCreatorRequesting(true);
+    try {
+      const next = await requestVideoCreatorAccess('I want to upload long-form travel videos');
+      setCreatorStatus(next);
+    } catch (e: any) {
+      showError(e?.message || 'Could not submit creator request');
+    } finally {
+      setCreatorRequesting(false);
+    }
+  }, [creatorRequesting, creatorStatus, showError]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -593,11 +634,10 @@ export default function HomeScreen() {
     return () => clearTimeout(timer);
   }, [feedMode]);
 
-  const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = useMemo(
+  const feedTabs: Array<{ id: HomeTab; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = useMemo(
     () => [
-      { id: 'recents', label: 'Recent', icon: 'time-outline', activeIcon: 'time' },
-      { id: 'friends', label: 'Friends', icon: 'people-outline', activeIcon: 'people' },
-      { id: 'popular', label: 'Popular', icon: 'flame-outline', activeIcon: 'flame' },
+      { id: 'feed', label: 'Feed', icon: 'images-outline', activeIcon: 'images' },
+      { id: 'watch', label: 'Videos', icon: 'play-circle-outline', activeIcon: 'play-circle' },
     ],
     []
   );
@@ -651,7 +691,19 @@ export default function HomeScreen() {
 
       // Web: Fetch more posts per page for better UX
       const postsPerPage = isWeb ? 15 : 10;
-      const response = await getPosts(pageNum, postsPerPage, requestFeedMode);
+      let responsePosts: PostType[] = [];
+      let paginationHasNext = false;
+
+      if (requestFeedMode === 'watch') {
+        const response = await getLongVideos(pageNum, postsPerPage);
+        responsePosts = response.posts || response.videos || [];
+        paginationHasNext = response.pagination?.hasMore ?? false;
+      } else {
+        // Feed tab always uses photo recents
+        const response = await getPosts(pageNum, postsPerPage, 'recents' as FeedMode);
+        responsePosts = response.posts || [];
+        paginationHasNext = response.pagination?.hasNextPage ?? false;
+      }
 
       // Stale-response guard: if user switched tabs while this request was in
       // flight, drop the result. Otherwise we would overwrite the new tab's
@@ -665,7 +717,7 @@ export default function HomeScreen() {
       setIsError(false);
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
-      if (!response.posts || response.posts.length === 0) {
+      if (!responsePosts || responsePosts.length === 0) {
         if (pageNum === 1 && !shouldAppend) {
           // First page with no posts - set empty array, don't show error
           setPosts([]);
@@ -689,22 +741,22 @@ export default function HomeScreen() {
         // Feed de-duplication: merge items by unique _id, never append duplicates
         setPosts(prev => {
           const existingIds = new Set(prev.map(p => p._id));
-          const newPosts = response.posts.filter(p => !existingIds.has(p._id));
+          const newPosts = responsePosts.filter(p => !existingIds.has(p._id));
           const merged = mergeLikedIntoPosts([...prev, ...newPosts]);
           // Update in-memory cache for this tab (using captured request mode)
           feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
           return merged;
         });
       } else {
-        const merged = mergeLikedIntoPosts(response.posts);
+        const merged = mergeLikedIntoPosts(responsePosts);
         setPosts(merged);
         feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
       }
 
       // If fewer posts returned than requested, we've reached the end regardless
       // of what the backend pagination says (e.g. friends feed with few posts).
-      const receivedLessThanRequested = response.posts.length < postsPerPage;
-      const newHasMore = receivedLessThanRequested ? false : (response.pagination?.hasNextPage ?? false);
+      const receivedLessThanRequested = responsePosts.length < postsPerPage;
+      const newHasMore = receivedLessThanRequested ? false : paginationHasNext;
       setHasMore(newHasMore);
       setPage(pageNum);
       // Sync hasMore into cache (using captured request mode)
@@ -712,8 +764,8 @@ export default function HomeScreen() {
       feedCacheRef.current[requestFeedMode].page = pageNum;
       
       // Scroll to specific post if postId is provided in params
-      if (params.postId && typeof params.postId === 'string' && response.posts.length > 0) {
-        const targetIndex = response.posts.findIndex(p => p._id === params.postId);
+      if (params.postId && typeof params.postId === 'string' && responsePosts.length > 0) {
+        const targetIndex = responsePosts.findIndex(p => p._id === params.postId);
         if (targetIndex !== -1) {
           // Use multiple attempts with increasing delays to ensure scroll works
           // This handles cases where FlatList isn't ready immediately
@@ -754,7 +806,7 @@ export default function HomeScreen() {
       if (pageNum === 1 && !shouldAppend) {
         try {
           await AsyncStorage.setItem(`cachedPosts_${requestFeedMode}`, JSON.stringify({
-            data: response.posts,
+            data: responsePosts,
             timestamp: Date.now()
           }));
         } catch (error) {
@@ -767,13 +819,13 @@ export default function HomeScreen() {
       // FlashList drawDistance pre-mounts roughly the first 3 posts, so only pre-cache
       // posts BEYOND that window — duplicating fetches for posts already mounting was
       // saturating connections and breaking the first batch on cold start.
-      if (response.posts.length > 6) {
+      if (responsePosts.length > 6) {
         const preloadStart = 6;
         const preloadEnd = isWeb ? 10 : 9;
-        const upcomingPosts = response.posts.slice(preloadStart, preloadEnd);
+        const upcomingPosts = responsePosts.slice(preloadStart, preloadEnd);
         setTimeout(() => {
           const urls = upcomingPosts
-            .map((post) => post.imageUrl)
+            .map((post) => post.thumbnailUrl || post.imageUrl)
             .filter((u): u is string => !!u);
           if (urls.length > 0) {
             ExpoImage.prefetch(urls, { cachePolicy: 'memory-disk' });
@@ -1330,7 +1382,7 @@ export default function HomeScreen() {
     }
   }, [handleRefresh]);
 
-  const handleFeedTabPress = useCallback((mode: FeedMode) => {
+  const handleFeedTabPress = useCallback((mode: HomeTab) => {
     if (mode === feedMode) return;
 
     // Save current tab's posts into cache before switching
@@ -1347,8 +1399,8 @@ export default function HomeScreen() {
       hasInitializedRef.current = true;
     } else {
       // No cache yet for this tab — clear stale content from the previous tab
-      // immediately so the user does NOT see e.g. recents posts under the
-      // friends header, and show a loader until the fresh fetch lands.
+      // immediately so the user does NOT see e.g. feed posts under the
+      // watch header, and show a loader until the fresh fetch lands.
       setPosts([]);
       setPage(1);
       setHasMore(true);
@@ -1515,10 +1567,10 @@ export default function HomeScreen() {
   });
 
   const feedData = useMemo((): FeedItem[] => {
-    if (isWeb || posts.length === 0) return posts as FeedItem[];
+    if (isWeb || posts.length === 0 || feedMode === 'watch') return posts as FeedItem[];
     const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
     return rawFeed;
-  }, [posts, adCap]);
+  }, [posts, adCap, feedMode]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1533,7 +1585,7 @@ export default function HomeScreen() {
       style={styles.feedTabsContainer}
       segments={feedTabs.map((tab) => ({ key: tab.id, label: tab.label }))}
       value={feedMode}
-      onChange={(id) => handleFeedTabPress(id as FeedMode)}
+      onChange={(id) => handleFeedTabPress(id as HomeTab)}
     />
   );
 
@@ -1807,6 +1859,57 @@ export default function HomeScreen() {
                       <Text style={styles.offlineText}>
                         Failed to update feed. Showing cached content.
                       </Text>
+                    </View>
+                  )}
+                  {feedMode === 'watch' && (
+                    <View style={{ marginHorizontal: 16, marginBottom: 12, marginTop: 4 }}>
+                      {creatorStatus?.canUpload ? (
+                        <TouchableOpacity
+                          onPress={() => router.push('/upload-long-video' as any)}
+                          style={{
+                            paddingVertical: 12,
+                            paddingHorizontal: 14,
+                            borderRadius: 14,
+                            backgroundColor: isDark ? 'rgba(28,115,180,0.25)' : 'rgba(28,115,180,0.12)',
+                          }}
+                        >
+                          <Text style={{ fontWeight: '700', color: theme.colors.text, fontSize: 14 }}>
+                            Upload a long video
+                          </Text>
+                          <Text style={{ marginTop: 2, color: theme.colors.textSecondary, fontSize: 12 }}>
+                            From your profile or here — approved creators only
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          onPress={handleCreatorRequest}
+                          disabled={
+                            creatorRequesting ||
+                            creatorStatus?.status === 'pending' ||
+                            creatorStatus?.status === 'approved'
+                          }
+                          style={{
+                            paddingVertical: 12,
+                            paddingHorizontal: 14,
+                            borderRadius: 14,
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                            opacity: creatorStatus?.status === 'pending' ? 0.7 : 1,
+                          }}
+                        >
+                          <Text style={{ fontWeight: '700', color: theme.colors.text, fontSize: 14 }}>
+                            {creatorStatus?.status === 'pending'
+                              ? 'Creator request pending'
+                              : creatorStatus?.status === 'rejected'
+                                ? 'Request again to become a video creator'
+                                : 'Creator Request'}
+                          </Text>
+                          <Text style={{ marginTop: 2, color: theme.colors.textSecondary, fontSize: 12 }}>
+                            {creatorStatus?.status === 'pending'
+                              ? 'TAATOM admins are reviewing your request'
+                              : 'Apply to upload long-form videos to Videos'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 </View>

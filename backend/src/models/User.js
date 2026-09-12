@@ -136,6 +136,27 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  /** Long-form Videos creator gate (TAATOM Long Video spec) */
+  videoCreatorStatus: {
+    type: String,
+    enum: ['none', 'pending', 'approved', 'rejected'],
+    default: 'none',
+    index: true
+  },
+  videoCreatorRequestedAt: {
+    type: Date,
+    default: null
+  },
+  videoCreatorReviewedAt: {
+    type: Date,
+    default: null
+  },
+  videoCreatorReviewNote: {
+    type: String,
+    trim: true,
+    maxlength: 500,
+    default: ''
+  },
   otp: {
     type: String,
     default: null

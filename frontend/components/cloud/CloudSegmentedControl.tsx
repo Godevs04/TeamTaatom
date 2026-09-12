@@ -44,7 +44,7 @@ export default function CloudSegmentedControl<T extends string>({
       <BlurView intensity={isDark ? 40 : 24} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
       {segments.map((seg) => {
         const active = value === seg.key;
-        const useGradient = active && (seg.key === 'recents' || seg.key === 'locale');
+        const useGradient = active && (seg.key === 'recents' || seg.key === 'locale' || seg.key === 'feed' || seg.key === 'watch');
 
         return (
           <TouchableOpacity
