@@ -52,17 +52,38 @@ jobs:
           fi
 
           # Accept either base64-encoded PEM (preferred) or raw PEM.
-          if printf '%s' "$EC2_SSH_KEY_B64" | grep -q 'BEGIN .*PRIVATE KEY'; then
-            printf '%s\n' "$EC2_SSH_KEY_B64" > ~/.ssh/ec2.pem
+          # Strip accidental quotes from GitHub secret paste.
+          KEY="$(printf '%s' "$EC2_SSH_KEY_B64" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+
+          if printf '%s' "$KEY" | grep -Eq 'BEGIN (RSA |OPENSSH )?PRIVATE KEY'; then
+            printf '%s\n' "$KEY" > ~/.ssh/ec2.pem
           else
-            printf '%s' "$EC2_SSH_KEY_B64" | tr -d '\r\n ' | base64 -d > ~/.ssh/ec2.pem
+            CLEAN="$(printf '%s' "$KEY" | tr -d '[:space:]')"
+            if [ -z "$CLEAN" ]; then
+              echo "ERROR: EC2_SSH_KEY is empty after trimming."
+              exit 1
+            fi
+            if ! printf '%s' "$CLEAN" | grep -Eq '^[A-Za-z0-9+/=]+$'; then
+              echo "ERROR: EC2_SSH_KEY is neither raw PEM nor valid base64."
+              echo "Re-encode on macOS and paste ONLY the clipboard into the secret (no quotes):"
+              echo "  base64 -i /path/to/new-tatoom-keys.pem | tr -d '\\n' | pbcopy"
+              exit 1
+            fi
+            if ! printf '%s' "$CLEAN" | base64 -d > ~/.ssh/ec2.pem 2>/tmp/b64.err; then
+              echo "ERROR: base64 decode failed for EC2_SSH_KEY."
+              cat /tmp/b64.err || true
+              echo "Secret length (chars): ${#CLEAN}"
+              echo "Re-encode on macOS and paste ONLY the clipboard into the secret (no quotes):"
+              echo "  base64 -i /path/to/new-tatoom-keys.pem | tr -d '\\n' | pbcopy"
+              exit 1
+            fi
           fi
           chmod 600 ~/.ssh/ec2.pem
 
           if ! ssh-keygen -y -f ~/.ssh/ec2.pem >/dev/null 2>&1; then
-            echo "ERROR: EC2_SSH_KEY is not a valid private key."
+            echo "ERROR: EC2_SSH_KEY is not a valid private key after decode."
             echo "Encode the PEM on your machine and update the secret:"
-            echo "  macOS:  base64 -i your-key.pem | pbcopy"
+            echo "  macOS:  base64 -i your-key.pem | tr -d '\\n' | pbcopy"
             echo "  Linux:  base64 -w0 your-key.pem"
             exit 1
           fi
