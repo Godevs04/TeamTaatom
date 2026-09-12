@@ -248,3 +248,11 @@ CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
   node scripts/locale-import/import-locales.js \
   --csv ../Tool/Godevs/locale/templates/locale-import-batch-e.csv \
   --env .env --fold-meta --skip-images --apply
+
+  CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
+  node scripts/locale-import/import-locales.js \
+  --csv ../Tool/Godevs/locale/templates/locale-import-batch-f.csv \
+  --env .env \
+  --fold-meta \
+  --skip-images \
+  --apply
