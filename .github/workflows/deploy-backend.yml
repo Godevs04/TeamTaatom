@@ -193,8 +193,23 @@ jobs:
             echo "==> Building image"
             docker compose build
 
+            echo "==> Freeing port 3000 (legacy containers)"
+            # Old EC2 used container name teamtatoom on 0.0.0.0:3000 — conflicts with taatom-backend
+            for c in teamtatoom cool_chaum; do
+              docker rm -f "$c" 2>/dev/null || true
+            done
+            # If something else still holds :3000, remove containers publishing that port
+            while read -r cid; do
+              [ -n "$cid" ] || continue
+              name="$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null | sed 's#^/##')"
+              if [ "$name" != "taatom-backend" ]; then
+                echo "Removing port-3000 container: $name ($cid)"
+                docker rm -f "$cid" 2>/dev/null || true
+              fi
+            done < <(docker ps -q --filter publish=3000 2>/dev/null || true)
+
             echo "==> Restarting stack"
-            docker compose up -d --remove-orphans
+            docker compose up -d --remove-orphans --force-recreate
 
             echo "==> Waiting for health: $HEALTH_URL"
             OK=0
