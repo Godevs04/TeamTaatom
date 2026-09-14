@@ -52,10 +52,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* AdSense site verification + ad loader (ca-pub-6362359854606661) */}
-        <AdSenseScript />
-      </head>
       <body className={`${inter.variable} ${fraunces.variable} font-sans antialiased`} suppressHydrationWarning>
         <div suppressHydrationWarning className="min-h-screen">
           <AppProviders>
@@ -64,6 +60,7 @@ export default function RootLayout({
             <main className="min-h-[calc(100vh-3.5rem)] w-full">{children}</main>
             <SiteFooter />
           </AppProviders>
+          <AdSenseScript />
           <Analytics />
         </div>
       </body>

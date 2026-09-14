@@ -369,7 +369,12 @@ export function WatchPlayer({
             Advertisement
           </p>
           {watchSlot ? (
-            <AdSenseUnit slot={watchSlot} className="w-full max-w-md rounded-xl bg-white/5 p-2" />
+            <AdSenseUnit
+              slot={watchSlot}
+              format="fluid"
+              layout="in-article"
+              className="w-full max-w-md rounded-xl bg-white/5 p-2"
+            />
           ) : null}
           {showPlaceholder ? (
             <div className="flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-white/15 bg-gradient-to-br from-emerald-500/20 via-slate-900 to-slate-950 px-6 py-8 text-center shadow-lg">

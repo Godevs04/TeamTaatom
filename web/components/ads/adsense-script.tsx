@@ -5,7 +5,7 @@ import { getAdSenseClientId, isAdSenseEnabled } from "../../lib/adsense";
 
 /**
  * Loads the AdSense bootstrap once for the app shell.
- * Placed in <head> (beforeInteractive) so AdSense site verification can find it.
+ * Uses afterInteractive — beforeInteractive is only valid in pages/_document (Pages Router).
  */
 export function AdSenseScript() {
   if (!isAdSenseEnabled()) return null;
@@ -16,7 +16,7 @@ export function AdSenseScript() {
     <Script
       id="adsense-loader"
       async
-      strategy="beforeInteractive"
+      strategy="afterInteractive"
       src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`}
       crossOrigin="anonymous"
     />
