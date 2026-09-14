@@ -49,9 +49,17 @@ export const ADMOB = {
     interstitial: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/1033173712'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
+    /** Standard rewarded (optional). Watch prefers rewardedInterstitial when set. */
     rewarded: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/5224354917'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
+    /** Rewarded interstitial — long-video / Watch pre-roll (LLD: rewarded preferred). */
+    rewardedInterstitial: (__DEV__ || FORCE_TEST_ADS)
+      ? 'ca-app-pub-3940256099942544/5354046379'
+      : liveUnit(
+          env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_INTERSTITIAL_UNIT_ID,
+          'ca-app-pub-6362359854606661/2698822622'
+        ),
     /** Native Advanced (home + shorts). Production: ca-app-pub-6362359854606661/8141104654 */
     native: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/2247696110'
@@ -72,6 +80,13 @@ export const ADMOB = {
     rewarded: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/1712485313'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
+    /** Rewarded interstitial — Watch / long-video. Production: …/4698300005 */
+    rewardedInterstitial: (__DEV__ || FORCE_TEST_ADS)
+      ? 'ca-app-pub-3940256099942544/6978759866'
+      : liveUnit(
+          env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_INTERSTITIAL_UNIT_ID,
+          'ca-app-pub-6362359854606661/4698300005'
+        ),
     /** Native Advanced (in-feed + shorts). Production: ca-app-pub-6362359854606661/3239601539 */
     native: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/3986624511'

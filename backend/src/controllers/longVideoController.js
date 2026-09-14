@@ -8,7 +8,12 @@ const Like = require('../models/Like');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
-const { buildMediaKey, uploadObject } = require('../services/storage');
+const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
+const {
+  generateSignedUrl,
+  extractStorageKeyFromUrl,
+  resolveProfilePic,
+} = require('../services/mediaService');
 const { triggerTranscode } = require('../services/videoTranscode');
 const { buildLongVideoAdSchedule } = require('../services/longVideoAdSchedule');
 const { deleteCacheByPattern } = require('../utils/cache');
@@ -16,13 +21,16 @@ const { deleteCacheByPattern } = require('../utils/cache');
 const LONG_VIDEO = 'long_video';
 const MAX_DURATION_SECONDS = 60 * 60;
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
+/** Long-form playback needs longer than the default 15m short TTL. */
+const LONG_VIDEO_URL_TTL_SECONDS = 4 * 60 * 60;
 
-function serializeLongVideo(doc, { liked = false } = {}) {
+function serializeLongVideo(doc, { liked = false, includeComments = false } = {}) {
   const o = typeof doc.toObject === 'function' ? doc.toObject({ virtuals: true }) : { ...doc };
   const durationSeconds = o.durationSeconds ?? null;
   const schedule =
     durationSeconds != null ? buildLongVideoAdSchedule(durationSeconds) : { slots: [] };
-  return {
+  const comments = Array.isArray(o.comments) ? o.comments : [];
+  const payload = {
     _id: o._id,
     type: LONG_VIDEO,
     caption: o.caption || '',
@@ -40,7 +48,7 @@ function serializeLongVideo(doc, { liked = false } = {}) {
     likesCount: o.likesCount || 0,
     sharesCount: o.sharesCount || 0,
     views: o.views || 0,
-    commentsCount: Array.isArray(o.comments) ? o.comments.length : o.commentsCount || 0,
+    commentsCount: comments.length || o.commentsCount || 0,
     commentsDisabled: !!o.commentsDisabled,
     user: o.user,
     createdAt: o.createdAt,
@@ -49,6 +57,151 @@ function serializeLongVideo(doc, { liked = false } = {}) {
     isLiked: liked,
     adSchedule: schedule,
   };
+  if (includeComments) {
+    payload.comments = comments.map((c) => ({
+      _id: c._id,
+      text: c.text || '',
+      createdAt: c.createdAt,
+      user: c.user
+        ? {
+            _id: c.user._id || c.user,
+            fullName: c.user.fullName || c.user.username || 'Traveler',
+            username: c.user.username || '',
+            profilePic: c.user.profilePic || '',
+            profilePicStorageKey: c.user.profilePicStorageKey || null,
+          }
+        : { _id: '', fullName: 'Traveler', username: '', profilePic: '' },
+    }));
+  }
+  return payload;
+}
+
+function pickVideoStorageKey(doc) {
+  if (doc?.storageKey && typeof doc.storageKey === 'string') return doc.storageKey;
+  const keys = Array.isArray(doc?.storageKeys) ? doc.storageKeys : [];
+  const videoKey = keys.find(
+    (k) =>
+      k &&
+      typeof k === 'string' &&
+      !/\.(jpe?g|png|webp|gif)$/i.test(k)
+  );
+  if (videoKey) return videoKey;
+  return extractStorageKeyFromUrl(doc?.videoUrl) || null;
+}
+
+function pickThumbStorageKey(doc) {
+  const keys = Array.isArray(doc?.storageKeys) ? doc.storageKeys : [];
+  const thumbKey = keys.find((k) => k && typeof k === 'string' && /\.(jpe?g|png|webp|gif)$/i.test(k));
+  if (thumbKey) return thumbKey;
+  return (
+    extractStorageKeyFromUrl(doc?.thumbnailUrl) ||
+    extractStorageKeyFromUrl(doc?.imageUrl) ||
+    null
+  );
+}
+
+function isHlsStorageKey(key) {
+  return typeof key === 'string' && key.endsWith('index.m3u8');
+}
+
+function getLongVideoHlsProxyUrl(postId, req) {
+  if (!req || !postId) return null;
+  const proto =
+    (typeof req.headers?.['x-forwarded-proto'] === 'string' &&
+      req.headers['x-forwarded-proto'].split(',')[0].trim()) ||
+    req.protocol ||
+    'http';
+  const host = req.get?.('host') || req.headers?.host;
+  if (!host) return null;
+  return `${proto}://${host}/api/v1/shorts?hls=master&postId=${postId}&ext=.m3u8`;
+}
+
+/**
+ * Fresh playback URLs for long videos.
+ * - HLS (post-transcode): use the shorts HLS proxy so .ts segments are reachable.
+ * - Progressive MP4: fresh-sign the object (stored upload URLs expire).
+ */
+async function hydrateLongVideoUrls(doc, { liked = false, req = null, includeComments = false } = {}) {
+  const base = serializeLongVideo(doc, { liked, includeComments });
+  const videoKey = pickVideoStorageKey(doc);
+  const thumbKey = pickThumbStorageKey(doc);
+
+  if (isHlsStorageKey(videoKey) || isHlsStorageKey(doc?.storageKey)) {
+    const hlsUrl = getLongVideoHlsProxyUrl(doc._id, req);
+    if (hlsUrl) {
+      base.videoUrl = hlsUrl;
+      base.mediaUrl = hlsUrl;
+    } else {
+      logger.warn('HLS long video missing request host for proxy URL', { id: base._id });
+    }
+  } else if (videoKey) {
+    try {
+      const fresh = await getDownloadUrl(videoKey, LONG_VIDEO_URL_TTL_SECONDS);
+      if (fresh) {
+        base.videoUrl = fresh;
+        base.mediaUrl = fresh;
+      }
+    } catch (e) {
+      logger.warn('Failed to sign long video URL', { id: base._id, videoKey, error: e.message });
+      try {
+        const fallback = await generateSignedUrl(videoKey, 'VIDEO');
+        if (fallback) {
+          base.videoUrl = fallback;
+          base.mediaUrl = fallback;
+        }
+      } catch {
+        /* keep stored */
+      }
+    }
+  }
+
+  if (thumbKey) {
+    try {
+      const thumb = await generateSignedUrl(thumbKey, 'IMAGE');
+      if (thumb) {
+        base.thumbnailUrl = thumb;
+        base.imageUrl = thumb;
+      }
+    } catch (e) {
+      logger.warn('Failed to sign long video thumbnail', { id: base._id, thumbKey, error: e.message });
+    }
+  }
+
+  if (base.user) {
+    try {
+      const pic = await resolveProfilePic(base.user);
+      base.user = { ...base.user, profilePic: pic || base.user.profilePic || '' };
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (includeComments && Array.isArray(base.comments) && base.comments.length) {
+    await Promise.all(
+      base.comments.map(async (comment) => {
+        if (!comment?.user) return;
+        try {
+          const pic = await resolveProfilePic(comment.user);
+          comment.user.profilePic = pic || comment.user.profilePic || '';
+        } catch {
+          /* ignore */
+        }
+      })
+    );
+  }
+
+  return base;
+}
+
+async function hydrateLongVideoList(rows, likedSet, req) {
+  return Promise.all(
+    rows.map((r) =>
+      hydrateLongVideoUrls(r, {
+        liked: likedSet ? likedSet.has(String(r._id)) : false,
+        req,
+      })
+    )
+  );
 }
 
 async function probeDurationSeconds(buffer, ext = 'mp4') {
@@ -175,6 +328,17 @@ async function createLongVideoUpload(req, res) {
       },
     });
 
+    // Ensure legacy YouTube unique index never sees nulls on upload posts
+    if (post.youtubeVideoId == null || post.youtubeUrl == null || post.youtubeChannelTitle == null) {
+      await Post.updateOne(
+        { _id: post._id },
+        { $unset: { youtubeVideoId: 1, youtubeUrl: 1, youtubeChannelTitle: 1 } }
+      );
+      post.youtubeVideoId = undefined;
+      post.youtubeUrl = undefined;
+      post.youtubeChannelTitle = undefined;
+    }
+
     try {
       const TranscodeJob = mongoose.model('TranscodeJob');
       await TranscodeJob.create({
@@ -194,9 +358,10 @@ async function createLongVideoUpload(req, res) {
       /* ignore */
     }
 
+    const serialized = await hydrateLongVideoUrls(post, { req });
     return sendSuccess(res, 201, 'Long video uploaded', {
-      video: serializeLongVideo(post),
-      post: serializeLongVideo(post),
+      video: serialized,
+      post: serialized,
     });
   } catch (error) {
     logger.error('createLongVideoUpload error:', error);
@@ -239,9 +404,7 @@ async function listLongVideos(req, res) {
       likedSet = new Set(likes.map((l) => String(l.post)));
     }
 
-    const videos = rows.map((r) =>
-      serializeLongVideo(r, { liked: likedSet.has(String(r._id)) })
-    );
+    const videos = await hydrateLongVideoList(rows, likedSet, req);
 
     return sendSuccess(res, 200, 'Videos feed fetched', {
       videos,
@@ -270,6 +433,7 @@ async function getLongVideo(req, res) {
       status: { $nin: ['removed', 'failed'] },
     })
       .populate('user', 'username fullName profilePic profilePicStorageKey')
+      .populate('comments.user', 'username fullName profilePic profilePicStorageKey')
       .lean({ virtuals: true });
 
     if (!post) {
@@ -283,7 +447,7 @@ async function getLongVideo(req, res) {
 
     Post.updateOne({ _id: post._id }, { $inc: { views: 1 } }).catch(() => {});
 
-    const video = serializeLongVideo(post, { liked });
+    const video = await hydrateLongVideoUrls(post, { liked, req, includeComments: true });
     return sendSuccess(res, 200, 'Video fetched', { video, post: video });
   } catch (error) {
     logger.error('getLongVideo error:', error);
@@ -321,7 +485,7 @@ async function listUserLongVideos(req, res) {
       Post.countDocuments(match),
     ]);
 
-    const videos = rows.map((r) => serializeLongVideo(r));
+    const videos = await hydrateLongVideoList(rows, null, req);
     return sendSuccess(res, 200, 'User videos fetched', {
       videos,
       posts: videos,
@@ -365,7 +529,7 @@ async function listLongVideosAdmin(req, res) {
     ]);
 
     return sendSuccess(res, 200, 'Long videos fetched', {
-      videos: rows.map((r) => serializeLongVideo(r)),
+      videos: await hydrateLongVideoList(rows, null, req),
       pagination: {
         page,
         limit,
@@ -385,7 +549,9 @@ async function getLongVideoAdmin(req, res) {
       .populate('user', 'username fullName profilePic email')
       .lean({ virtuals: true });
     if (!post) return sendError(res, 'RES_3001', 'Long video not found');
-    return sendSuccess(res, 200, 'Long video fetched', { video: serializeLongVideo(post) });
+    return sendSuccess(res, 200, 'Long video fetched', {
+      video: await hydrateLongVideoUrls(post, { req }),
+    });
   } catch (error) {
     logger.error('getLongVideoAdmin error:', error);
     return sendError(res, 'SRV_6001', 'Failed to fetch long video');
@@ -407,7 +573,9 @@ async function updateLongVideo(req, res) {
       else if (post.status === 'removed') post.status = 'active';
     }
     await post.save();
-    return sendSuccess(res, 200, 'Long video updated', { video: serializeLongVideo(post) });
+    return sendSuccess(res, 200, 'Long video updated', {
+      video: await hydrateLongVideoUrls(post, { req }),
+    });
   } catch (error) {
     logger.error('updateLongVideo error:', error);
     return sendError(res, 'SRV_6001', 'Failed to update long video');

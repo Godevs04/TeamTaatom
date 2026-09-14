@@ -24,10 +24,14 @@ Format: `ca-app-pub-6362359854606661~XXXXXXXXXX` (the part after `~` is your app
 
 ### 2. Ad unit IDs in constants/admob.js
 
-Replace the placeholder ad unit IDs in `frontend/constants/admob.js`:
+Replace the placeholder ad unit IDs in `frontend/constants/admob.js` (or set `EXPO_PUBLIC_ADMOB_*` in `.env` / `app.base.json`):
 
-- **Production:** Replace each `ca-app-pub-6362359854606661/XXXXXXXXXX` with your real banner (and optional interstitial) unit IDs from AdMob → Your app → Ad units.
-- **Development:** The file already uses Google’s test ad unit IDs in `__DEV__`, so test ads will show during development.
+- **Banner / Native:** already wired for iOS + Android production units.
+- **Watch / long-video (LLD):** prefer **rewarded interstitial**, then standard rewarded, then interstitial fallback.
+  - iOS rewarded interstitial (production): `ca-app-pub-6362359854606661/4698300005`
+  - Android rewarded interstitial (production): `ca-app-pub-6362359854606661/2698822622`
+  - Env: `EXPO_PUBLIC_ADMOB_IOS_REWARDED_INTERSTITIAL_UNIT_ID` / `EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_INTERSTITIAL_UNIT_ID`
+- **Development:** The file already uses Google’s test ad unit IDs in `__DEV__`, so test ads will show during development (including rewarded interstitial test IDs).
 
 ### 3. Show a banner in the app
 

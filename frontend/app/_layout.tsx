@@ -713,6 +713,7 @@ function RootLayoutInner() {
                               segments[0] === 'help' ||
                               segments[0] === 'watch' ||
                               segments[0] === 'upload-long-video' ||
+                              segments[0] === 'request-video-creator' ||
                               normalizedPath.startsWith('/post/') ||
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||
@@ -735,7 +736,8 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/connect') ||
                               normalizedPath.startsWith('/onboarding') ||
                               normalizedPath.startsWith('/watch') ||
-                              normalizedPath.startsWith('/upload-long-video');
+                              normalizedPath.startsWith('/upload-long-video') ||
+                              normalizedPath.startsWith('/request-video-creator');
       
       // Double-check storage before trusting isAuthenticated state
       // This ensures we detect signout even if state hasn't updated yet
@@ -1209,6 +1211,7 @@ function RootLayoutInner() {
           {/* Creator long videos */}
           <Stack.Screen name="watch/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           <Stack.Screen name="upload-long-video" options={{ presentation: 'modal', gestureEnabled: true }} />
+          <Stack.Screen name="request-video-creator" options={{ presentation: 'modal', gestureEnabled: true }} />
         </Stack>
       </Suspense>
     </ResponsiveContainer>

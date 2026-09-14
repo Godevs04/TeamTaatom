@@ -18,9 +18,10 @@ const LOG_LEVELS = {
 const currentLogLevel = LOG_LEVELS[LOG_LEVEL] || LOG_LEVELS.info;
 
 /**
- * Sanitize data to remove sensitive information
+ * Sanitize data to remove sensitive information.
+ * Uses a WeakSet to avoid infinite recursion on circular refs (e.g. Express req).
  */
-const sanitizeData = (data) => {
+const sanitizeData = (data, seen = new WeakSet()) => {
   if (data === null || data === undefined) {
     return data;
   }
@@ -37,23 +38,42 @@ const sanitizeData = (data) => {
     };
   }
 
+  if (seen.has(data)) {
+    return '[Circular]';
+  }
+  seen.add(data);
+
   if (Array.isArray(data)) {
-    return data.map(item => sanitizeData(item));
+    return data.map((item) => sanitizeData(item, seen));
   }
 
-  const sanitized = { ...data };
-  const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization', 'cookie', 'authToken'];
-  
-  sensitiveFields.forEach(field => {
-    if (sanitized[field]) {
-      sanitized[field] = '[REDACTED]';
-    }
-  });
+  // Avoid dumping huge / circular Node objects
+  const ctor = data.constructor && data.constructor.name;
+  if (ctor === 'IncomingMessage' || ctor === 'ServerResponse' || ctor === 'Socket') {
+    return `[${ctor}]`;
+  }
 
-  // Recursively sanitize nested objects
-  Object.keys(sanitized).forEach(key => {
-    if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
-      sanitized[key] = sanitizeData(sanitized[key]);
+  const sanitized = {};
+  const sensitiveFields = [
+    'password',
+    'token',
+    'secret',
+    'apiKey',
+    'authorization',
+    'cookie',
+    'authToken',
+  ];
+
+  Object.keys(data).forEach((key) => {
+    if (sensitiveFields.includes(key)) {
+      sanitized[key] = '[REDACTED]';
+      return;
+    }
+    const value = data[key];
+    if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeData(value, seen);
+    } else {
+      sanitized[key] = value;
     }
   });
 

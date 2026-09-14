@@ -34,9 +34,9 @@ export const approveCreatorRequest = async (id, note = '') => {
   }
 }
 
-export const rejectCreatorRequest = async (id, note = '') => {
+export const rejectCreatorRequest = async (id, reason = '') => {
   try {
-    const response = await api.post(`${CREATORS}/${id}/reject`, { note })
+    const response = await api.post(`${CREATORS}/${id}/reject`, { reason, note: reason })
     return response.data?.data || response.data
   } catch (error) {
     logger.error('Error rejecting creator:', error)

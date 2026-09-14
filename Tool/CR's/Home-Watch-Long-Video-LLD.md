@@ -18,8 +18,11 @@ Engagement: like, comment, share (existing post APIs). Monetization: AdMob rewar
 
 ## 2. Creator access
 
-- Users submit **Creator Request** from the Videos tab.
-- SuperAdmin reviews (`VideoCreatorRequest` + `User.videoCreatorStatus`).
+- Users open a **structured application form** (mobile `/request-video-creator`, web modal) with:
+  niche, experience, sample links, posting frequency, regions, gear, why TAATOM, guidelines checkbox.
+- `POST /api/v1/video-creator/request` validates required fields and stores `VideoCreatorRequest.application` + `auditLog`.
+- SuperAdmin **Video Creators** queue shows niche/experience; **View** opens full answers, reviewer, rejection reason, and audit trail.
+- **Reject requires a reason** (≥5 chars; presets available); reason is stored as `rejectionReason` and shown to the applicant on re-apply.
 - Only `approved` creators can `POST /api/v1/long-videos`.
 
 ## 3. Upload & surfaces

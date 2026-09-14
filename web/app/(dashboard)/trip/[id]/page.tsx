@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { API_V1_ABS } from "../../../../lib/constants";
 import { Card } from "../../../../components/ui/card";
 import type { Post } from "../../../../types/post";
@@ -25,6 +26,16 @@ export async function generateMetadata({ params }: { params: { id?: string } }):
   const id = typeof params?.id === "string" ? params.id : "";
   if (!id) return createMetadata({ title: "Trip", path: "/trip" });
   const post = await fetchPost(id);
+  if (post?.type === "long_video") {
+    const title = post?.caption ? post.caption.slice(0, 60) : "Now playing";
+    return createMetadata({
+      title,
+      description: "Long-form video on Taatom Videos",
+      image: post.thumbnailUrl || post.imageUrl || null,
+      path: `/watch/${id}`,
+      openGraphType: "article",
+    });
+  }
   const title = post?.caption ? post.caption.slice(0, 60) : "Trip";
   const description = getPostDisplayLocation(post) !== "Unknown location" ? getPostDisplayLocation(post) : "Trip on Taatom";
   const image = post?.imageUrl || post?.thumbnailUrl;
@@ -61,8 +72,11 @@ export default async function TripDetailPage({ params }: { params: { id: string 
     );
   }
 
+  if (post.type === "long_video") {
+    redirect(`/watch/${id}`);
+  }
+
   const isShort = post.type === "short";
-  const isLongVideo = post.type === "long_video";
   const videoUrl = post.videoUrl || post.mediaUrl || "";
   const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
@@ -71,12 +85,10 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   const images: string[] = (imagesArray?.length ? imagesArray : [media]).filter(
     (src): src is string => typeof src === "string" && src.length > 0
   );
-  const coords = isLongVideo ? null : getPostCoordinates(post);
+  const coords = getPostCoordinates(post);
   const hasCoords = coords !== null;
   const audioUrl = post.song?.s3Url;
-  const locationText = isLongVideo
-    ? post.user?.fullName || post.user?.username || "Videos"
-    : getPostDisplayLocation(post);
+  const locationText = getPostDisplayLocation(post);
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6 pb-16">
@@ -126,7 +138,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           isShort={isShort}
           videoUrl={videoUrl}
           posterUrl={posterUrl}
-          isLongVideo={isLongVideo}
+          isLongVideo={false}
         />
 
         <PostDetailActionBar post={post} />

@@ -25,13 +25,20 @@ export interface LongVideoResponse {
 }
 
 function normalizeVideo(raw: any): PostType {
+  const videoUrl = raw.videoUrl || raw.mediaUrl || '';
+  const isProbablyImage =
+    typeof videoUrl === 'string' &&
+    /\.(jpe?g|png|webp|gif)(\?|$)/i.test(videoUrl.split('?')[0] || '');
+  const playableUrl = isProbablyImage ? raw.videoUrl || '' : videoUrl;
+
   return {
     ...raw,
     type: 'long_video',
     caption: raw.caption || raw.title || '',
     imageUrl: raw.imageUrl || raw.thumbnailUrl || '',
     thumbnailUrl: raw.thumbnailUrl || raw.imageUrl,
-    mediaUrl: raw.mediaUrl || raw.thumbnailUrl || raw.imageUrl,
+    videoUrl: playableUrl || raw.videoUrl || '',
+    mediaUrl: playableUrl || raw.mediaUrl || raw.thumbnailUrl || raw.imageUrl || '',
     likes: raw.likes || [],
     comments: raw.comments || [],
     likesCount: raw.likesCount ?? 0,

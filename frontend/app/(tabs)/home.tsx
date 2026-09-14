@@ -20,7 +20,7 @@ import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { getPosts, getPostById, toggleLike } from '../../services/posts';
 import { getLongVideos } from '../../services/longVideos';
-import { getVideoCreatorStatus, requestVideoCreatorAccess } from '../../services/videoCreator';
+import { getVideoCreatorStatus } from '../../services/videoCreator';
 import type { CreatorStatusResponse } from '../../services/videoCreator';
 import { listChats } from '../../services/chat';
 import { PostType } from '../../types/post';
@@ -518,7 +518,6 @@ export default function HomeScreen() {
   const [isOnline, setIsOnline] = useState(true);
   const [feedMode, setFeedMode] = useState<HomeTab>('feed');
   const [creatorStatus, setCreatorStatus] = useState<CreatorStatusResponse | null>(null);
-  const [creatorRequesting, setCreatorRequesting] = useState(false);
   const { theme, mode, isDark } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
@@ -613,19 +612,26 @@ export default function HomeScreen() {
     };
   }, [feedMode]);
 
-  const handleCreatorRequest = useCallback(async () => {
-    if (creatorRequesting) return;
+  // Refresh creator status when returning from application / upload screens
+  useFocusEffect(
+    useCallback(() => {
+      if (feedModeRef.current !== 'watch') return;
+      let cancelled = false;
+      getVideoCreatorStatus()
+        .then((s) => {
+          if (!cancelled) setCreatorStatus(s);
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const handleCreatorRequest = useCallback(() => {
     if (creatorStatus?.status === 'approved' || creatorStatus?.status === 'pending') return;
-    setCreatorRequesting(true);
-    try {
-      const next = await requestVideoCreatorAccess('I want to upload long-form travel videos');
-      setCreatorStatus(next);
-    } catch (e: any) {
-      showError(e?.message || 'Could not submit creator request');
-    } finally {
-      setCreatorRequesting(false);
-    }
-  }, [creatorRequesting, creatorStatus, showError]);
+    router.push('/request-video-creator' as any);
+  }, [creatorStatus, router]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1884,7 +1890,6 @@ export default function HomeScreen() {
                         <TouchableOpacity
                           onPress={handleCreatorRequest}
                           disabled={
-                            creatorRequesting ||
                             creatorStatus?.status === 'pending' ||
                             creatorStatus?.status === 'approved'
                           }
@@ -1905,8 +1910,10 @@ export default function HomeScreen() {
                           </Text>
                           <Text style={{ marginTop: 2, color: theme.colors.textSecondary, fontSize: 12 }}>
                             {creatorStatus?.status === 'pending'
-                              ? 'TAATOM admins are reviewing your request'
-                              : 'Apply to upload long-form videos to Videos'}
+                              ? 'TAATOM admins are reviewing your application'
+                              : creatorStatus?.status === 'rejected' && creatorStatus?.rejectionReason
+                                ? `Rejected: ${creatorStatus.rejectionReason}`
+                                : 'Fill a short application to upload long-form videos'}
                           </Text>
                         </TouchableOpacity>
                       )}

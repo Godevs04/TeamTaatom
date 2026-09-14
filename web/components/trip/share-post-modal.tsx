@@ -25,7 +25,7 @@ import {
 } from "../../lib/api";
 import {
   buildPostShareChatMessage,
-  getDefaultTripShareUrl,
+  getDefaultPostShareUrl,
 } from "../../lib/post-share-chat";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { toast } from "sonner";
@@ -71,7 +71,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       setUrlLoading(false);
       return;
     }
-    const fallback = getDefaultTripShareUrl(post._id);
+    const fallback = getDefaultPostShareUrl({ _id: post._id, type: post.type });
     setShareUrl(fallback);
     setUrlLoading(true);
     createPostShortUrl(post._id)
@@ -80,9 +80,9 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       })
       .catch(() => {})
       .finally(() => setUrlLoading(false));
-  }, [open, post._id]);
+  }, [open, post._id, post.type]);
 
-  const displayUrl = shareUrl || getDefaultTripShareUrl(post._id);
+  const displayUrl = shareUrl || getDefaultPostShareUrl({ _id: post._id, type: post.type });
   const shareText = post.caption ? `${post.caption}\n\n${displayUrl}` : displayUrl;
   const img = previewImageUrl(post);
   const author = post.user?.fullName || post.user?.username || "Traveler";

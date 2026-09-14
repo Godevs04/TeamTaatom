@@ -2,6 +2,7 @@
 const nextConfig = {
   // Google Play App Links: serve assetlinks.json as static JSON (no trailing slash redirect).
   trailingSlash: false,
+  transpilePackages: ["hls.js"],
   async headers() {
     return [
       {
@@ -39,11 +40,18 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_API_BASE_URL ||
       process.env.NEXT_PUBLIC_API_BASE;
     const isDev = process.env.NODE_ENV !== "production";
-    const origin =
+    const raw =
       (isDev && backendFromEnv) ? backendFromEnv
         : isDev ? "http://localhost:3000"
         : (backendFromEnv || "http://localhost:3000");
-    const base = origin.replace(/\/$/, "");
+    // Collapse accidental "http://http://host" and strip trailing slash.
+    // Do NOT escape ":port" — that breaks URL parsing into pathname "/:3000/...".
+    const base = String(raw)
+      .trim()
+      .replace(/\/$/, "")
+      .replace(/^(https?:\/\/)+/i, (m) =>
+        /https:\/\//i.test(m) ? "https://" : "http://"
+      );
     return [
       {
         source: "/api/v1/:path*",

@@ -21,6 +21,7 @@ const PROTECTED_PREFIXES = [
   "/create",
   "/profile",
   "/trip",
+  "/watch",
   "/settings",
   "/collections",
   "/activity",
@@ -94,6 +95,8 @@ export async function middleware(req: NextRequest) {
             if (path.startsWith("/journey/")) {
               const id = path.substring("/journey/".length);
               path = `/journeys/${id}`;
+            } else if (path.startsWith("/watch/")) {
+              // keep /watch/:id
             } else if (path.startsWith("/post/")) {
               const id = path.substring("/post/".length);
               path = `/trip/${id}`;
@@ -185,6 +188,8 @@ export const config = {
     "/create/:path*",
     "/profile/:path*",
     "/trip/:path*",
+    "/watch",
+    "/watch/:path*",
     "/settings",
     "/settings/:path*",
     "/collections",

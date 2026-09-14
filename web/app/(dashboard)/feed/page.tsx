@@ -19,33 +19,124 @@ import { SocialConnect } from "../../../components/layout/social-connect";
 import type { Post } from "../../../types/post";
 import { api } from "../../../lib/axios";
 import { toast } from "sonner";
+import { canShowFeedAd } from "../../../lib/adsense";
+import { FeedAdCard } from "../../../components/ads/feed-ad-card";
+import { injectFeedAds, isFeedAdSlot } from "../../../lib/feed-ads";
 
 type HomeTabId = "feed" | "watch";
+
+type CreatorFormState = {
+  contentNiche: string;
+  contentNicheOther: string;
+  experienceLevel: string;
+  sampleLinks: string;
+  postingFrequency: string;
+  audienceRegions: string;
+  equipment: string;
+  whyTaatom: string;
+  guidelinesAccepted: boolean;
+};
+
+const EMPTY_CREATOR_FORM: CreatorFormState = {
+  contentNiche: "",
+  contentNicheOther: "",
+  experienceLevel: "",
+  sampleLinks: "",
+  postingFrequency: "",
+  audienceRegions: "",
+  equipment: "",
+  whyTaatom: "",
+  guidelinesAccepted: false,
+};
+
+const NICHE_OPTIONS = [
+  { value: "travel_vlogs", label: "Travel vlogs" },
+  { value: "destination_guides", label: "Destination guides" },
+  { value: "adventure_sports", label: "Adventure & sports" },
+  { value: "culture_food", label: "Culture & food" },
+  { value: "lifestyle_storytelling", label: "Lifestyle storytelling" },
+  { value: "other", label: "Other" },
+];
+
+const EXPERIENCE_OPTIONS = [
+  { value: "beginner", label: "Beginner" },
+  { value: "intermediate", label: "Intermediate" },
+  { value: "pro", label: "Pro" },
+];
+
+const FREQUENCY_OPTIONS = [
+  { value: "weekly", label: "Weekly or more" },
+  { value: "biweekly", label: "Every 2 weeks" },
+  { value: "monthly", label: "Monthly" },
+  { value: "occasional", label: "Occasional" },
+];
 
 function CreatorRequestCta() {
   const { user } = useAuth();
   const [status, setStatus] = React.useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState<CreatorFormState>(EMPTY_CREATOR_FORM);
 
   React.useEffect(() => {
     if (!user) return;
     api
       .get("/video-creator/status")
-      .then((res) => setStatus(res.data?.status || "none"))
+      .then((res) => {
+        setStatus(res.data?.status || "none");
+        setRejectionReason(res.data?.rejectionReason || "");
+      })
       .catch(() => setStatus(null));
   }, [user]);
 
-  const onRequest = async () => {
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!user || busy || status === "pending" || status === "approved") return;
+    if (!form.contentNiche || !form.experienceLevel || !form.postingFrequency) {
+      toast.error("Please complete all required fields");
+      return;
+    }
+    if (form.contentNiche === "other" && !form.contentNicheOther.trim()) {
+      toast.error("Describe your niche");
+      return;
+    }
+    if (form.sampleLinks.trim().length < 8) {
+      toast.error("Add at least one sample link");
+      return;
+    }
+    if (form.audienceRegions.trim().length < 2) {
+      toast.error("Add regions or destinations");
+      return;
+    }
+    if (form.whyTaatom.trim().length < 10) {
+      toast.error("Tell us why TAATOM (min 10 characters)");
+      return;
+    }
+    if (!form.guidelinesAccepted) {
+      toast.error("Accept the community guidelines");
+      return;
+    }
+
     setBusy(true);
     try {
       const res = await api.post("/video-creator/request", {
-        message: "I want to upload long-form travel videos",
+        application: {
+          ...form,
+          contentNicheOther: form.contentNicheOther.trim(),
+          sampleLinks: form.sampleLinks.trim(),
+          audienceRegions: form.audienceRegions.trim(),
+          equipment: form.equipment.trim(),
+          whyTaatom: form.whyTaatom.trim(),
+        },
+        message: form.whyTaatom.trim(),
       });
       setStatus(res.data?.status || "pending");
-      toast.success("Creator request submitted");
-    } catch (e: unknown) {
-      toast.error(getFriendlyErrorMessage(e));
+      setOpen(false);
+      setForm(EMPTY_CREATOR_FORM);
+      toast.success("Creator application submitted for review");
+    } catch (err: unknown) {
+      toast.error(getFriendlyErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -62,19 +153,172 @@ function CreatorRequestCta() {
   }
 
   return (
-    <motion.div className="mt-6 inline-block" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-      <Button
-        className="rounded-xl shadow-premium"
-        onClick={onRequest}
-        disabled={busy || status === "pending" || status === "approved"}
-      >
-        {status === "approved"
-          ? "You are an approved creator"
-          : status === "pending"
-            ? "Creator request pending"
-            : "Creator Request"}
-      </Button>
-    </motion.div>
+    <>
+      <motion.div className="mt-6 inline-block" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+        <Button
+          className="rounded-xl shadow-premium"
+          onClick={() => {
+            if (status === "pending" || status === "approved") return;
+            setOpen(true);
+          }}
+          disabled={busy || status === "pending" || status === "approved"}
+        >
+          {status === "approved"
+            ? "You are an approved creator"
+            : status === "pending"
+              ? "Creator request pending"
+              : status === "rejected"
+                ? "Re-apply as video creator"
+                : "Creator Request"}
+        </Button>
+      </motion.div>
+      {status === "rejected" && rejectionReason ? (
+        <p className="mt-2 text-sm text-rose-600 max-w-md">Previous rejection: {rejectionReason}</p>
+      ) : null}
+
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Creator application</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Answer a few questions for admin review.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-slate-700"
+                onClick={() => !busy && setOpen(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={onSubmit} className="space-y-4">
+              <label className="block text-sm font-medium text-slate-700">
+                Content niche *
+                <select
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  value={form.contentNiche}
+                  onChange={(e) => setForm((f) => ({ ...f, contentNiche: e.target.value }))}
+                  required
+                >
+                  <option value="">Select…</option>
+                  {NICHE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {form.contentNiche === "other" ? (
+                <label className="block text-sm font-medium text-slate-700">
+                  Describe your niche *
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                    value={form.contentNicheOther}
+                    onChange={(e) => setForm((f) => ({ ...f, contentNicheOther: e.target.value }))}
+                    maxLength={120}
+                    required
+                  />
+                </label>
+              ) : null}
+              <label className="block text-sm font-medium text-slate-700">
+                Experience *
+                <select
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  value={form.experienceLevel}
+                  onChange={(e) => setForm((f) => ({ ...f, experienceLevel: e.target.value }))}
+                  required
+                >
+                  <option value="">Select…</option>
+                  {EXPERIENCE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Sample video links (1–3) *
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 min-h-[88px]"
+                  value={form.sampleLinks}
+                  onChange={(e) => setForm((f) => ({ ...f, sampleLinks: e.target.value }))}
+                  maxLength={800}
+                  required
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Posting frequency *
+                <select
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  value={form.postingFrequency}
+                  onChange={(e) => setForm((f) => ({ ...f, postingFrequency: e.target.value }))}
+                  required
+                >
+                  <option value="">Select…</option>
+                  {FREQUENCY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Regions / destinations *
+                <input
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  value={form.audienceRegions}
+                  onChange={(e) => setForm((f) => ({ ...f, audienceRegions: e.target.value }))}
+                  maxLength={200}
+                  required
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Camera / gear
+                <input
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  value={form.equipment}
+                  onChange={(e) => setForm((f) => ({ ...f, equipment: e.target.value }))}
+                  maxLength={200}
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Why TAATOM? *
+                <textarea
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 min-h-[88px]"
+                  value={form.whyTaatom}
+                  onChange={(e) => setForm((f) => ({ ...f, whyTaatom: e.target.value }))}
+                  maxLength={500}
+                  required
+                />
+              </label>
+              <label className="flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={form.guidelinesAccepted}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, guidelinesAccepted: e.target.checked }))
+                  }
+                />
+                <span>I agree to TAATOM community & content guidelines *</span>
+              </label>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={busy} className="rounded-xl">
+                  {busy ? "Submitting…" : "Submit for approval"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -136,6 +380,11 @@ function FeedContent() {
     setLoadMoreError(false);
   }, [activeTab]);
 
+  React.useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "watch" || tab === "feed") setActiveTab(tab);
+  }, [searchParams]);
+
   const fetchNextPageSafe = React.useCallback(() => {
     if (!q.hasNextPage || q.isFetchingNextPage) return;
     q.fetchNextPage()
@@ -152,6 +401,12 @@ function FeedContent() {
     () => mergeSavedIntoPosts(mergeLikedIntoPosts(rawPosts, likedIds), savedIds),
     [rawPosts, likedIds, savedIds]
   );
+
+  /** Photo + Videos lists: insert sponsored units every 5 items (mobile parity). */
+  const feedItems = React.useMemo(() => {
+    if (!canShowFeedAd() || posts.length === 0) return posts;
+    return injectFeedAds(posts);
+  }, [posts]);
 
   React.useEffect(() => {
     const onScroll = () => {
@@ -294,7 +549,7 @@ function FeedContent() {
         </motion.header>
 
         {activeTab === "watch" ? (
-          <div className="relative z-10">
+          <div className="relative z-10 space-y-4">
             <CreatorRequestCta />
           </div>
         ) : null}
@@ -484,16 +739,29 @@ function FeedContent() {
                 animate="show"
                 className="grid items-stretch gap-8 xl:grid-cols-2"
               >
-                {posts.map((p) => (
-                  <motion.div
-                    key={p._id}
-                    variants={postItemVariants}
-                    data-post-id={p._id}
-                    className="flex h-full min-h-0"
-                  >
-                    <PostCard post={p} onOpenComments={(post) => setCommentsPost(post)} />
-                  </motion.div>
-                ))}
+                {feedItems.map((item) => {
+                  if (isFeedAdSlot(item)) {
+                    return (
+                      <motion.div
+                        key={`feed-ad-${item.adIndex}-${item.afterCount}`}
+                        variants={postItemVariants}
+                        className="flex h-full min-h-0"
+                      >
+                        <FeedAdCard adIndex={item.adIndex} />
+                      </motion.div>
+                    );
+                  }
+                  return (
+                    <motion.div
+                      key={item._id}
+                      variants={postItemVariants}
+                      data-post-id={item._id}
+                      className="flex h-full min-h-0"
+                    >
+                      <PostCard post={item} onOpenComments={(post) => setCommentsPost(post)} />
+                    </motion.div>
+                  );
+                })}
               </motion.div>
 
               {q.isFetchingNextPage ? (

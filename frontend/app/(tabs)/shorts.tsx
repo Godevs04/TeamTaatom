@@ -293,11 +293,19 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
 
-  const upsertSelectedComment = useCallback((incomingComment: any) => {
+  const upsertSelectedComment = useCallback((incomingComment: any, replaceId?: string) => {
     if (!incomingComment) return;
     setSelectedShortComments((prev) => {
-      const next = [...prev];
-      if (incomingComment._id) {
+      let next = [...prev];
+      if (replaceId) {
+        const replaceIndex = next.findIndex((c) => c._id === replaceId);
+        if (replaceIndex !== -1) {
+          next[replaceIndex] = incomingComment;
+        } else {
+          next = next.filter((c) => c._id !== replaceId);
+          next = [incomingComment, ...next];
+        }
+      } else if (incomingComment._id) {
         if (incomingComment.isDeleted) {
           const filtered = next.filter((c) => c._id !== incomingComment._id);
           setShorts((shortsPrev) =>
@@ -312,18 +320,40 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
         if (existingIndex !== -1) {
           next[existingIndex] = incomingComment;
-          return next;
+        } else {
+          next = [incomingComment, ...next];
         }
+      } else {
+        next = [incomingComment, ...next];
       }
-      const updated = [incomingComment, ...next];
+
+      if (incomingComment._id && !String(incomingComment._id).startsWith('temp-')) {
+        next = next.filter(
+          (c) =>
+            !(
+              String(c._id).startsWith('temp-') &&
+              c.text === incomingComment.text &&
+              String(c.user?._id) === String(incomingComment.user?._id)
+            )
+        );
+      }
+
+      const seen = new Set<string>();
+      next = next.filter((c) => {
+        const id = String(c._id);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+
       setShorts((shortsPrev) =>
         shortsPrev.map((short) =>
           short._id === selectedShortIdRef.current
-            ? { ...short, commentsCount: updated.length }
+            ? { ...short, commentsCount: next.length }
             : short
         )
       );
-      return updated;
+      return next;
     });
   }, []);
 
@@ -1836,8 +1866,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
   };
 
-  const handleCommentAdded = (comment: any) => {
-    upsertSelectedComment(comment);
+  const handleCommentAdded = (comment: any, meta?: { replaceId?: string }) => {
+    upsertSelectedComment(comment, meta?.replaceId);
   };
 
   const handleCommentDeleted = useCallback(async (commentId: string) => {

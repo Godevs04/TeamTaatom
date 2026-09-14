@@ -5765,6 +5765,7 @@ router.get('/orders', authenticateSuperAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 const {
   listCreatorRequestsAdmin,
+  getCreatorRequestAdmin,
   approveCreatorRequest,
   rejectCreatorRequest,
 } = require('../controllers/videoCreatorController')
@@ -5776,6 +5777,7 @@ const {
 } = require('../controllers/longVideoController')
 
 router.get('/video-creators', checkPermission('canManageContent'), listCreatorRequestsAdmin)
+router.get('/video-creators/:id', checkPermission('canManageContent'), getCreatorRequestAdmin)
 router.post('/video-creators/:id/approve', checkPermission('canManageContent'), approveCreatorRequest)
 router.post('/video-creators/:id/reject', checkPermission('canManageContent'), rejectCreatorRequest)
 

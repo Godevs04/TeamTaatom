@@ -59,14 +59,20 @@ const handleHLSProxy = async (req, res) => {
     return res.status(400).json({ error: 'Invalid or missing postId' });
   }
 
-  // Fetch the post to verify it exists and is active
+  // Fetch the post to verify it exists and is playable.
+  // Long videos share the same HLS pipeline/path as shorts after transcode.
   const post = await Post.findById(postId).lean();
-  if (!post || post.type !== 'short') {
-    return res.status(404).json({ error: 'Short not found' });
+  if (!post || (post.type !== 'short' && post.type !== 'long_video')) {
+    return res.status(404).json({ error: 'Video not found' });
   }
 
-  if (post.status !== 'active') {
-    return res.status(403).json({ error: 'Video is still processing or failed' });
+  const unavailable =
+    post.isActive === false ||
+    post.status === 'removed' ||
+    post.status === 'failed' ||
+    (post.type === 'short' && post.status && post.status !== 'active');
+  if (unavailable) {
+    return res.status(403).json({ error: 'Video is still processing or unavailable' });
   }
 
   const { GetObjectCommand } = require('@aws-sdk/client-s3');

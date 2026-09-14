@@ -3,7 +3,7 @@
     "name": "taatom",
     "slug": "taatom",
     "version": "26.4.20",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
     "scheme": "taatom",
@@ -50,7 +50,18 @@
           "tel",
           "sms"
         ],
-        "NSPrivacyPolicyURL": "https://taatom.com/privacy"
+        "NSPrivacyPolicyURL": "https://taatom.com/privacy",
+        "UISupportedInterfaceOrientations": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ],
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ]
       },
       "config": {
         "usesNonExemptEncryption": false,
@@ -133,6 +144,12 @@
     },
     "plugins": [
       "expo-secure-store",
+      [
+        "expo-screen-orientation",
+        {
+          "orientationLock": "DEFAULT"
+        }
+      ],
       [
         "expo-tracking-transparency",
         {
@@ -242,8 +259,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "https://api.taatom.com",
-      "WEB_SHARE_URL": "https://taatom.com",
+      "API_BASE_URL": "http://192.168.1.35:3000",
+      "WEB_SHARE_URL": "http://192.168.1.35:3000",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -264,7 +281,9 @@
       "EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID": "ca-app-pub-6362359854606661/8141104654",
       "EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID": "ca-app-pub-6362359854606661/3239601539",
       "EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/7027944948",
-      "EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/2303221559"
+      "EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/2303221559",
+      "EXPO_PUBLIC_ADMOB_IOS_REWARDED_INTERSTITIAL_UNIT_ID": "ca-app-pub-6362359854606661/4698300005",
+      "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_INTERSTITIAL_UNIT_ID": "ca-app-pub-6362359854606661/2698822622"
     },
     "owner": "taatom-technologies"
   }
