@@ -28,14 +28,19 @@ export function getAdSenseClientId(): string {
   return envString(process.env.NEXT_PUBLIC_ADSENSE_CLIENT, "ca-pub-6362359854606661");
 }
 
-/** Display unit used during Watch preroll / midroll / end breaks. */
+/** Watch / in-article native unit (Web-native). */
 export function getAdSenseWatchBreakSlot(): string {
   return envString(process.env.NEXT_PUBLIC_ADSENSE_WATCH_BREAK_SLOT, "");
 }
 
-/** In-feed / Videos tab display unit (mirrors mobile native feed ads). */
+/** In-feed / Videos tab unit (mirrors mobile native feed ads). */
 export function getAdSenseFeedSlot(): string {
   return envString(process.env.NEXT_PUBLIC_ADSENSE_FEED_SLOT, "");
+}
+
+/** Required for AdSense In-feed (fluid) units — from the unit’s embed code. */
+export function getAdSenseFeedLayoutKey(): string {
+  return envString(process.env.NEXT_PUBLIC_ADSENSE_FEED_LAYOUT_KEY, "");
 }
 
 /**

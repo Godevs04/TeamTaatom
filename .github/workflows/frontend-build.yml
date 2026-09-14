@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
 
 env:
-  NODE_VERSION: '20.x'
+  NODE_VERSION: '22.x'
 
 # Cancel in-progress runs for the same branch (saves minutes, avoids stale results)
 concurrency:
@@ -154,9 +154,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Setup EAS CLI
-        uses: expo/expo-github-action@v8
+        uses: expo/expo-github-action@v9
         with:
           eas-version: latest
+          packager: npm
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Install dependencies

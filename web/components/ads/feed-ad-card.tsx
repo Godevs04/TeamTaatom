@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AdSenseUnit } from "./adsense-unit";
 import {
+  getAdSenseFeedLayoutKey,
   getAdSenseFeedSlot,
   shouldShowFeedAdPlaceholder,
 } from "../../lib/adsense";
@@ -22,6 +23,7 @@ type FeedAdCardProps = {
  */
 export function FeedAdCard({ adIndex, className, compact }: FeedAdCardProps) {
   const slot = getAdSenseFeedSlot();
+  const layoutKey = getAdSenseFeedLayoutKey();
   const showPlaceholder = shouldShowFeedAdPlaceholder();
 
   return (
@@ -42,16 +44,19 @@ export function FeedAdCard({ adIndex, className, compact }: FeedAdCardProps) {
         </span>
       </div>
 
+      {/* Variable-height container — AdSense in-feed warns against fixed height. */}
       <div
         className={cn(
           "flex flex-1 flex-col items-center justify-center gap-3 px-4",
-          compact ? "py-6" : "min-h-[220px] py-8"
+          compact ? "py-4" : "min-h-[160px] py-5"
         )}
       >
         {slot ? (
           <AdSenseUnit
             slot={slot}
-            className="w-full max-w-md rounded-xl bg-slate-50/80 p-2 dark:bg-zinc-950/50"
+            format="fluid"
+            layoutKey={layoutKey || undefined}
+            className="w-full max-w-md"
           />
         ) : null}
 

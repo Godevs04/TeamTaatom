@@ -17,7 +17,7 @@ import { PostDetailActionBar } from "../trip/post-detail-action-bar";
 import { SharePostModal } from "../trip/share-post-modal";
 import { WatchPlayer } from "./watch-player";
 import { ExpandableText } from "../ui/expandable-text";
-import { canShowFeedAd, getAdSenseFeedSlot } from "../../lib/adsense";
+import { canShowWatchAdBreak, getAdSenseWatchBreakSlot } from "../../lib/adsense";
 import { AdSenseUnit } from "../ads/adsense-unit";
 
 function formatDuration(seconds?: number | null): string {
@@ -71,7 +71,7 @@ export function WatchDetailClient({ id }: { id: string }) {
         })),
       }
     : undefined;
-  const feedSlot = getAdSenseFeedSlot();
+  const watchSlot = getAdSenseWatchBreakSlot();
 
   if (q.isLoading) {
     return (
@@ -192,8 +192,13 @@ export function WatchDetailClient({ id }: { id: string }) {
         </div>
       </div>
 
-      {canShowFeedAd() && feedSlot ? (
-        <AdSenseUnit slot={feedSlot} className="rounded-2xl border border-slate-200/60 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900" />
+      {canShowWatchAdBreak() && watchSlot ? (
+        <AdSenseUnit
+          slot={watchSlot}
+          format="fluid"
+          layout="in-article"
+          className="rounded-2xl border border-slate-200/60 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+        />
       ) : null}
 
       <section id="comments" className="space-y-4">
