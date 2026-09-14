@@ -1,8 +1,11 @@
 /**
  * iOS FFmpeg Kit fixes (arthenica retirement, April 2025):
  * 1. Patch @wokcito/ffmpeg-kit-react-native podspec (postinstall + prebuild).
- * 2. Vendor ffmpeg-kit-ios-full from a mirrored zip (not CocoaPods trunk / arthenica releases).
+ * 2. Vendor a single mirrored ffmpeg-kit-ios-full pod (not CocoaPods trunk / arthenica).
  * 3. Force the RN pod onto the "full" subspec before autolinking can pull "https" (404).
+ *
+ * Do NOT also inject an https alias with the same xcframeworks — CocoaPods errors with
+ * "frameworks with conflicting names: ffmpegkit.xcframework, libavcodec…".
  *
  * Android: @wokcito/ffmpeg-kit-react-native uses Maven ffmpeg-kit-main-16kb.
  */
@@ -14,19 +17,16 @@ const { patchFfmpegKitPodspec } = require('../scripts/patch-ffmpeg-kit-podspec')
 
 const RN_POD_PATH = '../node_modules/@wokcito/ffmpeg-kit-react-native';
 const LOCAL_FULL_PODSPEC = './ffmpeg-kit-ios-full.podspec';
-const LOCAL_HTTPS_ALIAS_PODSPEC = './ffmpeg-kit-ios-https.podspec';
 
 const POD_ENTRIES = [
   `pod 'ffmpeg-kit-ios-full', :podspec => '${LOCAL_FULL_PODSPEC}'`,
-  // Alias: anything still requesting https resolves to the same mirrored binaries.
-  `pod 'ffmpeg-kit-ios-https', :podspec => '${LOCAL_HTTPS_ALIAS_PODSPEC}'`,
   `pod 'ffmpeg-kit-react-native', :path => '${RN_POD_PATH}', :subspecs => ['full']`,
 ].join('\n');
 
 function ensurePodfileEntries(podfileContent, targetName) {
   let next = podfileContent;
 
-  // Drop autolinked / stale RN lines so we own the single source of truth.
+  // Drop autolinked / stale lines so we own the single source of truth.
   next = next.replace(/^\s*pod 'ffmpeg-kit-react-native'[^\n]*\n?/gm, '');
   next = next.replace(/^\s*pod 'ffmpeg-kit-ios-full'[^\n]*\n?/gm, '');
   next = next.replace(/^\s*pod 'ffmpeg-kit-ios-https'[^\n]*\n?/gm, '');
@@ -76,11 +76,9 @@ function withFfmpegKitIos(config) {
 
       patchFfmpegKitPodspec();
 
-      for (const file of ['ffmpeg-kit-ios-full.podspec', 'ffmpeg-kit-ios-https.podspec']) {
-        const sourcePodspec = path.join(__dirname, file);
-        const destPodspec = path.join(platformProjectRoot, file);
-        fs.copyFileSync(sourcePodspec, destPodspec);
-      }
+      const sourcePodspec = path.join(__dirname, 'ffmpeg-kit-ios-full.podspec');
+      const destPodspec = path.join(platformProjectRoot, 'ffmpeg-kit-ios-full.podspec');
+      fs.copyFileSync(sourcePodspec, destPodspec);
 
       const podfilePath = path.join(platformProjectRoot, 'Podfile');
       const podfileContent = fs.readFileSync(podfilePath, 'utf-8');
