@@ -336,20 +336,53 @@ function PhotoCard({
     setLikesCount(value);
   }, []);
   
-  const upsertComment = useCallback((incomingComment: any) => {
+  const upsertComment = useCallback((incomingComment: any, replaceId?: string) => {
     if (!incomingComment) return;
     setComments((prev) => {
-      const next = [...prev];
-      if (incomingComment._id) {
+      let next = [...prev];
+      if (replaceId) {
+        const replaceIndex = next.findIndex((c) => c._id === replaceId);
+        if (replaceIndex !== -1) {
+          next[replaceIndex] = incomingComment;
+        } else {
+          next = next.filter((c) => c._id !== replaceId);
+          next.push(incomingComment);
+        }
+      } else if (incomingComment._id) {
         const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
         if (existingIndex !== -1) {
           next[existingIndex] = incomingComment;
-          return next;
+        } else {
+          next.push(incomingComment);
         }
+      } else {
+        next.push(incomingComment);
       }
-      return [...next, incomingComment];
+
+      if (incomingComment._id && !String(incomingComment._id).startsWith('temp-')) {
+        next = next.filter(
+          (c) =>
+            !(
+              String(c._id).startsWith('temp-') &&
+              c.text === incomingComment.text &&
+              String(c.user?._id) === String(incomingComment.user?._id)
+            )
+        );
+      }
+
+      const seen = new Set<string>();
+      next = next.filter((c) => {
+        const id = String(c._id);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+
+      setCommentsCount(next.length);
+      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: next.length });
+      return next;
     });
-  }, []);
+  }, [post._id]);
 
   React.useEffect(() => {
     const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
@@ -826,15 +859,10 @@ function PhotoCard({
     })();
   }, [post._id, showCustomAlertMessage]);
 
-  const handleCommentAdded = useCallback((newComment: any) => {
+  const handleCommentAdded = useCallback((newComment: any, meta?: { replaceId?: string }) => {
     triggerCommentHaptic();
-    upsertComment(newComment);
-    
-    const exists = comments.some(c => c._id === newComment._id);
-    const newCount = exists ? comments.length : comments.length + 1;
-    setCommentsCount(newCount);
-    savedEvents.emitPostAction(post._id, 'comment', { commentsCount: newCount });
-  }, [upsertComment, post._id, comments]);
+    upsertComment(newComment, meta?.replaceId);
+  }, [upsertComment]);
 
   const handleCommentDeleted = useCallback(async (commentId: string) => {
     let originalComments: any[] = [];

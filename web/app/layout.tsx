@@ -5,6 +5,7 @@ import AppProviders from "../providers/app-providers";
 import { SiteHeader } from "../components/layout/site-header";
 import { SiteFooter } from "../components/layout/site-footer";
 import { Analytics } from "../components/analytics";
+import { AdSenseScript } from "../components/ads/adsense-script";
 import { PwaRegister } from "../components/pwa/pwa-register";
 import { createMetadata } from "../lib/seo";
 
@@ -51,6 +52,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* AdSense site verification + ad loader (ca-pub-6362359854606661) */}
+        <AdSenseScript />
+      </head>
       <body className={`${inter.variable} ${fraunces.variable} font-sans antialiased`} suppressHydrationWarning>
         <div suppressHydrationWarning className="min-h-screen">
           <AppProviders>

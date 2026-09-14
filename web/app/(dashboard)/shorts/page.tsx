@@ -38,6 +38,14 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
+import { canShowFeedAd } from "../../../lib/adsense";
+import { FeedAdCard } from "../../../components/ads/feed-ad-card";
+import {
+  injectFeedAds,
+  isFeedAdSlot,
+  SHORTS_AD_EVERY_N_REELS,
+  type FeedListItem,
+} from "../../../lib/feed-ads";
 
 function getThumbnailUrl(short: Post): string {
   const raw =
@@ -117,8 +125,14 @@ export default function ShortsPage() {
     [rawShorts, likedIds, savedIds]
   );
 
+  /** Snap list with sponsored slides every 5 reels (mobile Shorts cadence). */
+  const shortsItems = React.useMemo<FeedListItem<Post>[]>(() => {
+    if (!canShowFeedAd() || shorts.length === 0) return shorts;
+    return injectFeedAds(shorts, { everyN: SHORTS_AD_EVERY_N_REELS });
+  }, [shorts]);
+
   React.useEffect(() => {
-    if (shorts.length === 0) return;
+    if (shortsItems.length === 0) return;
     const root = feedRef.current;
     if (!root) return;
 
@@ -146,22 +160,24 @@ export default function ShortsPage() {
     sections.forEach((section) => observer.observe(section));
 
     return () => observer.disconnect();
-  }, [shorts.length]);
+  }, [shortsItems.length]);
 
   React.useEffect(() => {
-    shorts.forEach((short, idx) => {
-      const video = videoRefs.current.get(short._id);
+    shortsItems.forEach((item, idx) => {
+      if (isFeedAdSlot(item)) return;
+      const video = videoRefs.current.get(item._id);
       if (!video) return;
-      const shouldPlay = idx === activeIndex && !manuallyPaused.has(short._id) && !failedVideoIds.has(short._id);
+      const shouldPlay =
+        idx === activeIndex && !manuallyPaused.has(item._id) && !failedVideoIds.has(item._id);
       if (shouldPlay) {
         void video.play().catch(() => {
-          setFailedVideoIds((prev) => new Set(prev).add(short._id));
+          setFailedVideoIds((prev) => new Set(prev).add(item._id));
         });
       } else {
         video.pause();
       }
     });
-  }, [activeIndex, failedVideoIds, manuallyPaused, shorts]);
+  }, [activeIndex, failedVideoIds, manuallyPaused, shortsItems]);
 
   React.useEffect(() => {
     shorts.forEach((short) => {
@@ -173,10 +189,10 @@ export default function ShortsPage() {
 
   React.useEffect(() => {
     if (!q.hasNextPage || q.isFetchingNextPage) return;
-    if (shorts.length - activeIndex <= 3) {
+    if (shortsItems.length - activeIndex <= 3) {
       void q.fetchNextPage();
     }
-  }, [activeIndex, q, shorts.length]);
+  }, [activeIndex, q, shortsItems.length]);
 
   const goToIndex = React.useCallback((targetIdx: number) => {
     const root = feedRef.current;
@@ -363,7 +379,52 @@ export default function ShortsPage() {
               ref={feedRef}
               className="h-full snap-y snap-mandatory overflow-y-auto overscroll-y-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              {shorts.map((short, idx) => {
+              {shortsItems.map((item, idx) => {
+                if (isFeedAdSlot(item)) {
+                  return (
+                    <section
+                      key={`shorts-ad-${item.adIndex}-${item.afterCount}`}
+                      data-short-slide
+                      data-idx={idx}
+                      className="flex h-full min-h-[calc(100vh-10rem)] snap-start items-center justify-center p-2 sm:p-4"
+                    >
+                      <div className="flex h-full w-full max-w-[700px] items-center justify-center gap-3 sm:gap-5">
+                        <div className="relative aspect-[9/16] h-[90%] max-h-[760px] w-full max-w-[440px] overflow-hidden rounded-3xl border border-zinc-900/20 bg-slate-900 shadow-[0_0_0_1px_rgba(2,6,23,0.12),0_20px_65px_rgba(0,0,0,0.35)] dark:border-white/20 dark:bg-zinc-900">
+                          <FeedAdCard
+                            adIndex={item.adIndex}
+                            className="h-full rounded-none border-0 shadow-none"
+                          />
+                        </div>
+                        <div className="mt-1 flex flex-col gap-2 self-end pb-5">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-10 w-10 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 disabled:opacity-40 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                            onClick={() => goToIndex(idx - 1)}
+                            disabled={idx === 0}
+                            aria-label="Previous short"
+                          >
+                            <ChevronUp className="h-5 w-5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-10 w-10 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 disabled:opacity-40 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                            onClick={() => goToIndex(idx + 1)}
+                            disabled={idx >= shortsItems.length - 1}
+                            aria-label="Next short"
+                          >
+                            <ChevronDown className="h-5 w-5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                }
+
+                const short = item;
                 const videoUrl = getVideoUrl(short);
                 const thumbUrl = getThumbnailUrl(short);
                 const isPaused = manuallyPaused.has(short._id);
@@ -544,7 +605,7 @@ export default function ShortsPage() {
                             variant="ghost"
                             className="h-10 w-10 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 disabled:opacity-40 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
                             onClick={() => goToIndex(idx + 1)}
-                            disabled={idx >= shorts.length - 1}
+                            disabled={idx >= shortsItems.length - 1}
                             aria-label="Next short"
                           >
                             <ChevronDown className="h-5 w-5" />

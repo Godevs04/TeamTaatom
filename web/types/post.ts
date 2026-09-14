@@ -71,6 +71,15 @@ export type Post = {
 
   comments?: Comment[];
 
+  /** Long-video monetization schedule from API (optional). */
+  adSchedule?: {
+    slots?: Array<{
+      atSeconds: number | "end";
+      type?: string;
+      preferRewarded?: boolean;
+    }>;
+  };
+
   createdAt?: string;
   updatedAt?: string;
 };

@@ -350,7 +350,6 @@ function PostImage({
     setIsMuted(sessionMuted);
     isMutedRef.current = sessionMuted;
     setCurrentImageIndex(0);
-    scale.value = 1;
   }, [post._id]);
 
   // Keep in sync when user toggles mute on another post in the feed
@@ -473,14 +472,14 @@ function PostImage({
   const aspectRatioValue = getAspectRatio();
 
   // Pinch-to-zoom shared values
-  // Pinch-to-zoom shared values
   const scale = useSharedValue<number>(1);
   const originX = useSharedValue<number>(0);
   const originY = useSharedValue<number>(0);
   const focalX = useSharedValue<number>(0);
   const focalY = useSharedValue<number>(0);
 
-  // Synchronous state reset during render phase when recycled (fixing one-frame stale state leak)
+  // Reset React state during render when FlashList recycles the cell (avoids one-frame stale UI).
+  // Reanimated shared values must NOT be written here — that triggers strict-mode warnings.
   const [prevPostId, setPrevPostId] = useState(post._id);
   if (post._id !== prevPostId) {
     setPrevPostId(post._id);
@@ -488,12 +487,15 @@ function PostImage({
     setIsZoomed(false);
     setScrollEnabled(true);
     setIsImageLoading(true);
+  }
+
+  useEffect(() => {
     scale.value = 1;
     originX.value = 0;
     originY.value = 0;
     focalX.value = 0;
     focalY.value = 0;
-  }
+  }, [post._id, scale, originX, originY, focalX, focalY]);
 
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {

@@ -84,23 +84,21 @@ const postSchema = new mongoose.Schema({
     enum: ['photo', 'short', 'long_video'],
     default: 'photo'
   },
-  /** Watch tab — YouTube embed source (no rehosted binary). */
+  /** Watch tab — legacy YouTube fields (omit for creator uploads; never default to null). */
   youtubeUrl: {
     type: String,
     required: false,
-    default: null
+    trim: true,
   },
   youtubeVideoId: {
     type: String,
     required: false,
-    default: null,
-    trim: true
+    trim: true,
   },
   youtubeChannelTitle: {
     type: String,
     required: false,
-    default: null,
-    trim: true
+    trim: true,
   },
   durationSeconds: {
     type: Number,
@@ -326,7 +324,18 @@ postSchema.index({ isActive: 1 }); // Filter active posts
 postSchema.index({ type: 1, isActive: 1, createdAt: -1 }); // Type-based feed queries
 postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 }); // User posts by type
 postSchema.index({ type: 1, displayOrder: 1, createdAt: -1 }); // Watch curation
-postSchema.index({ youtubeVideoId: 1 }, { unique: true, sparse: true }); // Unique YouTube id
+  // Unique only when a real YouTube id string exists.
+  // Sparse + default:null still indexes null and blocks every non-YouTube long video after the first.
+  postSchema.index(
+    { youtubeVideoId: 1 },
+    {
+      unique: true,
+      name: 'youtubeVideoId_unique_partial',
+      partialFilterExpression: {
+        youtubeVideoId: { $exists: true, $type: 'string', $gt: '' },
+      },
+    }
+  );
 postSchema.index({ tags: 1 }); // For hashtag/tag searches
 postSchema.index({ 'location.coordinates': '2dsphere' }); // For geospatial location queries
 postSchema.index({ likesCount: -1, createdAt: -1 }); // Compound index for sorting popular feed

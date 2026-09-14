@@ -54,7 +54,7 @@ FRONTEND_ENV="$ROOT_DIR/../frontend/.env"
 if [ -f "$FRONTEND_ENV" ]; then
   echo "Updating frontend/.env API_BASE_URL and EXPO_PUBLIC_API_BASE_URL..."
   sed -i '' -E "s|^(API_BASE_URL=)http://[0-9A-Za-z\.-]+(:[0-9]+)|\1http://$NEW_IP\2|" "$FRONTEND_ENV"
-  sed -i '' -E "s|^(EXPO_PUBLIC_API_BASE_URL[ ]*=)[ ]*http://[0-9A-Za-z\.-]+(:[0-9]+)|\1 http://$NEW_IP\2|" "$FRONTEND_ENV"
+  sed -i '' -E "s|^(EXPO_PUBLIC_API_BASE_URL[ ]*=)[ ]*http://[0-9A-Za-z\.-]+(:[0-9]+)|\1http://$NEW_IP\2|" "$FRONTEND_ENV"
 else
   echo "frontend/.env not found"
 fi

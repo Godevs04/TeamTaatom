@@ -97,6 +97,22 @@ export function getDefaultTripShareUrl(postId: string): string {
   return base ? `${base}/trip/${postId}` : `/trip/${postId}`;
 }
 
+/** Watch / long-video URL for the current web origin. */
+export function getDefaultWatchShareUrl(postId: string): string {
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : (typeof process !== "undefined" && process.env.NEXT_PUBLIC_WEB_URL) || "";
+  const base = origin.replace(/\/$/, "");
+  return base ? `${base}/watch/${postId}` : `/watch/${postId}`;
+}
+
+/** Prefer /watch for long videos, otherwise /trip. */
+export function getDefaultPostShareUrl(post: Pick<Post, "_id" | "type">): string {
+  if (post.type === "long_video") return getDefaultWatchShareUrl(post._id);
+  return getDefaultTripShareUrl(post._id);
+}
+
 /**
  * Full journey URL for the current web origin (used before the short URL
  * resolves, or if it fails). Points at /journeys/:id directly rather than

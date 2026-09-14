@@ -238,7 +238,10 @@ export function PostCard({
 
   const handleCopyLink = async () => {
     try {
-      const url = `${window.location.origin}/trip/${post._id}`;
+      const url =
+        post.type === "long_video"
+          ? `${window.location.origin}/watch/${post._id}`
+          : `${window.location.origin}/trip/${post._id}`;
       await navigator.clipboard.writeText(url);
       toast.success("Post link copied to clipboard");
     } catch {
@@ -403,7 +406,7 @@ export function PostCard({
         </Link>
         <div className="flex items-center gap-1">
           <Link
-            href={`/trip/${post._id}`}
+            href={isLongVideo ? `/watch/${post._id}` : `/trip/${post._id}`}
             className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           >
             View
@@ -559,7 +562,7 @@ export function PostCard({
           />
         </div>
       ) : isLongVideo ? (
-        <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
+        <Link href={`/watch/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
           <div className="relative aspect-video w-full overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -653,7 +656,7 @@ export function PostCard({
               aria-label="Comments"
               asChild
             >
-              <Link href={`/trip/${post._id}#comments`}>
+              <Link href={isLongVideo ? `/watch/${post._id}#comments` : `/trip/${post._id}#comments`}>
                 <MessageCircle className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
               </Link>
             </Button>

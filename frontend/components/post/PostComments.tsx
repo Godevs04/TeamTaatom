@@ -42,7 +42,7 @@ interface PostCommentsProps {
   postId: string;
   comments: Comment[];
   onClose: () => void;
-  onCommentAdded: (newComment: Comment) => void;
+  onCommentAdded: (newComment: Comment, meta?: { replaceId?: string }) => void;
   onCommentDeleted?: (commentId: string) => void;
   commentsDisabled?: boolean;
 }
@@ -189,8 +189,10 @@ export default function PostComments({
       return;
     }
 
+    if (isSubmitting) return;
+
     const commentText = newComment.trim();
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const optimisticComment: Comment = {
       _id: tempId,
       user: {
@@ -210,15 +212,17 @@ export default function PostComments({
     try {
       const response = await addCommentWithRetry(commentText);
       if (response?.comment) {
-        onCommentAdded(response.comment);
+        // Replace temp row — do not append a second copy
+        onCommentAdded(response.comment, { replaceId: tempId });
       }
-      setIsSubmitting(false);
     } catch (error: any) {
+      onCommentDeleted?.(tempId);
       if (error?.response?.status === 429) {
         showCustomAlertMessage('Rate Limited', 'Too many requests. Please wait a moment before commenting again.', 'warning');
       } else {
         showCustomAlertMessage('Error', 'Failed to add comment. Please try again.', 'error');
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
