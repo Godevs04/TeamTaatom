@@ -1,9 +1,10 @@
 /**
- * CocoaPods fixes for @wokcito/ffmpeg-kit-react-native:
+ * CocoaPods fixes for @wokcito/ffmpeg-kit-react-native after arthenica retirement:
  * - Valid pod name (CocoaPods rejects scoped npm names)
- * - Default "https" subspec (Podfile vendors ffmpeg-kit-ios-https from a mirror;
- *   "full" would pull retired arthenica ffmpeg-kit-ios-full and 404)
- * - Ensure s.source is present (CocoaPods validation requires the source attribute even for local :path pods)
+ * - Default "full" subspec
+ * - Remap retired trunk pods (https/full/min/…) → ffmpeg-kit-ios-full
+ *   (vendored via plugins/ffmpeg-kit-ios-full.podspec + withFfmpegKitIos)
+ * - Ensure s.source is present
  * - Explicit ios/ source_files paths
  */
 const fs = require('fs');
@@ -13,9 +14,20 @@ const PACKAGE_DIR = path.join(__dirname, '..', 'node_modules', '@wokcito', 'ffmp
 const PODSPEC = path.join(PACKAGE_DIR, 'ffmpeg-kit-react-native.podspec');
 
 const VALID_NAME = 'ffmpeg-kit-react-native';
-// Use https subspec — Podfile vendors ffmpeg-kit-ios-https from a mirror.
-// "full" pulls retired arthenica CocoaPods ffmpeg-kit-ios-full (404).
-const DEFAULT_SUBSPEC = 'https';
+const DEFAULT_SUBSPEC = 'full';
+const MIRRORED_IOS_POD = 'ffmpeg-kit-ios-full';
+
+/** Trunk binary pods that 404 after FFmpegKit retirement. */
+const RETIRED_IOS_PODS = [
+  'ffmpeg-kit-ios-min',
+  'ffmpeg-kit-ios-min-gpl',
+  'ffmpeg-kit-ios-https',
+  'ffmpeg-kit-ios-https-gpl',
+  'ffmpeg-kit-ios-audio',
+  'ffmpeg-kit-ios-video',
+  'ffmpeg-kit-ios-full',
+  'ffmpeg-kit-ios-full-gpl',
+];
 
 const GLOB_SOURCE_FILES =
   /ss\.source_files\s*=\s*'\*\*\/FFmpegKitReactNativeModule\.m',\s*\n\s*'\*\*\/FFmpegKitReactNativeModule\.h'/g;
@@ -42,14 +54,15 @@ function patchFfmpegKitPodspec() {
     );
   }
 
-  // Also point the "full" subspec at the mirrored https binary pod so a
-  // stale Podfile.lock cannot pull arthenica's retired ffmpeg-kit-ios-full.
-  content = content.replace(
-    /ss\.dependency\s+'ffmpeg-kit-ios-full',\s*"6\.0"/g,
-    `ss.dependency 'ffmpeg-kit-ios-https', "6.0"`,
-  );
+  // Point every retired iOS binary dependency at the mirrored full pod (version 6.0).
+  for (const retired of RETIRED_IOS_PODS) {
+    content = content.replace(
+      new RegExp(`ss\\.dependency\\s+'${retired}'\\s*,\\s*"[^"]+"`, 'g'),
+      `ss.dependency '${MIRRORED_IOS_POD}', "6.0"`,
+    );
+  }
 
-  // CocoaPods requires s.source to be present for validation even if ignored via :path in Podfile.
+  // CocoaPods requires s.source even for local :path pods.
   if (!/\s+s\.source\s*=/.test(content)) {
     content = content.replace(
       /s\.name\s*=\s*'ffmpeg-kit-react-native'/,
@@ -67,7 +80,7 @@ function patchFfmpegKitPodspec() {
 
   fs.writeFileSync(PODSPEC, content);
   console.log(
-    '[patch-ffmpeg-kit-podspec] Patched pod name, https default subspec, full→https dependency, ios source_files',
+    `[patch-ffmpeg-kit-podspec] Patched → default '${DEFAULT_SUBSPEC}', deps → ${MIRRORED_IOS_POD}`,
   );
   return true;
 }
