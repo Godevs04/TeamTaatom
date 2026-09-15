@@ -30,6 +30,12 @@ const REQUEST_SIZE_LIMITS = {
     urlencoded: 10 * 1024,
     multipart: Infinity, // Unlimited for video uploads
   },
+  // Watch / long videos (unlimited; nginx client_max_body_size is the hard cap)
+  longVideos: {
+    json: 10 * 1024,
+    urlencoded: 10 * 1024,
+    multipart: Infinity,
+  },
   // Comment endpoints
   comment: {
     json: 5 * 1024, // 5KB
@@ -75,6 +81,8 @@ const getSizeLimit = (path, contentType) => {
     endpointType = 'locales';
   } else if (path.includes('/songs')) {
     endpointType = 'songs';
+  } else if (path.includes('/long-videos')) {
+    endpointType = 'longVideos';
   } else if (path.includes('/shorts')) {
     endpointType = 'shorts';
   } else if (path.includes('/posts') && path.includes('/comments')) {
@@ -99,7 +107,7 @@ const getSizeLimit = (path, contentType) => {
   }
   
   // Default: if content-type is not set but path suggests file upload, use multipart limit
-  if (path.includes('/posts') || path.includes('/shorts') || path.includes('/profile') || path.includes('/songs')) {
+  if (path.includes('/posts') || path.includes('/shorts') || path.includes('/long-videos') || path.includes('/profile') || path.includes('/songs')) {
     return limits.multipart || REQUEST_SIZE_LIMITS.default.multipart;
   }
   

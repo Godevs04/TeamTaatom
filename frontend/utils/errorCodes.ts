@@ -112,6 +112,16 @@ export const parseError = (error: any): { code: string; message: string; userMes
     };
   }
 
+  // Proxy / CDN rejected the body (often nginx default 1MB on api.taatom.com)
+  if (status === 413) {
+    return {
+      code: 'FILE_4002',
+      message: 'Request entity too large',
+      userMessage:
+        'This video is too large for the server upload limit. Try a shorter clip, or contact support if this keeps happening.',
+    };
+  }
+
   // Fallback
   return {
     code: 'SRV_6001',
