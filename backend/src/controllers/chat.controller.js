@@ -1940,7 +1940,8 @@ exports.sharePost = async (req, res) => {
         caption: (post.caption || '').substring(0, 150),
         imageUrl: postImageUrl,
         authorName: post.user?.fullName || 'Unknown',
-        authorProfilePic
+        authorProfilePic,
+        contentType: post.type || 'photo',
       }
     };
 

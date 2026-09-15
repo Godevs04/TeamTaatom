@@ -48,58 +48,75 @@ export async function showLongVideoAdSlot(slot: AdSlot): Promise<'completed' | '
 
 function onceResolver() {
   let settled = false;
-  return (resolve: (v: boolean) => void, value: boolean) => {
-    if (settled) return;
-    settled = true;
-    resolve(value);
+  return {
+    finish(resolve: (v: boolean) => void, value: boolean) {
+      if (settled) return false;
+      settled = true;
+      resolve(value);
+      return true;
+    },
+    get settled() {
+      return settled;
+    },
   };
 }
 
 function showInterstitial(ads: any): Promise<boolean> {
   return new Promise((resolve) => {
-    const finish = onceResolver();
+    const gate = onceResolver();
     try {
       const { InterstitialAd, AdEventType } = ads;
       const id = platformUnits().interstitial;
       if (!isConfiguredUnit(id)) {
-        finish(resolve, false);
+        gate.finish(resolve, false);
         return;
       }
       const interstitial = InterstitialAd.createForAdRequest(id, {
         requestNonPersonalizedAdsOnly: false,
       });
       const unsubLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
-        interstitial.show().catch(() => finish(resolve, false));
+        if (gate.settled) return;
+        interstitial.show().catch(() => gate.finish(resolve, false));
       });
       const unsubClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
         unsubLoaded();
         unsubClosed();
         unsubError();
-        finish(resolve, true);
+        gate.finish(resolve, true);
       });
       const unsubError = interstitial.addAdEventListener(AdEventType.ERROR, () => {
         unsubLoaded();
         unsubClosed();
         unsubError();
-        finish(resolve, false);
+        gate.finish(resolve, false);
       });
       interstitial.load();
-      setTimeout(() => finish(resolve, false), AD_LOAD_TIMEOUT_MS);
+      setTimeout(() => {
+        if (gate.finish(resolve, false)) {
+          try {
+            unsubLoaded();
+            unsubClosed();
+            unsubError();
+          } catch {
+            /* ignore */
+          }
+        }
+      }, AD_LOAD_TIMEOUT_MS);
     } catch (e) {
       logger.warn('Interstitial failed', e);
-      finish(resolve, false);
+      gate.finish(resolve, false);
     }
   });
 }
 
 function showRewarded(ads: any): Promise<boolean> {
   return new Promise((resolve) => {
-    const finish = onceResolver();
+    const gate = onceResolver();
     try {
       const { RewardedAd, RewardedAdEventType, AdEventType } = ads;
       const id = platformUnits().rewarded;
       if (!isConfiguredUnit(id)) {
-        finish(resolve, false);
+        gate.finish(resolve, false);
         return;
       }
       const rewarded = RewardedAd.createForAdRequest(id, {
@@ -107,27 +124,39 @@ function showRewarded(ads: any): Promise<boolean> {
       });
       const unsubEarn = rewarded.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {});
       const unsubLoaded = rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {
-        rewarded.show().catch(() => finish(resolve, false));
+        if (gate.settled) return;
+        rewarded.show().catch(() => gate.finish(resolve, false));
       });
       const unsubClosed = rewarded.addAdEventListener(AdEventType.CLOSED, () => {
         unsubEarn();
         unsubLoaded();
         unsubClosed();
         unsubError();
-        finish(resolve, true);
+        gate.finish(resolve, true);
       });
       const unsubError = rewarded.addAdEventListener(AdEventType.ERROR, () => {
         unsubEarn();
         unsubLoaded();
         unsubClosed();
         unsubError();
-        finish(resolve, false);
+        gate.finish(resolve, false);
       });
       rewarded.load();
-      setTimeout(() => finish(resolve, false), AD_LOAD_TIMEOUT_MS);
+      setTimeout(() => {
+        if (gate.finish(resolve, false)) {
+          try {
+            unsubEarn();
+            unsubLoaded();
+            unsubClosed();
+            unsubError();
+          } catch {
+            /* ignore */
+          }
+        }
+      }, AD_LOAD_TIMEOUT_MS);
     } catch (e) {
       logger.warn('Rewarded failed', e);
-      finish(resolve, false);
+      gate.finish(resolve, false);
     }
   });
 }
@@ -135,16 +164,16 @@ function showRewarded(ads: any): Promise<boolean> {
 /** Watch / long-video primary format (AdMob Rewarded Interstitial unit). */
 function showRewardedInterstitial(ads: any): Promise<boolean> {
   return new Promise((resolve) => {
-    const finish = onceResolver();
+    const gate = onceResolver();
     try {
       const { RewardedInterstitialAd, RewardedAdEventType, AdEventType } = ads;
       if (!RewardedInterstitialAd) {
-        finish(resolve, false);
+        gate.finish(resolve, false);
         return;
       }
       const id = platformUnits().rewardedInterstitial;
       if (!isConfiguredUnit(id)) {
-        finish(resolve, false);
+        gate.finish(resolve, false);
         return;
       }
       const ad = RewardedInterstitialAd.createForAdRequest(id, {
@@ -152,14 +181,15 @@ function showRewardedInterstitial(ads: any): Promise<boolean> {
       });
       const unsubEarn = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {});
       const unsubLoaded = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
-        ad.show().catch(() => finish(resolve, false));
+        if (gate.settled) return;
+        ad.show().catch(() => gate.finish(resolve, false));
       });
       const unsubClosed = ad.addAdEventListener(AdEventType.CLOSED, () => {
         unsubEarn();
         unsubLoaded();
         unsubClosed();
         unsubError();
-        finish(resolve, true);
+        gate.finish(resolve, true);
       });
       const unsubError = ad.addAdEventListener(AdEventType.ERROR, (err: unknown) => {
         logger.debug('Rewarded interstitial error', err);
@@ -167,13 +197,24 @@ function showRewardedInterstitial(ads: any): Promise<boolean> {
         unsubLoaded();
         unsubClosed();
         unsubError();
-        finish(resolve, false);
+        gate.finish(resolve, false);
       });
       ad.load();
-      setTimeout(() => finish(resolve, false), AD_LOAD_TIMEOUT_MS);
+      setTimeout(() => {
+        if (gate.finish(resolve, false)) {
+          try {
+            unsubEarn();
+            unsubLoaded();
+            unsubClosed();
+            unsubError();
+          } catch {
+            /* ignore */
+          }
+        }
+      }, AD_LOAD_TIMEOUT_MS);
     } catch (e) {
       logger.warn('Rewarded interstitial failed', e);
-      finish(resolve, false);
+      gate.finish(resolve, false);
     }
   });
 }

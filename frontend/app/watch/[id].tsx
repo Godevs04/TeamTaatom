@@ -36,16 +36,11 @@ import { showLongVideoAdSlot } from '../../services/longVideoAds';
 const logger = createLogger('WatchDetail');
 const { width: screenWidth } = Dimensions.get('window');
 const PLAYER_HEIGHT = Math.round(((screenWidth - 32) * 9) / 16);
-const AD_SLOT_TIMEOUT_MS = 4500;
 
+/** Wait for AdMob to close/fail — do not race a short timeout (that unpauses video under a still-loading ad). */
 async function runAdSlot(slot: Parameters<typeof showLongVideoAdSlot>[0]) {
   try {
-    await Promise.race([
-      showLongVideoAdSlot(slot),
-      new Promise<'skipped'>((resolve) =>
-        setTimeout(() => resolve('skipped'), AD_SLOT_TIMEOUT_MS)
-      ),
-    ]);
+    await showLongVideoAdSlot(slot);
   } catch (e) {
     logger.warn('Ad slot failed', e);
   }
@@ -90,6 +85,7 @@ export default function WatchDetailScreen() {
 
   const [post, setPost] = useState<PostType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [liking, setLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -97,6 +93,8 @@ export default function WatchDetailScreen() {
   const [comments, setComments] = useState<any[]>([]);
   const [paused, setPaused] = useState(true);
   const [adBusy, setAdBusy] = useState(false);
+  /** Blocks autoplay until preroll finishes (or is skipped). */
+  const [prerollGateOpen, setPrerollGateOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -117,13 +115,17 @@ export default function WatchDetailScreen() {
   const totalDurationRef = useRef(0);
   const isFullscreenRef = useRef(false);
   const enteringFsSeekDoneRef = useRef(false);
+  /** True after natural end until user seeks/restarts — play must seek to 0. */
+  const endedRef = useRef(false);
 
   const fetchVideo = useCallback(async (isRefresh = false) => {
     try {
       if (!id) return;
+      if (!isRefresh) setLoadError(null);
       const { post: data } = await getLongVideo(id as string);
       if (savedEvents.isDeleted(data._id)) {
-        router.back();
+        setLoadError('This video is no longer available.');
+        setPost(null);
         return;
       }
       let next = data;
@@ -141,6 +143,7 @@ export default function WatchDetailScreen() {
         savedEvents.setCommentsCount(data._id, data.commentsCount || 0);
       }
       setPost(next);
+      setLoadError(null);
       if (Array.isArray(next.comments)) {
         setComments(next.comments);
         // Prefer server comments length when present so Conversation never looks empty
@@ -154,18 +157,23 @@ export default function WatchDetailScreen() {
       setPlaybackError(null);
       if (isRefresh) {
         firedSlotsRef.current = new Set();
-        prerollDoneRef.current = true;
-        setPaused(false);
+        prerollDoneRef.current = false;
+        endedRef.current = false;
+        setPrerollGateOpen(false);
+        setPaused(true);
         setChromeVisible(true);
         setPlayerEpoch((n) => n + 1);
       }
     } catch (error) {
       logger.error('Failed to fetch video:', error);
-      router.back();
+      // Stay on screen so chat → Watch does not bounce the user out of the app stack.
+      setLoadError(error instanceof Error ? error.message : 'Could not load this video.');
+      if (!isRefresh) setPost(null);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [id, router]);
+  }, [id]);
 
   useEffect(() => {
     fetchVideo();
@@ -190,23 +198,36 @@ export default function WatchDetailScreen() {
     const pre = schedule.find((s) => s.atSeconds === 0);
     if (!pre) {
       prerollDoneRef.current = true;
+      setPrerollGateOpen(true);
       setPaused(false);
       bumpChrome();
       return;
     }
     setAdBusy(true);
     setPaused(true);
+    setPrerollGateOpen(false);
     await runAdSlot(pre);
     firedSlotsRef.current.add(0);
     prerollDoneRef.current = true;
+    // Rewind in case the player advanced while the ad UI was up.
+    try {
+      videoRef.current?.seek?.(0);
+      fsVideoRef.current?.seek?.(0);
+    } catch {
+      /* ignore */
+    }
+    resumeAtRef.current = 0;
+    setCurrentTime(0);
+    endedRef.current = false;
     setAdBusy(false);
+    setPrerollGateOpen(true);
     setPaused(false);
     bumpChrome();
   }, [schedule, bumpChrome]);
 
   useEffect(() => {
     if (post && !prerollDoneRef.current) {
-      runPreroll();
+      void runPreroll();
     }
   }, [post?._id, runPreroll]);
 
@@ -314,13 +335,14 @@ export default function WatchDetailScreen() {
       await runAdSlot(schedule[endIdx]);
       setAdBusy(false);
     }
+    endedRef.current = true;
     setPaused(true);
     setChromeVisible(true);
   }, [schedule]);
 
   const enterLandscape = useCallback(async () => {
     const uri = post?.videoUrl || post?.mediaUrl || '';
-    if (adBusy || !uri) return;
+    if (adBusy || !prerollGateOpen || !uri) return;
     resumeAtRef.current = currentTime;
     enteringFsSeekDoneRef.current = false;
     isFullscreenRef.current = true;
@@ -349,7 +371,7 @@ export default function WatchDetailScreen() {
       logger.warn('Landscape orientation lock failed — using rotate fallback', e);
       setRotateFallback(true);
     }
-  }, [adBusy, currentTime, post?.videoUrl, post?.mediaUrl]);
+  }, [adBusy, prerollGateOpen, currentTime, post?.videoUrl, post?.mediaUrl]);
 
   const exitLandscape = useCallback(async () => {
     isFullscreenRef.current = false;
@@ -407,6 +429,10 @@ export default function WatchDetailScreen() {
     const capped = Math.max(0, seconds);
     resumeAtRef.current = capped;
     setCurrentTime(capped);
+    const dur = totalDurationRef.current;
+    if (dur > 0 && capped < Math.max(0, dur - 0.35)) {
+      endedRef.current = false;
+    }
     try {
       const target = isFullscreenRef.current ? fsVideoRef.current : videoRef.current;
       target?.seek?.(capped);
@@ -459,14 +485,22 @@ export default function WatchDetailScreen() {
   );
 
   const togglePlay = useCallback(() => {
-    if (adBusy) return;
-    setPaused((p) => {
-      const next = !p;
-      if (!next) bumpChrome();
-      else setChromeVisible(true);
-      return next;
-    });
-  }, [adBusy, bumpChrome]);
+    if (adBusy || !prerollGateOpen) return;
+    if (paused) {
+      const dur = totalDurationRef.current;
+      const t = resumeAtRef.current;
+      const atEnd = endedRef.current || (dur > 0 && t >= Math.max(0, dur - 0.35));
+      if (atEnd) {
+        endedRef.current = false;
+        seekActivePlayer(0);
+      }
+      setPaused(false);
+      bumpChrome();
+      return;
+    }
+    setPaused(true);
+    setChromeVisible(true);
+  }, [adBusy, prerollGateOpen, paused, bumpChrome, seekActivePlayer]);
 
   const onPlayerPress = useCallback(() => {
     if (scrubbingRef.current) return;
@@ -499,10 +533,14 @@ export default function WatchDetailScreen() {
     if (!post) return undefined;
     return {
       _id: post._id,
+      type: 'long_video' as const,
       caption: post.caption,
       imageUrl: post.thumbnailUrl || post.imageUrl,
+      thumbnailUrl: post.thumbnailUrl || post.imageUrl,
       mediaUrl: post.thumbnailUrl || post.imageUrl,
-      user: post.user ? { fullName: post.user.fullName } : undefined,
+      user: post.user
+        ? { _id: (post.user as any)._id, fullName: post.user.fullName, profilePic: (post.user as any).profilePic }
+        : undefined,
     };
   }, [post]);
 
@@ -594,13 +632,57 @@ export default function WatchDetailScreen() {
     );
   };
 
-  if (loading || !post) {
+  if (loading) {
     return (
       <LinearGradient colors={[...bgColors]} style={styles.flex}>
         <SafeAreaView style={styles.flex}>
           <View style={styles.loading}>
             <LoadingGlobe size="large" color={colors.accent} />
             <Text style={[styles.loadingText, { color: colors.meta }]}>Opening video…</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
+  if (!post || loadError) {
+    return (
+      <LinearGradient colors={[...bgColors]} style={styles.flex}>
+        <SafeAreaView style={styles.flex}>
+          <View style={[styles.headerShell, { borderColor: colors.border }]}>
+            <View style={[styles.header, { backgroundColor: colors.glass }]}>
+              <Pressable
+                onPress={() => router.back()}
+                style={styles.iconBtn}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+              >
+                <Ionicons name="chevron-back" size={24} color={colors.text} />
+              </Pressable>
+              <View style={styles.headerCenter}>
+                <Text style={[styles.kicker, { color: colors.accent }]}>VIDEOS</Text>
+                <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+                  Unavailable
+                </Text>
+              </View>
+              <View style={styles.iconBtn} />
+            </View>
+          </View>
+          <View style={styles.loading}>
+            <Ionicons name="alert-circle-outline" size={40} color={colors.meta} />
+            <Text style={[styles.loadingText, { color: colors.text, marginTop: 12, textAlign: 'center', paddingHorizontal: 24 }]}>
+              {loadError || 'This video could not be opened.'}
+            </Text>
+            <Pressable
+              onPress={() => {
+                setLoading(true);
+                void fetchVideo(true);
+              }}
+              style={[styles.viewAllBtn, { borderColor: colors.border, marginTop: 16 }]}
+            >
+              <Text style={[styles.viewAllText, { color: colors.accent }]}>Try again</Text>
+            </Pressable>
           </View>
         </SafeAreaView>
       </LinearGradient>
@@ -669,7 +751,7 @@ export default function WatchDetailScreen() {
                   source={videoSource!}
                   style={styles.video}
                   resizeMode="contain"
-                  paused={paused || adBusy || !!playbackError}
+                  paused={paused || adBusy || !prerollGateOpen || !!playbackError}
                   controls={false}
                   repeat={false}
                   playInBackground={false}
@@ -679,6 +761,15 @@ export default function WatchDetailScreen() {
                   onLoad={(meta) => {
                     if (meta?.duration) setDuration(meta.duration);
                     setPlaybackError(null);
+                    if (!prerollDoneRef.current || adBusy) {
+                      try {
+                        videoRef.current?.seek?.(0);
+                      } catch {
+                        /* ignore */
+                      }
+                      setPaused(true);
+                      return;
+                    }
                     if (resumeAtRef.current > 0.25) {
                       try {
                         videoRef.current?.seek?.(resumeAtRef.current);
@@ -686,17 +777,31 @@ export default function WatchDetailScreen() {
                         /* ignore */
                       }
                     }
-                    if (prerollDoneRef.current && !adBusy) {
+                    if (prerollGateOpen && !adBusy) {
                       setPaused(false);
                       bumpChrome();
                     }
                   }}
                   onReadyForDisplay={() => {
-                    if (prerollDoneRef.current && !adBusy) setPaused(false);
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
+                      setPaused(true);
+                      return;
+                    }
+                    setPaused(false);
                   }}
                   progressUpdateInterval={250}
                   onProgress={(p) => {
                     if (scrubbingRef.current) return;
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
+                      if (p.currentTime > 0.05) {
+                        try {
+                          videoRef.current?.seek?.(0);
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                      return;
+                    }
                     setCurrentTime(p.currentTime);
                     resumeAtRef.current = p.currentTime;
                     maybeFireMidroll(p.currentTime);
@@ -998,14 +1103,15 @@ export default function WatchDetailScreen() {
                   source={videoSource!}
                   style={styles.fsVideo}
                   resizeMode="contain"
-                  paused={paused || adBusy || !!playbackError}
+                  paused={paused || adBusy || !prerollGateOpen || !!playbackError}
                   controls={false}
                   repeat={false}
                   ignoreSilentSwitch="ignore"
                   progressUpdateInterval={250}
                   onLoad={(meta) => {
                     if (meta?.duration) setDuration(meta.duration);
-                    const t = resumeAtRef.current || 0;
+                    const t =
+                      !prerollDoneRef.current || adBusy ? 0 : resumeAtRef.current || 0;
                     try {
                       fsVideoRef.current?.seek?.(t);
                       enteringFsSeekDoneRef.current = true;
@@ -1013,11 +1119,25 @@ export default function WatchDetailScreen() {
                       /* ignore */
                     }
                     setPlaybackError(null);
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
+                      setPaused(true);
+                      return;
+                    }
                     setPaused(false);
                     bumpChrome();
                   }}
                   onProgress={(p) => {
                     if (scrubbingRef.current) return;
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
+                      if (p.currentTime > 0.05) {
+                        try {
+                          fsVideoRef.current?.seek?.(0);
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                      return;
+                    }
                     setCurrentTime(p.currentTime);
                     resumeAtRef.current = p.currentTime;
                     maybeFireMidroll(p.currentTime);

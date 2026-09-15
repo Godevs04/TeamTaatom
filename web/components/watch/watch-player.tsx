@@ -66,6 +66,8 @@ export function WatchPlayer({
   const resumeAtRef = React.useRef(0);
   const chromeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const adBusyRef = React.useRef(false);
+  /** True after natural end until user seeks/restarts — play must seek to 0. */
+  const endedRef = React.useRef(false);
 
   const [paused, setPaused] = React.useState(true);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -143,9 +145,26 @@ export function WatchPlayer({
       bumpChrome();
       return;
     }
+    setAdBusy(true);
+    adBusyRef.current = true;
+    setPaused(true);
+    videoRef.current?.pause();
     await runAdSlot();
     firedSlotsRef.current.add(0);
     prerollDoneRef.current = true;
+    const el = videoRef.current;
+    if (el) {
+      try {
+        el.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+      setCurrentTime(0);
+      resumeAtRef.current = 0;
+      endedRef.current = false;
+    }
+    setAdBusy(false);
+    adBusyRef.current = false;
     setPaused(false);
     bumpChrome();
     void videoRef.current?.play().catch(() => setPaused(true));
@@ -187,6 +206,7 @@ export function WatchPlayer({
       firedSlotsRef.current.add(endIdx);
       await runAdSlot();
     }
+    endedRef.current = true;
     setPaused(true);
     setChromeVisible(true);
   }, [slots, runAdSlot]);
@@ -201,6 +221,7 @@ export function WatchPlayer({
     setPlaybackError(null);
     prerollDoneRef.current = false;
     firedSlotsRef.current = new Set();
+    endedRef.current = false;
 
     const cleanupHls = () => {
       if (hlsRef.current) {
@@ -287,13 +308,28 @@ export function WatchPlayer({
   }, [paused, adBusy]);
 
   const togglePlay = () => {
-    if (adBusy) return;
-    setPaused((p) => {
-      const next = !p;
-      if (!next) bumpChrome();
-      else setChromeVisible(true);
-      return next;
-    });
+    if (adBusy || !prerollDoneRef.current) return;
+    if (paused) {
+      const el = videoRef.current;
+      const dur = duration || Number(durationSeconds) || el?.duration || 0;
+      const t = el?.currentTime ?? currentTime;
+      const atEnd = endedRef.current || (dur > 0 && t >= Math.max(0, dur - 0.35));
+      if (atEnd && el) {
+        endedRef.current = false;
+        try {
+          el.currentTime = 0;
+        } catch {
+          /* ignore */
+        }
+        setCurrentTime(0);
+        resumeAtRef.current = 0;
+      }
+      setPaused(false);
+      bumpChrome();
+      return;
+    }
+    setPaused(true);
+    setChromeVisible(true);
   };
 
   const onPlayerClick = () => {
@@ -351,6 +387,17 @@ export function WatchPlayer({
           if (Number.isFinite(d)) setDuration(d);
         }}
         onTimeUpdate={(e) => {
+          if (adBusyRef.current || !prerollDoneRef.current) {
+            e.currentTarget.pause();
+            if (e.currentTarget.currentTime > 0.05) {
+              try {
+                e.currentTarget.currentTime = 0;
+              } catch {
+                /* ignore */
+              }
+            }
+            return;
+          }
           const t = e.currentTarget.currentTime;
           setCurrentTime(t);
           void maybeFireMidroll(t);

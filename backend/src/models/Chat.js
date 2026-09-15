@@ -22,7 +22,9 @@ const AttachmentSchema = new Schema({
     caption: { type: String },
     imageUrl: { type: String },
     authorName: { type: String },
-    authorProfilePic: { type: String }
+    authorProfilePic: { type: String },
+    /** photo | short | long_video — used by chat UI for navigation / layout */
+    contentType: { type: String },
   }
 }, { _id: false });
 

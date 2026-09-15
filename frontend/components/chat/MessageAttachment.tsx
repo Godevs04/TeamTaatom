@@ -45,8 +45,9 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
         try {
           setLoadingDetails(true);
           const response = await getPostById(contentId);
-          if (isMounted && response?.success && response?.post) {
-            setPostDetails(response.post);
+          const post = response?.post;
+          if (isMounted && post) {
+            setPostDetails(post);
           }
         } catch (err) {
           console.log('Error fetching post/short details in chat bubble:', err);
@@ -228,11 +229,15 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
   }
 
   if (attachment.type === 'post' || attachment.type === 'short') {
+    const previewType = attachment.postPreview?.contentType || postDetails?.type;
+    const isLongVideo =
+      previewType === 'long_video' ||
+      postDetails?.type === 'long_video';
     const isShort =
-      attachment.type === 'short' ||
-      postDetails?.type === 'short' ||
-      (postDetails?.videoUrl && !postDetails?.imageUrl) ||
-      (postDetails?.mediaUrl && postDetails?.type === 'short');
+      !isLongVideo &&
+      (attachment.type === 'short' ||
+        previewType === 'short' ||
+        postDetails?.type === 'short');
 
     const resolvedAuthorDp = resolveUrl(
       postDetails?.user?.profilePic ||
@@ -249,23 +254,108 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
       postDetails?.caption ||
       attachment.postPreview?.caption ||
       '';
+    // Prefer thumbnails for Watch / video shares (imageUrl alone is often empty).
     const resolvedImageUrl = resolveUrl(
+      postDetails?.thumbnailUrl ||
       postDetails?.imageUrl ||
       postDetails?.images?.[0] ||
       attachment.metadata?.thumbnailUrl ||
       attachment.postPreview?.imageUrl ||
-      attachment.url
-    );
-    const resolvedThumbnailUrl = resolveUrl(
-      postDetails?.imageUrl ||
-      postDetails?.images?.[0] ||
-      postDetails?.thumbnailUrl ||
-      attachment.metadata?.thumbnailUrl ||
       attachment.thumbnailUrl ||
       attachment.url
     );
 
-    const authorId = postDetails?.user?._id || contentId;
+    const openSharedContent = () => {
+      if (!contentId) return;
+      if (isLongVideo) {
+        router.push(`/watch/${contentId}` as any);
+        return;
+      }
+      const authorId = postDetails?.user?._id;
+      if (isShort) {
+        if (authorId) {
+          router.push(`/user-shorts/${authorId}?shortId=${contentId}` as any);
+        } else {
+          router.push(`/(tabs)/shorts?shortId=${contentId}` as any);
+        }
+        return;
+      }
+      if (authorId) {
+        router.push({
+          pathname: `/user-posts/${authorId}`,
+          params: {
+            postId: contentId,
+            postData: postDetails ? JSON.stringify(postDetails) : undefined,
+          },
+        } as any);
+      } else {
+        // Avoid /user-posts/{postId} bounce — open via post deep link.
+        router.push(`/post/${contentId}` as any);
+      }
+    };
+
+    if (isLongVideo) {
+      return (
+        <Pressable
+          style={({ pressed }) => [
+            styles.watchCardContainer,
+            {
+              borderColor: isOwnMessage ? 'rgba(255,255,255,0.2)' : theme.colors.border,
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}
+          onPress={openSharedContent}
+          accessibilityRole="button"
+          accessibilityLabel="Open Watch video"
+        >
+          <View style={styles.watchCardMedia}>
+            {resolvedImageUrl ? (
+              <Image source={{ uri: resolvedImageUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+            ) : (
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#0B1A2B', alignItems: 'center', justifyContent: 'center' }]}>
+                {loadingDetails ? (
+                  <LoadingGlobe size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="videocam-outline" size={40} color="rgba(255,255,255,0.45)" />
+                )}
+              </View>
+            )}
+            <LinearGradient
+              colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.75)']}
+              locations={[0, 0.45, 1]}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.watchCardPlayWrapper}>
+              <View style={styles.watchCardPlayButton}>
+                <Ionicons name="play" size={22} color="#fff" style={{ marginLeft: 2 }} />
+              </View>
+            </View>
+            <View style={styles.watchCardBadge}>
+              <Text style={styles.watchCardBadgeText}>WATCH</Text>
+            </View>
+            <View style={styles.watchCardOverlayFooter}>
+              {resolvedAuthorDp ? (
+                <Image source={{ uri: resolvedAuthorDp }} style={styles.richCardAvatar} />
+              ) : (
+                <View style={[styles.richCardAvatar, { backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }]}>
+                  <Ionicons name="person" size={10} color="#fff" />
+                </View>
+              )}
+              <View style={styles.watchCardOverlayText}>
+                <Text style={styles.watchCardOverlayUsername} numberOfLines={1}>
+                  {resolvedAuthorUsername}
+                </Text>
+                {resolvedCaption ? (
+                  <Text style={styles.watchCardOverlayCaption} numberOfLines={1}>
+                    {resolvedCaption}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        </Pressable>
+      );
+    }
 
     if (isShort) {
       // Render Shared Short: aspect ratio 9:16 vertical card with Play overlay
@@ -279,14 +369,10 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
               opacity: pressed ? 0.9 : 1,
             }
           ]}
-          onPress={() => {
-            if (authorId && contentId) {
-              router.push(`/user-shorts/${authorId}?shortId=${contentId}`);
-            }
-          }}
+          onPress={openSharedContent}
         >
-          {resolvedThumbnailUrl ? (
-            <Image source={{ uri: resolvedThumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+          {resolvedImageUrl ? (
+            <Image source={{ uri: resolvedImageUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
           ) : (
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
               {loadingDetails ? (
@@ -334,17 +420,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
               opacity: pressed ? 0.9 : 1,
             }
           ]}
-          onPress={() => {
-            if (authorId && contentId) {
-              router.push({
-                pathname: `/user-posts/${authorId}`,
-                params: {
-                  postId: contentId,
-                  postData: postDetails ? JSON.stringify(postDetails) : undefined,
-                },
-              });
-            }
-          }}
+          onPress={openSharedContent}
         >
           {/* Top of Card: Tiny Avatar + Username */}
           <View style={styles.richCardHeader}>
@@ -489,6 +565,78 @@ const styles = StyleSheet.create({
     width: CHAT_MEDIA_MAX_WIDTH,
     marginVertical: 4,
   },
+  watchCardContainer: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+    width: CHAT_MEDIA_MAX_WIDTH,
+    marginVertical: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#0B1A2B',
+  },
+  watchCardMedia: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#0B1A2B',
+  },
+  watchCardPlayWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  watchCardPlayButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  watchCardBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(28,115,180,0.92)',
+  },
+  watchCardBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  watchCardOverlayFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  watchCardOverlayText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  watchCardOverlayUsername: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  watchCardOverlayCaption: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  watchCardFooter: {
+    width: '100%',
+  },
   richCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -533,6 +681,8 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     position: 'relative',
     justifyContent: 'space-between',
+    alignSelf: 'flex-start',
+    backgroundColor: '#0B1A2B',
   },
   shortCardHeader: {
     flexDirection: 'row',
