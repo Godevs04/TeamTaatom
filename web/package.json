@@ -23,7 +23,7 @@
     "framer-motion": "^11.18.2",
     "hls.js": "^1.7.3",
     "lucide-react": "^0.542.0",
-    "maplibre-gl": "^5.24.0",
+    "maplibre-gl": "^6.4.1",
     "next": "14.2.20",
     "next-themes": "^0.4.6",
     "react": "^18.3.1",
