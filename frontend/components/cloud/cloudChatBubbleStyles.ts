@@ -26,7 +26,7 @@ export function createCloudChatBubbleStyles(
       marginBottom: 6,
     },
     bubbleColumn: {
-      maxWidth: CHAT_BUBBLE_MAX_WIDTH,
+      maxWidth: Math.max(CHAT_BUBBLE_MAX_WIDTH, CHAT_MEDIA_MAX_WIDTH + 8),
       flexShrink: 1,
     },
     bubbleIn: {

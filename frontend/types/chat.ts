@@ -15,6 +15,7 @@ export interface Attachment {
     imageUrl: string;
     authorName: string;
     authorProfilePic: string;
+    contentType?: 'photo' | 'short' | 'long_video' | string;
   };
   metadata?: {
     originalAuthorDp?: string;

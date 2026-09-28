@@ -39,8 +39,10 @@ interface ShareModalProps {
   onClose: () => void;
   post?: {
     _id: string;
+    type?: string;
     caption?: string;
     imageUrl?: string;
+    thumbnailUrl?: string;
     images?: string[];
     mediaUrl?: string;
     videoUrl?: string;
@@ -194,6 +196,10 @@ export default function ShareModal({
     if (shortUrl) return shortUrl;
     if (shareUrl) return shareUrl;
     if (post?._id) {
+      if (post.type === 'long_video') {
+        const base = getPostShareUrl(post._id).replace(/\/post\//, '/watch/');
+        return base;
+      }
       return getPostShareUrl(post._id);
     }
     return '';
@@ -585,17 +591,22 @@ export default function ShareModal({
         messageText = `[JOURNEY_SHARE]${journeyData}`;
       } else if (post?._id) {
         const imageUrl =
+          post.thumbnailUrl ||
           post.imageUrl ||
           (post.images && post.images.length > 0 ? post.images[0] : '') ||
           post.mediaUrl ||
-          post.videoUrl ||
           '';
+        const shareLink =
+          post.type === 'long_video'
+            ? currentShareUrl.replace(/\/post\//, '/watch/') || currentShareUrl
+            : currentShareUrl;
         const postData = [
           post._id,
           imageUrl,
-          currentShareUrl,
-          post.caption || '',
-          post.user?.fullName || '',
+          shareLink,
+          encodeURIComponent(post.caption || ''),
+          encodeURIComponent(post.user?.fullName || ''),
+          post.type || 'photo',
         ].join('|');
         messageText = `[POST_SHARE]${postData}`;
       }

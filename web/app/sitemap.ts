@@ -3,15 +3,15 @@ import { config } from "../lib/config";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = config.webUrl;
+  const now = new Date();
 
-  const staticRoutes: MetadataRoute.Sitemap = [
-    { url: base, lastModified: new Date(), changeFrequency: "daily", priority: 1 },
-    { url: `${base}/feed`, lastModified: new Date(), changeFrequency: "hourly", priority: 0.9 },
-    { url: `${base}/search`, lastModified: new Date(), changeFrequency: "daily", priority: 0.8 },
-    { url: `${base}/auth/login`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
-    { url: `${base}/auth/register`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
+  return [
+    { url: base, lastModified: now, changeFrequency: "weekly", priority: 1 },
+    { url: `${base}/download`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${base}/contact`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+    { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+    { url: `${base}/copyrights`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${base}/child-safety`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ];
-
-  // Dynamic trip and profile URLs can be added by fetching from API and merging here
-  return staticRoutes;
 }

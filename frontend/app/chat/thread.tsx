@@ -36,6 +36,7 @@ import {
 import {
   createCloudChatBubbleStyles,
   CHAT_BUBBLE_MAX_WIDTH,
+  CHAT_MEDIA_MAX_WIDTH,
 } from '../../components/cloud/cloudChatBubbleStyles';
 import { cloudDesign } from '../../constants/cloudDesign';
 import { isChatDarkMode } from '../../utils/chatTheme';
@@ -216,12 +217,24 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       const parts = data.split('|');
       if (parts.length >= 3) {
         const imageUrl = (parts[1] || '').trim();
+        const safeDecode = (value: string) => {
+          try {
+            return decodeURIComponent(value || '');
+          } catch {
+            return value || '';
+          }
+        };
+        const contentType = (parts[5] || '').trim();
+        const shareUrl = parts[2] || '';
         const result = {
           postId: parts[0] || '',
-          imageUrl: imageUrl,
-          shareUrl: parts[2] || '',
-          caption: parts[3] || '',
-          authorName: parts[4] || ''
+          imageUrl,
+          shareUrl,
+          caption: safeDecode(parts[3] || ''),
+          authorName: safeDecode(parts[4] || ''),
+          contentType:
+            contentType ||
+            (shareUrl.includes('/watch/') ? 'long_video' : ''),
         };
         return result;
       }
@@ -257,35 +270,48 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     }
   };
 
-  const handlePostPreviewClick = async (shareUrl: string, postId: string) => {
+  const handlePostPreviewClick = async (
+    shareUrl: string,
+    postId: string,
+    contentType?: string
+  ) => {
     try {
       if (router && postId) {
+        if (contentType === 'long_video' || (shareUrl && shareUrl.includes('/watch/'))) {
+          router.push(`/watch/${postId}` as any);
+          return;
+        }
         try {
           const response = await getPostById(postId);
           const post = response.post || response;
-          const isShort = post.type === 'short' || 
-                         (post.videoUrl && !post.imageUrl) || 
-                         (post.mediaUrl && post.type === 'short');
-          
+          if (post?.type === 'long_video') {
+            router.push(`/watch/${postId}` as any);
+            return;
+          }
+          const isShort =
+            post.type === 'short' ||
+            contentType === 'short' ||
+            (post.type !== 'long_video' && post.videoUrl && !post.imageUrl && !post.thumbnailUrl);
+
           if (isShort) {
-            router.push(`/(tabs)/shorts?shortId=${postId}`);
+            router.push(`/(tabs)/shorts?shortId=${postId}` as any);
           } else {
-            router.push(`/(tabs)/home?postId=${postId}`);
+            router.push(`/post/${postId}` as any);
           }
         } catch (fetchError) {
-          logger.debug('Failed to fetch post details, defaulting to home:', fetchError);
-          router.push(`/(tabs)/home?postId=${postId}`);
+          logger.debug('Failed to fetch post details, trying watch then post:', fetchError);
+          // Prefer Watch for shared videos (common Watch-tab share path).
+          try {
+            router.push(`/watch/${postId}` as any);
+          } catch {
+            router.push(`/post/${postId}` as any);
+          }
         }
       } else if (shareUrl) {
         try {
-          const deepLink = `taatom://home`;
-          await Linking.openURL(deepLink);
-        } catch (deepLinkError) {
-          try {
-            await Linking.openURL(shareUrl);
-          } catch (linkError) {
-            logger.error('Error opening share URL:', linkError);
-          }
+          await Linking.openURL(shareUrl);
+        } catch (linkError) {
+          logger.error('Error opening share URL:', linkError);
         }
       }
     } catch (error) {
@@ -332,7 +358,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       setIsLoading(true);
       try {
         const response = await getPostById(postId);
-        const newImageUrl = response.post?.imageUrl || response.post?.images?.[0];
+        const newImageUrl =
+          response.post?.thumbnailUrl ||
+          response.post?.imageUrl ||
+          response.post?.images?.[0];
         if (newImageUrl && newImageUrl.trim()) {
           setDisplayUrl(newImageUrl.trim());
           setImageError(false);
@@ -364,7 +393,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       return (
         <Image
           source={{ uri: displayUrl }}
-          style={styles.postShareThumbnail}
+          style={StyleSheet.absoluteFillObject}
           resizeMode="cover"
           onError={() => {
             setImageError(true);
@@ -381,19 +410,23 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 
     if (isLoading) {
       return (
-        <LoadingGlobe 
-          size="small" 
-          color={isOwn ? 'rgba(255,255,255,0.7)' : theme.colors.primary} 
-        />
+        <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
+          <LoadingGlobe 
+            size="small" 
+            color={isOwn ? 'rgba(255,255,255,0.7)' : theme.colors.primary} 
+          />
+        </View>
       );
     }
 
     return (
-      <Ionicons 
-        name="image" 
-        size={20} 
-        color={isOwn ? 'rgba(255,255,255,0.9)' : theme.colors.primary} 
-      />
+      <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B1A2B' }]}>
+        <Ionicons 
+          name="videocam" 
+          size={28} 
+          color={isOwn ? 'rgba(255,255,255,0.9)' : theme.colors.primary} 
+        />
+      </View>
     );
   });
 
@@ -1354,30 +1387,99 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     },
     postShareMessageContainer: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       width: '100%',
+      minWidth: 220,
+      paddingVertical: 10,
+      paddingHorizontal: 6,
+      gap: 4,
+    },
+    postShareCard: {
+      width: CHAT_MEDIA_MAX_WIDTH,
+      borderRadius: 14,
+      borderWidth: 1,
+      overflow: 'hidden',
+      backgroundColor: '#0B1A2B',
+      alignSelf: 'flex-start',
+    },
+    postShareMedia: {
+      width: '100%',
+      aspectRatio: 16 / 9,
+      backgroundColor: '#0B1A2B',
+      overflow: 'hidden',
+    },
+    postSharePlayWrapper: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    postSharePlayButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      borderWidth: 1.5,
+      borderColor: 'rgba(255,255,255,0.55)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    postShareWatchBadge: {
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+      backgroundColor: 'rgba(28,115,180,0.92)',
+    },
+    postShareWatchBadgeText: {
+      color: '#fff',
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 0.6,
+    },
+    postShareOverlayFooter: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      paddingHorizontal: 10,
       paddingVertical: 8,
-      paddingHorizontal: 4,
+      backgroundColor: 'transparent',
+    },
+    postShareOverlayAuthor: {
+      color: '#fff',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    postShareOverlayCaption: {
+      color: 'rgba(255,255,255,0.85)',
+      fontSize: 11,
+      marginTop: 1,
+    },
+    postShareCardFooter: {
+      paddingHorizontal: 10,
+      paddingTop: 8,
+      paddingBottom: 10,
     },
     postShareIconContainer: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: 72,
+      height: 72,
+      borderRadius: 12,
       backgroundColor: theme.colors.primary + '15',
       justifyContent: 'center',
       alignItems: 'center',
       marginRight: 10,
-      marginTop: 2,
       overflow: 'hidden',
     },
     postShareThumbnail: {
       width: '100%',
       height: '100%',
-      borderRadius: 18,
     },
     postShareTextContainer: {
       flex: 1,
       minWidth: 0,
+      justifyContent: 'center',
     },
     postShareAuthor: {
       fontSize: 15,
@@ -1648,63 +1750,96 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                     ) : null}
                   <>
                     {postShare ? (
-                      <BubbleWrapper>
+                      <View style={{ alignItems: isOwn ? 'flex-end' : 'flex-start' }}>
                         <TouchableOpacity
-                          activeOpacity={0.8}
-                          onPress={() => handlePostPreviewClick(postShare.shareUrl, postShare.postId)}
-                          style={styles.postShareMessageContainer}
+                          activeOpacity={0.88}
+                          onPress={() =>
+                            handlePostPreviewClick(
+                              postShare.shareUrl,
+                              postShare.postId,
+                              postShare.contentType
+                            )
+                          }
+                          style={[
+                            styles.postShareCard,
+                            {
+                              borderColor: isOwn ? 'rgba(255,255,255,0.22)' : theme.colors.border,
+                            },
+                          ]}
                         >
-                          <View style={[
-                            styles.postShareIconContainer,
-                            isOwn && { backgroundColor: 'rgba(255,255,255,0.2)' }
-                          ]}>
+                          <View style={styles.postShareMedia}>
                             <PostShareThumbnail
                               imageUrl={postShare.imageUrl}
                               postId={postShare.postId}
                               isOwn={isOwn}
                               theme={theme}
                             />
-                          </View>
-                          <View style={styles.postShareTextContainer}>
-                            {postShare.authorName && (
-                              <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
-                                {postShare.authorName}
+                            <View style={styles.postSharePlayWrapper} pointerEvents="none">
+                              <View style={styles.postSharePlayButton}>
+                                <Ionicons name="play" size={20} color="#fff" style={{ marginLeft: 2 }} />
+                              </View>
+                            </View>
+                            <View style={styles.postShareWatchBadge}>
+                              <Text style={styles.postShareWatchBadgeText}>
+                                {postShare.contentType === 'short' ? 'SHORT' : 'WATCH'}
                               </Text>
-                            )}
-                            {postShare.caption && (
-                              <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={2}>
-                                {postShare.caption}
-                              </Text>
-                            )}
-                            <View style={styles.postShareFooter}>
-                              <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
-                              <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
-                                View Post
-                              </Text>
+                            </View>
+                            <View style={styles.postShareOverlayFooter} pointerEvents="none">
+                              {postShare.authorName ? (
+                                <Text style={styles.postShareOverlayAuthor} numberOfLines={1}>
+                                  {postShare.authorName}
+                                </Text>
+                              ) : null}
+                              {postShare.caption ? (
+                                <Text style={styles.postShareOverlayCaption} numberOfLines={1}>
+                                  {postShare.caption}
+                                </Text>
+                              ) : (
+                                <Text style={styles.postShareOverlayCaption} numberOfLines={1}>
+                                  Tap to open
+                                </Text>
+                              )}
                             </View>
                           </View>
                         </TouchableOpacity>
-                        <View style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'flex-end',
-                          marginTop: 2,
-                          gap: 3,
-                        }}>
-                          <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.timeIn}>
-                            {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            marginTop: 4,
+                            gap: 3,
+                          }}
+                        >
+                          <Text style={{ fontSize: 10, color: theme.colors.textSecondary }}>
+                            {item.timestamp
+                              ? new Date(item.timestamp).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : ''}
                           </Text>
                           {isOwn && (
                             <View>
                               {isSeenByAll ? (
-                                <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
+                                <Ionicons
+                                  name="checkmark-done"
+                                  size={13}
+                                  color={theme.colors.primary}
+                                  style={{ opacity: 0.8 }}
+                                />
                               ) : (
-                                <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
+                                <Ionicons
+                                  name="checkmark"
+                                  size={13}
+                                  color={theme.colors.primary}
+                                  style={{ opacity: 0.6 }}
+                                />
                               )}
                             </View>
                           )}
                         </View>
-                      </BubbleWrapper>
+                      </View>
                     ) : journeyShare ? (
                       <BubbleWrapper>
                         <TouchableOpacity
