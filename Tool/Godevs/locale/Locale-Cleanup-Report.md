@@ -256,3 +256,28 @@ CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
   --fold-meta \
   --skip-images \
   --apply
+
+cd /Users/kavinkumar/Kavin/Godevs/Kavin/TeamTaatom/backend
+
+CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
+  node scripts/locale-import/import-locales.js \
+  --csv ../Tool/Godevs/locale/templates/locale-import-batch-h.csv \
+  --env .env \
+  --fold-meta \
+  --skip-images \
+  --apply
+
+  CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
+  node scripts/locale-import/import-locales.js \
+  --csv ../Tool/Godevs/locale/templates/locale-import-batch-jp.csv \
+  --env .env --fold-meta --skip-images --apply
+
+CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
+  node scripts/locale-import/import-locales.js \
+  --csv ../Tool/Godevs/locale/templates/locale-import-batch-fr.csv \
+  --env .env --fold-meta --skip-images --apply
+
+CONFIRM_LOCALE_IMPORT=YES CREATED_BY=694ea2e9988cced433a8fe76 \
+  node scripts/locale-import/import-locales.js \
+  --csv ../Tool/Godevs/locale/templates/locale-import-batch-us.csv \
+  --env .env --fold-meta --skip-images --apply

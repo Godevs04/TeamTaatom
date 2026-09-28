@@ -1,0 +1,209 @@
+Country,State / Province,City / Region,Tourist Place,Category,Subcategory,Best Season,UNESCO,Description,Latitude,Longitude,Altitude
+Honduras,Copán,Copán Ruinas,Copán Archaeological Park,Archaeological,Maya ruins,Nov–Apr,Yes,"Major Maya archaeological site renowned for temples, plazas, stelae and hieroglyphic monuments.",14.838,-89.141,602
+Honduras,Copán,Copán Ruinas,Las Sepulturas,Archaeological,Maya residential ruins,Nov–Apr,Yes,Residential archaeological complex associated with ancient Copán.,14.847,-89.145,665
+Honduras,Copán,Copán Ruinas,Copán Sculpture Museum,Museum,Archaeology museum,Nov–Apr,Yes,Museum displaying original and reconstructed sculpture from Copán.,14.839,-89.144,607
+Honduras,Cortés,San Pedro Sula,Museum of Anthropology and History,Museum,History museum,Nov–Apr,No,Museum covering archaeological and cultural history of the Sula Valley.,15.505,-88.025,85
+Honduras,Cortés,San Pedro Sula,Cusuco National Park,Nature,National park,Nov–Apr,No,Cloud-forest national park rich in biodiversity and hiking opportunities.,15.52,-88.25,1813
+Honduras,Cortés,Omoa,San Fernando de Omoa Fortress,Fort,Colonial fortress,Nov–Apr,No,18th-century Spanish fortress on the Caribbean coast.,15.776,-87.463,4
+Honduras,Atlántida,La Ceiba,Pico Bonito National Park,Nature,National park,Nov–Apr,No,"Mountain rainforest park famous for waterfalls, wildlife and adventure activities.",15.66,-86.8,2042
+Honduras,Atlántida,La Ceiba,Cangrejal River Valley,Nature,River valley,Nov–Apr,No,"Adventure region with rafting, waterfalls and rainforest landscapes.",15.7,-86.72,177
+Honduras,Atlántida,La Ceiba,Cuero y Salado Wildlife Refuge,Wildlife,Wetland reserve,Nov–Apr,No,"Coastal wetlands and lagoons supporting manatees, birds and other wildlife.",15.8,-87.18,0
+Honduras,Atlántida,Tela,Jeannette Kawas National Park,Nature,Marine national park,Nov–Apr,No,"Protected coastal park with beaches, mangroves, lagoons and coral ecosystems.",15.8,-87.6,1
+Honduras,Atlántida,Tela,Punta Sal,Nature,Coastal reserve,Nov–Apr,No,Scenic peninsula within Jeannette Kawas National Park.,15.83,-87.7,11
+Honduras,Bay Islands,Roatán,West Bay Beach,Beach,Caribbean beach,Feb–Jun,No,Famous white-sand beach and snorkeling destination.,16.29,-86.593,28
+Honduras,Bay Islands,Roatán,West End,Coast,Beach village,Feb–Jun,No,"Lively seaside village with diving, snorkeling and restaurants.",16.305,-86.595,0
+Honduras,Bay Islands,Roatán,Roatán Marine Park,Marine,Coral reef,Feb–Jun,No,Protected reef environment known for diving and snorkeling.,16.3,-86.59,25
+Honduras,Bay Islands,Utila,Utila Island,Island,Diving destination,Feb–Jun,No,Caribbean island renowned for scuba diving and whale-shark encounters.,16.1,-86.93,1
+Honduras,Bay Islands,Guanaja,Guanaja Island,Island,Tropical island,Feb–Jun,No,"Lush Bay Island with reefs, beaches and mountainous interior.",16.45,-85.9,105
+Honduras,Gracias a Dios,La Mosquitia,Río Plátano Biosphere Reserve,Nature,Biosphere reserve,Feb–May,Yes,Large protected rainforest and wetland landscape recognized by UNESCO.,15.75,-84.9,612
+Honduras,Francisco Morazán,Tegucigalpa,Historic Centre of Tegucigalpa,Historical,Colonial district,Nov–Apr,No,"Historic capital district with churches, plazas and colonial-era buildings.",14.105,-87.204,942
+Honduras,Francisco Morazán,Tegucigalpa,Basilica of Suyapa,Religious,Basilica,Nov–Apr,No,Major Catholic pilgrimage site and home of Honduras's patron saint.,14.041,-87.17,1057
+Honduras,Francisco Morazán,Tegucigalpa,La Tigra National Park,Nature,Cloud forest,Nov–Apr,No,Protected cloud forest and popular hiking destination near Tegucigalpa.,14.18,-87.11,1945
+Honduras,Comayagua,Comayagua,Comayagua Cathedral,Religious,Cathedral,Nov–Apr,No,Historic cathedral in the former colonial capital.,14.455,-87.638,584
+Honduras,Comayagua,Comayagua,Comayagua Historic Centre,Historical,Colonial town,Nov–Apr,No,"Well-preserved colonial centre with churches, plazas and historic civic buildings.",14.457,-87.64,583
+Honduras,Lempira,Gracias,Celaque National Park,Nature,National park,Nov–Apr,No,"Mountain park containing Cerro Las Minas, the highest point in Honduras.",14.58,-88.65,1600
+Honduras,Lempira,Gracias,Gracias Historic Centre,Historical,Colonial town,Nov–Apr,No,Colonial mountain town with churches and historic architecture.,14.59,-88.58,786
+Haiti,Ouest,Port-au-Prince,National Pantheon Museum (MUPANAH),Museum,History & culture,Nov–Mar,No,"Museum dedicated to Haitian history, independence and national heritage.",18.539,-72.335,41
+Haiti,Ouest,Port-au-Prince,Iron Market (Marché en Fer),Market,Historic market,Nov–Mar,No,Historic covered market and one of Port-au-Prince's best-known landmarks.,18.546,-72.338,20
+Haiti,Ouest,Port-au-Prince,Champ de Mars,Urban,Historic square,Nov–Mar,No,Central public space surrounded by important historic and civic buildings.,18.542,-72.337,27
+Haiti,Ouest,Port-au-Prince,Observatoire Boutilliers,Viewpoint,Mountain viewpoint,Nov–Mar,No,Elevated viewpoint offering broad views over Port-au-Prince and the bay.,18.577,-72.277,41
+Haiti,Nord,Milot,Citadelle Laferrière,Fort,Mountain fortress,Nov–Mar,Yes,Monumental 19th-century fortress and centerpiece of Haiti's UNESCO World Heritage property.,19.573,-72.243,855
+Haiti,Nord,Milot,Palace of Sans-Souci,Historical,Royal palace ruins,Nov–Mar,Yes,Ruined royal palace built under King Henri Christophe; part of the UNESCO property.,19.608,-72.219,136
+Haiti,Nord,Milot,Ramiers,Historical,Fortification complex,Nov–Mar,Yes,Historic defensive site forming part of the National History Park UNESCO property.,19.575,-72.238,667
+Haiti,Nord,Cap-Haïtien,Cap-Haïtien Historic Centre,Historical,Colonial district,Nov–Mar,No,Historic urban area with French colonial architecture and lively streets.,19.759,-72.2,9
+Haiti,Nord,Cap-Haïtien,Labadee,Beach,Coastal resort,Nov–Mar,No,Scenic northern Caribbean resort area with beaches and coves.,19.771,-72.243,8
+Haiti,Sud,Jacmel,Jacmel Historic Centre,Historical,Colonial town,Nov–Mar,No,Architecturally distinctive historic town famous for colorful buildings and arts.,18.234,-72.535,26
+Haiti,Sud,Jacmel,Bassin Bleu,Nature,Waterfalls & pools,Nov–Mar,No,Series of turquoise natural pools and waterfalls near Jacmel.,18.315,-72.535,408
+Haiti,Sud,Port-Salut,Port-Salut Beach,Beach,Sandy beach,Nov–Mar,No,"One of Haiti's best-known beaches, with palms and long stretches of sand.",18.07,-73.92,0
+Haiti,Sud,Les Cayes,Gelée Beach,Beach,Coastal beach,Nov–Mar,No,Popular beach near Les Cayes with broad sands and Caribbean views.,18.18,-73.75,0
+Haiti,Sud-Est,Belle-Anse,Île-à-Vache,Island,Tropical island,Nov–Mar,No,"Scenic island known for beaches, fishing villages and quiet coastal landscapes.",18.08,-73.65,1
+Haiti,Centre,Hinche,Bassin Zim,Nature,Waterfall & cave,Nov–Mar,No,Scenic waterfall and cave area near Hinche in central Haiti.,19.05,-72,374
+Haiti,Grand'Anse,Jérémie,Jérémie Waterfront,Coast,Waterfront town,Nov–Mar,No,"Historic coastal city known for architecture, poetry and sea views.",18.65,-74.116,6
+Hungary,Budapest,Budapest,Buda Castle Quarter,Historical,Castle district,Apr–Oct,Yes,Historic hilltop district forming part of Budapest's UNESCO World Heritage property.,47.496,19.039,158
+Hungary,Budapest,Budapest,Hungarian Parliament Building,Architecture,Government building,Apr–Oct,Yes,Iconic neo-Gothic parliament building on the Danube.,47.507,19.045,98
+Hungary,Budapest,Budapest,Fisherman's Bastion,Architecture,Viewpoint,Apr–Oct,Yes,Decorative riverside terrace offering panoramic views over Budapest.,47.502,19.034,177
+Hungary,Budapest,Budapest,Matthias Church,Religious,Church,Apr–Oct,Yes,Historic church in the Buda Castle Quarter.,47.502,19.035,159
+Hungary,Budapest,Budapest,Chain Bridge,Architecture,Historic bridge,Apr–Oct,Yes,Landmark bridge crossing the Danube between Buda and Pest.,47.499,19.043,98
+Hungary,Budapest,Budapest,St. Stephen's Basilica,Religious,Basilica,Apr–Oct,No,Grand neoclassical basilica and major Budapest landmark.,47.501,19.054,120
+Hungary,Budapest,Budapest,Heroes' Square,Monument,Historic square,Apr–Oct,No,Monumental square featuring statues of important Hungarian historical figures.,47.515,19.078,111
+Hungary,Budapest,Budapest,Andrássy Avenue,Urban,Historic boulevard,Apr–Oct,Yes,Elegant boulevard forming part of Budapest's UNESCO-listed urban landscape.,47.503,19.065,118
+Hungary,Budapest,Budapest,Széchenyi Thermal Bath,Wellness,Thermal bath,Year-round,No,Grand historic thermal bath complex in City Park.,47.519,19.081,110
+Hungary,Budapest,Budapest,Gellért Hill,Viewpoint,Hilltop,Apr–Oct,No,Danube-side hill offering panoramic city views.,47.486,19.047,221
+Hungary,Budapest,Budapest,Citadella,Fort,Historic fortress,Apr–Oct,No,19th-century hilltop fortification overlooking Budapest.,47.486,19.046,221
+Hungary,Budapest,Budapest,Great Market Hall,Market,Historic market,Apr–Oct,No,Large historic indoor market known for Hungarian food and crafts.,47.487,19.058,114
+Hungary,Budapest,Budapest,Hungarian National Museum,Museum,National museum,Apr–Oct,No,Major museum covering Hungarian history and archaeology.,47.491,19.062,113
+Hungary,Budapest,Budapest,Vajdahunyad Castle,Architecture,Castle,Apr–Oct,No,Picturesque castle complex in City Park.,47.514,19.082,105
+Hungary,Budapest,Budapest,Margaret Island,Nature,Urban island,Apr–Oct,No,Large green island in the Danube with gardens and recreational areas.,47.528,19.048,110
+Hungary,Budapest,Budapest,Shoes on the Danube Bank,Monument,Memorial,Apr–Oct,No,Riverside memorial commemorating Jewish victims of World War II.,47.505,19.044,98
+Hungary,Budapest,Budapest,Great Synagogue,Religious,Synagogue,Apr–Oct,No,Largest synagogue complex in Europe.,47.495,19.06,114
+Hungary,Pest,Szentendre,Szentendre Old Town,Historical,Historic town,Apr–Oct,No,Artistic riverside town with colorful Baroque streets and galleries.,47.669,19.075,124
+Hungary,Pest,Visegrád,Visegrád Citadel,Fort,Medieval fortress,Apr–Oct,No,Hilltop medieval fortress overlooking the Danube Bend.,47.785,18.973,133
+Hungary,Pest,Esztergom,Esztergom Basilica,Religious,Basilica,Apr–Oct,No,Monumental basilica and major religious landmark on the Danube.,47.8,18.738,136
+Hungary,Baranya,Pécs,Early Christian Necropolis of Pécs,Archaeological,Roman cemetery,Apr–Oct,Yes,Late Roman Christian burial complex and UNESCO World Heritage site.,46.076,18.228,162
+Hungary,Hajdú-Bihar,Hortobágy,Hortobágy National Park,Nature,National park,Apr–Oct,Yes,Vast protected puszta landscape recognized by UNESCO.,47.583,21.15,91
+Hungary,Hajdú-Bihar,Hortobágy,Nine-Hole Bridge,Architecture,Historic bridge,Apr–Oct,Yes,Iconic nine-arched stone bridge and symbol of the Hortobágy landscape.,47.584,21.145,90
+Hungary,Heves,Eger,Eger Castle,Fort,Medieval castle,Apr–Oct,No,Famous fortress associated with the 1552 siege against the Ottoman army.,47.903,20.377,161
+Hungary,Heves,Eger,Eger Basilica,Religious,Basilica,Apr–Oct,No,Grand neoclassical basilica overlooking central Eger.,47.902,20.377,164
+Hungary,Heves,Eger,Eger Historic Centre,Historical,Baroque town,Apr–Oct,No,Compact historic centre filled with Baroque architecture.,47.902,20.373,170
+Hungary,Borsod-Abaúj-Zemplén,Aggtelek,Aggtelek Karst Caves,Nature,Cave system,Apr–Oct,Yes,Extensive karst cave system forming part of a UNESCO transboundary property.,48.48,20.49,473
+Hungary,Borsod-Abaúj-Zemplén,Tokaj,Tokaj Historic Wine Region,Cultural,Wine landscape,Apr–Oct,Yes,Historic wine-growing cultural landscape recognized by UNESCO.,48.117,21.41,102
+Hungary,Borsod-Abaúj-Zemplén,Miskolc,Miskolctapolca Cave Bath,Wellness,Cave thermal bath,Year-round,No,Unique thermal bathing complex inside natural limestone caves.,48.062,20.743,175
+Hungary,Győr-Moson-Sopron,Pannonhalma,Pannonhalma Archabbey,Religious,Abbey,Apr–Oct,Yes,Millenary Benedictine abbey and UNESCO World Heritage property.,47.549,17.758,184
+Hungary,Győr-Moson-Sopron,Fertőd,Esterházy Palace,Architecture,Baroque palace,Apr–Oct,No,Magnificent Baroque palace associated with the Esterházy family.,47.621,16.871,128
+Hungary,Veszprém,Tihany,Tihany Abbey,Religious,Abbey,Apr–Oct,No,Historic Benedictine abbey overlooking Lake Balaton.,46.914,17.889,185
+Hungary,Veszprém,Balatonfüred,Lake Balaton,Nature,Lake,May–Sep,No,Central Europe's largest lake and a major leisure destination.,46.83,17.73,104
+Hungary,Veszprém,Veszprém,Veszprém Castle District,Historical,Castle district,Apr–Oct,No,"Historic hilltop quarter with churches, palaces and medieval streets.",47.094,17.906,251
+Hungary,Nógrád,Hollókő,Old Village of Hollókő,Historical,Folk village,Apr–Oct,Yes,Preserved traditional village recognized by UNESCO for its living folk heritage.,47.598,19.592,133
+Hungary,Zala,Keszthely,Festetics Palace,Architecture,Baroque palace,Apr–Oct,No,Elegant palace and gardens near the western end of Lake Balaton.,46.768,17.247,116
+Iceland,Capital Region,Reykjavík,Hallgrímskirkja,Architecture,Church,Jun–Aug,No,Iconic modern church and Reykjavík landmark.,64.142,-21.927,38
+Iceland,Capital Region,Reykjavík,Harpa Concert Hall,Architecture,Concert hall,Jun–Aug,No,Distinctive glass concert hall on the waterfront.,64.151,-21.933,0
+Iceland,Capital Region,Reykjavík,Sun Voyager,Monument,Sculpture,Jun–Aug,No,Famous steel sculpture on the waterfront.,64.147,-21.922,5
+Iceland,Southern Region,Þingvellir,Þingvellir National Park,Nature,National park,Jun–Sep,Yes,Historic and geological landscape and UNESCO World Heritage Site.,64.256,-21.129,136
+Iceland,Southern Region,Geysir,Geysir Geothermal Area,Nature,Geothermal area,Jun–Sep,No,Famous geothermal field with geysers and hot springs.,64.31,-20.302,107
+Iceland,Southern Region,Vík,Reynisfjara Black Sand Beach,Beach,Black sand beach,Jun–Sep,No,Dramatic black-sand Atlantic beach with basalt formations.,63.404,-19.045,6
+Iceland,Southern Region,Hvolsvöllur,Seljalandsfoss,Waterfall,Waterfall,Jun–Sep,No,Tall waterfall famous for the path behind the falls.,63.616,-19.989,32
+Iceland,Southern Region,Skógar,Skógafoss,Waterfall,Waterfall,Jun–Sep,No,Powerful South Coast waterfall.,63.532,-19.511,97
+Iceland,Southern Region,Höfn,Jökulsárlón Glacier Lagoon,Nature,Glacial lagoon,Jun–Sep,No,Famous lagoon filled with floating icebergs.,64.078,-16.231,0
+Iceland,Northern Region,Mývatn,Lake Mývatn,Nature,Lake,Jun–Sep,No,Volcanic lake surrounded by unusual geological formations.,65.603,-16.996,278
+Iceland,Northern Region,Mývatn,Dimmuborgir,Nature,Lava formations,Jun–Sep,No,Spectacular lava formations and caves.,65.591,-16.912,309
+Iceland,Northern Region,Húsavík,Húsavík,Coast,Whale-watching town,Jun–Aug,No,Major North Iceland whale-watching destination.,66.045,-17.339,13
+Iceland,Westfjords,Ísafjörður,Dynjandi,Waterfall,Waterfall,Jun–Sep,No,Fan-shaped waterfall and Westfjords landmark.,65.732,-23.2,156
+Iceland,West Region,Snæfellsnes,Snæfellsjökull National Park,Nature,National park,Jun–Sep,No,Protected peninsula centered on a glacier-capped volcano.,64.83,-23.78,662
+Iceland,West Region,Grundarfjörður,Kirkjufell,Nature,Mountain,Jun–Sep,No,Distinctive cone-shaped mountain and famous viewpoint.,64.941,-23.306,411
+India,Delhi,New Delhi,India Gate,Monument,War memorial,Oct–Mar,No,Iconic memorial arch and New Delhi landmark.,28.613,77.23,210
+India,Delhi,New Delhi,Red Fort,Fort,Mughal fort,Oct–Mar,Yes,Monumental Mughal fort and UNESCO World Heritage Site.,28.656,77.241,216
+India,Delhi,New Delhi,Qutub Minar,Monument,Minaret,Oct–Mar,Yes,Historic minaret complex and UNESCO World Heritage Site.,28.524,77.186,248
+India,Delhi,New Delhi,Humayun's Tomb,Architecture,Mughal tomb,Oct–Mar,Yes,Landmark Mughal garden tomb and UNESCO site.,28.593,77.251,218
+India,Uttar Pradesh,Agra,Taj Mahal,Monument,Mausoleum,Oct–Mar,Yes,World-famous Mughal mausoleum and UNESCO World Heritage Site.,27.175,78.042,146
+India,Uttar Pradesh,Agra,Agra Fort,Fort,Mughal fort,Oct–Mar,Yes,Massive Mughal fort and UNESCO site.,27.18,78.021,182
+India,Uttar Pradesh,Fatehpur Sikri,Fatehpur Sikri,Historical,Mughal city,Oct–Mar,Yes,Mughal-era planned city and UNESCO site.,27.095,77.668,188
+India,Rajasthan,Jaipur,Amber Fort,Fort,Hill fort,Oct–Mar,Yes,Grand Rajput hill fort near Jaipur.,26.986,75.851,468
+India,Rajasthan,Jaipur,City Palace Jaipur,Palace,Royal palace,Oct–Mar,No,Historic palace complex in Jaipur.,26.926,75.824,442
+India,Rajasthan,Jaipur,Hawa Mahal,Architecture,Palace facade,Oct–Mar,No,Iconic Palace of Winds facade.,26.924,75.827,443
+India,Rajasthan,Udaipur,City Palace Udaipur,Palace,Royal palace,Oct–Mar,No,Large palace overlooking Lake Pichola.,24.576,73.684,624
+India,Rajasthan,Jaisalmer,Jaisalmer Fort,Fort,Desert fort,Oct–Mar,Yes,Living fortified city and UNESCO-listed hill fort.,26.912,70.912,276
+India,Maharashtra,Mumbai,Gateway of India,Monument,Gateway,Oct–Mar,No,Monumental waterfront arch and Mumbai symbol.,18.922,72.835,0
+India,Maharashtra,Mumbai,Chhatrapati Shivaji Maharaj Terminus,Architecture,Historic railway station,Oct–Mar,Yes,Victorian Gothic railway terminus and UNESCO site.,18.94,72.836,16
+India,Maharashtra,Aurangabad,Ajanta Caves,Archaeological,Rock-cut caves,Oct–Mar,Yes,Ancient Buddhist cave complex and UNESCO site.,20.552,75.703,472
+India,Maharashtra,Aurangabad,Ellora Caves,Archaeological,Rock-cut caves,Oct–Mar,Yes,"Hindu, Buddhist and Jain cave complex and UNESCO site.",20.027,75.179,656
+India,Goa,Old Goa,Basilica of Bom Jesus,Religious,Basilica,Nov–Feb,Yes,Historic church within the UNESCO Churches of Goa.,15.501,73.912,14
+India,Tamil Nadu,Mahabalipuram,Shore Temple,Religious,Temple,Oct–Mar,Yes,Pallava-era coastal temple and UNESCO site.,12.617,80.193,18
+India,Tamil Nadu,Thanjavur,Brihadisvara Temple,Religious,Hindu temple,Oct–Mar,Yes,Chola-era monumental temple and UNESCO site.,10.783,79.132,60
+India,Kerala,Alappuzha,Alappuzha Backwaters,Nature,Backwaters,Oct–Mar,No,Network of lagoons and canals famous for houseboats.,9.498,76.339,5
+India,Karnataka,Mysuru,Mysore Palace,Palace,Royal palace,Oct–Mar,No,Ornate former royal palace.,12.305,76.655,748
+India,Karnataka,Hampi,Group of Monuments at Hampi,Archaeological,Vijayanagara ruins,Oct–Feb,Yes,Vast ruins of the Vijayanagara capital and UNESCO site.,15.335,76.46,426
+India,Telangana,Hyderabad,Charminar,Monument,Historic mosque,Oct–Mar,No,Four-minaret monument and Hyderabad symbol.,17.362,78.475,506
+India,Odisha,Konark,Sun Temple,Religious,Temple,Oct–Feb,Yes,13th-century temple designed as a stone chariot and UNESCO site.,19.888,86.095,16
+India,Madhya Pradesh,Khajuraho,Khajuraho Group of Monuments,Religious,Temple complex,Oct–Mar,Yes,Medieval Hindu and Jain temples and UNESCO site.,24.832,79.92,207
+India,Madhya Pradesh,Sanchi,Sanchi Buddhist Monuments,Archaeological,Buddhist complex,Oct–Mar,Yes,Ancient Buddhist monuments centered on the Great Stupa.,23.479,77.74,501
+India,West Bengal,Kolkata,Victoria Memorial,Museum,Memorial museum,Oct–Mar,No,Grand marble memorial and museum.,22.545,88.343,5
+India,Assam,Kaziranga,Kaziranga National Park,Wildlife,National park,Nov–Apr,Yes,UNESCO-listed park famous for one-horned rhinoceroses.,26.578,93.171,86
+India,Bihar,Bodh Gaya,Mahabodhi Temple Complex,Religious,Buddhist temple,Oct–Mar,Yes,Sacred Buddhist pilgrimage complex and UNESCO site.,24.696,84.991,131
+India,Jammu and Kashmir,Srinagar,Dal Lake,Nature,Lake,Apr–Oct,No,Iconic Himalayan lake known for houseboats and shikaras.,34.036,74.873,1583
+Indonesia,Jakarta,Jakarta,National Monument (Monas),Monument,National monument,Jun–Sep,No,Towering national monument and Jakarta symbol.,-6.175,106.827,4
+Indonesia,Jakarta,Jakarta,Kota Tua Jakarta,Historical,Old town,Jun–Sep,No,Historic Dutch colonial quarter.,-6.135,106.813,7
+Indonesia,Yogyakarta,Borobudur,Borobudur Temple,Religious,Buddhist temple,Apr–Oct,Yes,Monumental Buddhist temple and UNESCO site.,-7.608,110.204,268
+Indonesia,Yogyakarta,Prambanan,Prambanan Temple,Religious,Hindu temple,Apr–Oct,Yes,Large 9th-century Hindu temple complex and UNESCO site.,-7.752,110.492,154
+Indonesia,Bali,Ubud,Ubud,Cultural,Arts town,Apr–Oct,No,"Cultural centre known for galleries, temples and rice terraces.",-8.507,115.263,213
+Indonesia,Bali,Kuta,Kuta Beach,Beach,Surf beach,Apr–Oct,No,Popular beach and sunset destination.,-8.718,115.169,0
+Indonesia,Bali,Uluwatu,Uluwatu Temple,Religious,Sea temple,Apr–Oct,No,Clifftop sea temple famous for sunsets.,-8.829,115.085,0
+Indonesia,Bali,Tegallalang,Tegallalang Rice Terraces,Nature,Rice terraces,Apr–Oct,No,Scenic terraced rice landscape.,-8.431,115.279,445
+Indonesia,East Java,Bromo,Bromo Tengger Semeru National Park,Nature,National park,Apr–Oct,No,Volcanic landscape featuring Mount Bromo.,-8.016,112.95,2163
+Indonesia,East Java,Banyuwangi,Ijen Crater,Nature,Volcanic crater,Apr–Oct,No,Volcanic crater famous for turquoise lake and sulfur landscape.,-8.058,114.242,2146
+Indonesia,West Nusa Tenggara,Lombok,Mount Rinjani National Park,Nature,National park,Apr–Oct,No,Mountain park centered on Mount Rinjani.,-8.411,116.457,3525
+Indonesia,West Nusa Tenggara,Lombok,Gili Trawangan,Island,Tropical island,Apr–Oct,No,"Popular island for beaches, snorkeling and diving.",-8.35,116.04,7
+Indonesia,East Nusa Tenggara,Komodo,Komodo National Park,Wildlife,National park,Apr–Oct,Yes,UNESCO-listed island ecosystem famous for Komodo dragons.,-8.55,119.48,300
+Indonesia,North Sumatra,Medan,Lake Toba,Nature,Volcanic lake,Jun–Sep,No,Huge volcanic lake surrounding Samosir Island.,2.685,98.875,901
+Indonesia,North Sumatra,Bukit Lawang,Gunung Leuser National Park,Wildlife,National park,Jun–Sep,No,Rainforest reserve known for orangutans.,3.5,97.75,716
+Indonesia,West Papua,Raja Ampat,Raja Ampat Islands,Marine,Island & reef,Oct–Apr,No,World-renowned archipelago with exceptional marine biodiversity.,-0.233,130.52,138
+Indonesia,South Sulawesi,Makassar,Fort Rotterdam,Fort,Colonial fort,Jun–Sep,No,Historic fortress and museum complex.,-5.134,119.405,6
+Indonesia,East Nusa Tenggara,Flores,Kelimutu National Park,Nature,Volcanic lakes,Apr–Oct,No,Park centered on three color-changing crater lakes.,-8.765,121.82,1534
+Iran,Tehran,Tehran,Golestan Palace,Palace,Qajar palace,Mar–May,Yes,Historic royal complex and UNESCO World Heritage Site.,35.68,51.42,1149
+Iran,Tehran,Tehran,Grand Bazaar Tehran,Market,Historic bazaar,Mar–May,No,Vast historic covered market.,35.675,51.422,1143
+Iran,Tehran,Tehran,Azadi Tower,Monument,Tower,Mar–May,No,Iconic modern monument and Tehran symbol.,35.7,51.337,1184
+Iran,Isfahan,Isfahan,Naqsh-e Jahan Square,Historical,Historic square,Mar–May,Yes,Grand Safavid square and UNESCO site.,32.658,51.678,1572
+Iran,Isfahan,Isfahan,Imam Mosque,Religious,Mosque,Mar–May,Yes,Masterpiece of Safavid architecture.,32.655,51.677,1576
+Iran,Isfahan,Isfahan,Sheikh Lotfollah Mosque,Religious,Mosque,Mar–May,Yes,Elegant Safavid mosque famous for tilework.,32.655,51.679,1573
+Iran,Isfahan,Isfahan,Ali Qapu Palace,Palace,Safavid palace,Mar–May,Yes,Historic palace overlooking Naqsh-e Jahan Square.,32.658,51.677,1573
+Iran,Shiraz,Shiraz,Persepolis,Archaeological,Ancient city,Mar–May,Yes,Monumental Achaemenid ceremonial capital and UNESCO site.,29.935,52.892,1630
+Iran,Shiraz,Shiraz,Nasir al-Mulk Mosque,Religious,Mosque,Mar–May,No,Qajar-era mosque famous for colorful stained glass.,29.608,52.523,1542
+Iran,Shiraz,Shiraz,Eram Garden,Garden,Persian garden,Mar–May,Yes,Historic Persian garden within UNESCO's Persian Gardens.,29.64,52.525,1589
+Iran,Yazd,Yazd,Historic City of Yazd,Historical,Desert city,Mar–May,Yes,Historic adobe city and UNESCO site.,31.897,54.357,1215
+Iran,Kerman,Kerman,Shazdeh Garden,Garden,Persian garden,Mar–May,Yes,Elegant walled garden in UNESCO's Persian Gardens.,30.025,57.288,1991
+Iran,Fars,Pasargadae,Pasargadae,Archaeological,Ancient capital,Mar–May,Yes,First Achaemenid capital and UNESCO site.,30.194,53.167,1844
+Iran,Kashan,Kashan,Fin Garden,Garden,Persian garden,Mar–May,Yes,Historic Persian garden and UNESCO component.,33.979,51.37,982
+Iran,Tabriz,Tabriz,Tabriz Historic Bazaar,Market,Historic bazaar,Apr–Oct,Yes,Vast historic covered bazaar and UNESCO site.,38.08,46.291,1397
+Iran,Khuzestan,Shushtar,Shushtar Historical Hydraulic System,Engineering,Water system,Mar–May,Yes,Ancient hydraulic complex and UNESCO site.,32.045,48.856,63
+Iran,Kerman,Bam,Bam and its Cultural Landscape,Fort,Adobe citadel,Mar–May,Yes,Historic fortified adobe city and UNESCO site.,29.107,58.365,1054
+Ireland,Dublin,Dublin,Trinity College & Book of Kells,Historical,University & manuscript,Apr–Sep,No,Historic university campus housing the Book of Kells.,53.344,-6.255,8
+Ireland,Dublin,Dublin,Dublin Castle,Historical,Castle,Apr–Sep,No,Historic government and ceremonial complex.,53.343,-6.268,18
+Ireland,Dublin,Dublin,Guinness Storehouse,Museum,Brewery experience,Apr–Sep,No,Popular attraction documenting Guinness history.,53.342,-6.287,25
+Ireland,Dublin,Dublin,St Patrick's Cathedral,Religious,Cathedral,Apr–Sep,No,Historic cathedral and Dublin landmark.,53.339,-6.271,14
+Ireland,Dublin,Dublin,Kilmainham Gaol,Historical,Prison museum,Apr–Sep,No,Historic prison associated with Irish history.,53.343,-6.31,18
+Ireland,Meath,Newgrange,Brú na Bóinne,Archaeological,Neolithic passage tombs,Apr–Sep,Yes,Prehistoric passage-tomb landscape and UNESCO site.,53.695,-6.446,21
+Ireland,Meath,Trim,Trim Castle,Fort,Norman castle,Apr–Sep,No,Largest Anglo-Norman castle in Ireland.,53.555,-6.791,54
+Ireland,Wicklow,Glendalough,Glendalough Monastic Site,Historical,Monastic ruins,Apr–Sep,No,Early medieval monastic settlement in a scenic valley.,53.01,-6.327,139
+Ireland,Wicklow,Wicklow Mountains,Wicklow Mountains National Park,Nature,National park,Apr–Sep,No,"Mountain park with valleys, lakes and hiking routes.",53,-6.35,290
+Ireland,Cork,Cork,Blarney Castle,Fort,Castle,Apr–Sep,No,Medieval castle famous for the Blarney Stone.,51.929,-8.57,36
+Ireland,Kerry,Killarney,Killarney National Park,Nature,National park,Apr–Sep,No,"Scenic lakes, mountains and forests.",52.024,-9.503,17
+Ireland,Kerry,Portmagee,Skellig Michael,Archaeological,Monastic island,May–Sep,Yes,Remote monastic island and UNESCO site.,51.771,-10.539,123
+Ireland,Clare,Burren,The Burren,Nature,Karst landscape,Apr–Sep,No,Distinctive limestone karst landscape.,53.05,-9,125
+Ireland,Clare,Doolin,Cliffs of Moher,Nature,Sea cliffs,Apr–Sep,No,Spectacular Atlantic sea cliffs.,53.011,-9.429,0
+Ireland,Galway,Connemara,Connemara National Park,Nature,National park,Apr–Sep,No,"Mountain, bog and heath landscape.",53.55,-9.95,46
+Ireland,Donegal,Donegal,Glenveagh National Park,Nature,National park,Apr–Sep,No,Mountain wilderness and castle estate.,55.05,-7.9,95
+Ireland,Antrim,Bushmills,Giant's Causeway,Nature,Basalt formations,Apr–Sep,Yes,Famous polygonal basalt columns and UNESCO site.,55.241,-6.512,0
+Israel,Jerusalem District,Jerusalem,Old City of Jerusalem and its Walls,Historical,Old city,Mar–May,Yes,Historic walled city sacred to three major religions and UNESCO-listed.,31.777,35.235,741
+Israel,Jerusalem District,Jerusalem,Western Wall,Religious,Holy site,Mar–May,Yes,Major Jewish holy site within the Old City.,31.777,35.234,742
+Israel,Jerusalem District,Jerusalem,Church of the Holy Sepulchre,Religious,Church,Mar–May,Yes,Major Christian pilgrimage site in Jerusalem's Old City.,31.779,35.23,769
+Israel,Jerusalem District,Jerusalem,Dome of the Rock,Religious,Islamic shrine,Mar–May,Yes,Iconic Islamic shrine on the Temple Mount/Haram al-Sharif.,31.778,35.235,744
+Israel,Jerusalem District,Jerusalem,Mount of Olives,Religious,Sacred hill,Mar–May,No,"Historic hill with churches, viewpoints and ancient cemetery.",31.778,35.243,778
+Israel,Jerusalem District,Jerusalem,Yad Vashem,Museum,Holocaust memorial,Mar–May,No,National Holocaust remembrance centre and museum.,31.774,35.175,805
+Israel,Tel Aviv District,Tel Aviv,White City of Tel Aviv,Architecture,Modernist district,Oct–Apr,Yes,UNESCO-listed collection of International Style buildings.,32.08,34.78,16
+Israel,Tel Aviv District,Jaffa,Jaffa Old City,Historical,Old city,Oct–Apr,No,Ancient port district with historic lanes and galleries.,32.05,34.752,20
+Israel,Haifa District,Haifa,Baháʼí Gardens,Religious,Terraced gardens,Oct–Apr,Yes,Terraced gardens forming part of the UNESCO Baháʼí Holy Places.,32.805,34.989,278
+Israel,Northern District,Nazareth,Basilica of the Annunciation,Religious,Basilica,Mar–May,No,Major Christian pilgrimage church.,32.702,35.297,355
+Israel,Northern District,Acre,Old City of Acre,Historical,Crusader city,Mar–May,Yes,Historic fortified port city and UNESCO site.,32.921,35.082,6
+Israel,Northern District,Sea of Galilee,Sea of Galilee,Nature,Lake,Mar–May,No,Major freshwater lake with biblical associations.,32.8,35.59,-215
+Israel,Southern District,Masada,Masada,Archaeological,Desert fortress,Oct–Apr,Yes,Herodian desert fortress and UNESCO site.,31.315,35.353,18
+Israel,Southern District,Dead Sea,Dead Sea,Nature,Salt lake,Oct–Apr,No,Hypersaline lake famous for buoyant waters.,31.5,35.5,-427
+Israel,Southern District,Eilat,Timna Park,Nature,Desert park,Oct–Apr,No,Desert landscape with rock formations and ancient copper sites.,29.79,34.95,264
+Italy,Lazio,Rome,Colosseum,Archaeological,Roman amphitheatre,Apr–Jun,Yes,Ancient Roman amphitheatre and part of Rome's UNESCO historic centre.,41.89,12.492,23
+Italy,Lazio,Rome,Roman Forum,Archaeological,Roman ruins,Apr–Jun,Yes,Core civic centre of ancient Rome.,41.893,12.485,21
+Italy,Lazio,Rome,Pantheon,Architecture,Ancient temple,Apr–Jun,No,Remarkably preserved ancient Roman building.,41.899,12.477,31
+Italy,Lazio,Rome,Trevi Fountain,Monument,Baroque fountain,Apr–Jun,No,Famous Baroque fountain and Rome landmark.,41.901,12.483,36
+Italy,Tuscany,Florence,Historic Centre of Florence,Historical,Historic city,Apr–Jun,Yes,UNESCO-listed historic centre and Renaissance landmark.,43.773,11.256,57
+Italy,Tuscany,Florence,Uffizi Gallery,Museum,Art gallery,Apr–Jun,Yes,World-famous Renaissance art museum.,43.768,11.255,71
+Italy,Tuscany,Pisa,Leaning Tower of Pisa,Architecture,Bell tower,Apr–Jun,Yes,Famous leaning medieval bell tower in Pisa's UNESCO complex.,43.723,10.397,8
+Italy,Tuscany,Siena,Historic Centre of Siena,Historical,Medieval city,Apr–Jun,Yes,Well-preserved medieval city and UNESCO site.,43.319,11.331,347
+Italy,Campania,Pompeii,Pompeii Archaeological Park,Archaeological,Roman city,Apr–Jun,Yes,Roman city preserved by the eruption of Vesuvius.,40.749,14.485,33
+Italy,Campania,Amalfi,Amalfi Coast,Coast,Scenic coast,Apr–Jun,Yes,Dramatic Mediterranean coastline and UNESCO cultural landscape.,40.634,14.603,16
+Italy,Veneto,Venice,Venice and its Lagoon,Historical,Canal city,Apr–Jun,Yes,Iconic lagoon city and UNESCO World Heritage Site.,45.434,12.339,6
+Italy,Veneto,Verona,Historic Centre of Verona,Historical,Roman & medieval city,Apr–Jun,Yes,Historic city with Roman monuments and medieval heritage.,45.438,10.992,65
+Italy,Liguria,Cinque Terre,Cinque Terre,Coast,Cliffside villages,Apr–Jun,Yes,Five colorful coastal villages and UNESCO cultural landscape.,44.146,9.654,45
+Italy,Lombardy,Milan,Duomo di Milano,Religious,Cathedral,Apr–Jun,No,Massive Gothic cathedral and Milan symbol.,45.464,9.192,143
+Italy,Sicily,Agrigento,Valley of the Temples,Archaeological,Greek temples,Mar–Jun,Yes,Exceptional Greek temple complex and UNESCO site.,37.292,13.573,71
+Italy,Sicily,Taormina,Ancient Theatre of Taormina,Archaeological,Greek-Roman theatre,Mar–Jun,No,Ancient theatre with views of Etna and the sea.,37.854,15.293,178
+Italy,Sicily,Mount Etna,Mount Etna,Nature,Volcano,Apr–Oct,Yes,Active volcano and UNESCO World Heritage Site.,37.751,15.004,3059
+Italy,Sardinia,Barumini,Su Nuraxi di Barumini,Archaeological,Nuragic complex,Mar–Jun,Yes,Outstanding prehistoric Nuragic complex and UNESCO site.,39.704,9,201
+Italy,Umbria,Assisi,Basilica of San Francesco,Religious,Basilica,Apr–Oct,Yes,Major pilgrimage basilica and UNESCO-listed Franciscan site.,43.071,12.62,437
+Italy,Puglia,Alberobello,Trulli of Alberobello,Architecture,Traditional houses,Apr–Jun,Yes,Distinctive conical stone dwellings and UNESCO site.,40.783,17.236,412
