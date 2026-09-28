@@ -3,18 +3,26 @@ import { config } from "../lib/config";
 
 export default function robots(): MetadataRoute.Robots {
   const base = config.webUrl;
+  const privatePaths = [
+    "/api/",
+    "/auth/",
+    "/onboarding/",
+    "/feed",
+    "/search",
+    "/chat",
+    "/create",
+    "/notifications",
+    "/saved",
+    "/settings",
+    "/activity",
+  ];
 
   return {
     rules: [
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/api/", "/auth/verify-otp", "/auth/reset-password"],
-      },
-      {
-        userAgent: "Googlebot",
-        allow: "/",
-        disallow: ["/api/", "/auth/"],
+        disallow: privatePaths,
       },
     ],
     sitemap: `${base}/sitemap.xml`,
