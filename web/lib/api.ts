@@ -662,13 +662,20 @@ export async function getLocaleById(id: string) {
   return res.data as { locale: Locale };
 }
 
+/** GET /shorts is cursor-based. `page` and `totalPages` are not in the payload. */
+export type ShortsPagination = {
+  nextCursor?: string | null;
+  hasNextPage: boolean;
+  limit: number;
+};
+
 // Shorts (short-form videos)
-export async function getShorts(params?: { page?: number; limit?: number }) {
+export async function getShorts(params?: { cursor?: string | null; limit?: number }) {
   const search = new URLSearchParams();
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.limit) search.set("limit", String(params.limit ?? 20));
+  if (params?.cursor) search.set("cursor", params.cursor);
+  if (params?.limit) search.set("limit", String(params.limit));
   const res = await api.get(`/shorts?${search.toString()}`);
-  return res.data as { shorts: Post[]; pagination?: PaginationOffset };
+  return res.data as { shorts: Post[]; pagination?: ShortsPagination };
 }
 
 // Settings

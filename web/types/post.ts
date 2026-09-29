@@ -7,14 +7,28 @@ export type Comment = {
   user: User;
 };
 
-export type Song = {
-  songId?: string;
+export type LibrarySong = {
+  _id?: string;
   title?: string;
   artist?: string;
   duration?: number;
   s3Url?: string;
+  cloudinaryUrl?: string;
+  thumbnailUrl?: string;
+};
+
+export type Song = {
+  songId?: string | LibrarySong;
+  title?: string;
+  artist?: string;
+  duration?: number;
+  s3Url?: string;
+  cloudinaryUrl?: string;
   thumbnailUrl?: string;
   storageKey?: string;
+  startTime?: number;
+  endTime?: number | null;
+  volume?: number;
 };
 
 export type Post = {
