@@ -197,6 +197,7 @@
         }
       ],
       "expo-font",
+      "expo-video",
       "expo-audio",
       "expo-task-manager",
       [

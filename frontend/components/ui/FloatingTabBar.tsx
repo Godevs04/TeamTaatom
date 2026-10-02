@@ -8,6 +8,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import { useJourney } from '../../context/JourneyContext';
 import { shortsEvents } from '../../utils/shortsEvents';
+import { setTabBarGeometry } from '../../utils/tabBarGeometry';
 
 export default function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { isDark } = useTheme();
@@ -15,6 +16,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
   const router = useRouter();
   const { isTracking, isPaused } = useJourney();
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  const outerRef = React.useRef<View>(null);
 
   React.useEffect(() => {
     let animation: Animated.CompositeAnimation | null = null;
@@ -186,7 +188,15 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
   };
 
   return (
-    <View style={styles.outerContainer}>
+    <View
+      ref={outerRef}
+      style={styles.outerContainer}
+      onLayout={() => {
+        outerRef.current?.measureInWindow((x, y, width, height) => {
+          if (width > 0 && height > 0) setTabBarGeometry({ x, y, width, height });
+        });
+      }}
+    >
       {leftRoutes.length > 0 && (
         <View style={[styles.shadowWrapper, tabShadowStyle, { width: leftRoutes.length * 42, marginRight: 6 }]}>
           <BlurView

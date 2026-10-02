@@ -72,6 +72,7 @@
     "expo-task-manager": "~57.0.21",
     "expo-tracking-transparency": "~57.0.2",
     "expo-updates": "~57.0.24",
+    "expo-video": "~57.0.5",
     "expo-video-thumbnails": "~57.0.2",
     "expo-web-browser": "~57.0.3",
     "formik": "^2.4.6",
