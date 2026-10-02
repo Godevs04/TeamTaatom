@@ -51,7 +51,7 @@ export default function LoginClient({ nextUrl, initialEmail }: { nextUrl?: strin
   const onSubmit = async (values: FormValues) => {
     try {
       const signedInUser = await signIn(values);
-      toast.success("Welcome back");
+      toast.success("Welcome back", { duration: 1200 });
       router.replace(getPostSignInPath(signedInUser, next));
     } catch (e: unknown) {
       if (isVerifyRequiredError(e)) {
