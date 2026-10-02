@@ -73,7 +73,7 @@ export const GlowOrb = ({ color = 'rgba(255, 76, 34, 0.25)', size = 200, top, le
     >
       <LinearGradient
         colors={[color, 'transparent']}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         start={{ x: 0.5, y: 0.5 }}
         end={{ x: 1, y: 1 }}
       />

@@ -60,7 +60,7 @@ export default function NavBar(props: NavBarProps) {
       <BlurView
         intensity={80}
         tint={isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       <View style={{
         flexDirection: 'row',

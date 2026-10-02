@@ -393,7 +393,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       return (
         <Image
           source={{ uri: displayUrl }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           resizeMode="cover"
           onError={() => {
             setImageError(true);
@@ -410,7 +410,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 
     if (isLoading) {
       return (
-        <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
           <LoadingGlobe 
             size="small" 
             color={isOwn ? 'rgba(255,255,255,0.7)' : theme.colors.primary} 
@@ -420,7 +420,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     }
 
     return (
-      <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B1A2B' }]}>
+      <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#0B1A2B' }]}>
         <Ionicons 
           name="videocam" 
           size={28} 
@@ -1409,7 +1409,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       overflow: 'hidden',
     },
     postSharePlayWrapper: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       alignItems: 'center',
       justifyContent: 'center',
     },

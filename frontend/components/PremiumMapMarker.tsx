@@ -149,7 +149,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
               colors={['#3B82F6', '#2DD4BF']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 12 }]}
+              style={[StyleSheet.absoluteFill, { borderRadius: 12 }]}
             />
           </Animated.View>
         )}

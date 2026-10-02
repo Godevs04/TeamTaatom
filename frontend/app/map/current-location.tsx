@@ -103,7 +103,7 @@ const createStyles = (isDark: boolean) => {
       padding: 8,
     },
     mapContainer: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
     },
     map: {
       flex: 1,
@@ -1562,7 +1562,7 @@ function initMap(){
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <View style={styles.header}>
             <TouchableOpacity 
@@ -1577,7 +1577,7 @@ function initMap(){
                 colors={['#1C73B4', '#50C878']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
               <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -1690,7 +1690,7 @@ function initMap(){
                         colors={['#1C73B4', '#50C878']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        style={StyleSheet.absoluteFillObject}
+                        style={StyleSheet.absoluteFill}
                       />
                       {routeLoading ? (
                         <LoadingGlobe color="white" size="small" />

@@ -1015,7 +1015,7 @@ export default function ChatModal() {
         <LinearGradient
           key={isDark ? 'dark' : 'light'}
           colors={chatGradientColors}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           locations={chatGradientLocs}
         />
         <CloudChatCommandHeader

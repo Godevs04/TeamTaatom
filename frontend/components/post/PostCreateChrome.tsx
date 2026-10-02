@@ -60,7 +60,7 @@ export function PostCreateHeader({
       <BlurView
         intensity={80}
         tint={isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       <View style={styles.topBarContent}>
         <Pressable
@@ -121,7 +121,7 @@ export function PostMediaTypeToggle({ postType, onPostTypeChange }: PostCreateCh
                 colors={['#38BDF8', '#14B8A6', '#34D399']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
             )}
             <Ionicons
@@ -186,7 +186,7 @@ export function PostCreateEmptyCard({
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <View
           style={[
@@ -215,7 +215,7 @@ export function PostCreateEmptyCard({
               colors={['#38BDF8', '#14B8A6', '#34D399']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <Ionicons name={isPhoto ? 'image' : 'videocam'} size={28} color="#fff" style={{ zIndex: 1 }} />
             <View style={[styles.plusBadge, { backgroundColor: '#14B8A6' }]}>
@@ -240,14 +240,14 @@ export function PostCreateEmptyCard({
               <BlurView
                 intensity={80}
                 tint={isDark ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
               <View style={styles.actionIcon}>
                 <LinearGradient
                   colors={['#38BDF8', '#14B8A6', '#34D399']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                 />
                 <Ionicons name={isPhoto ? 'images' : 'film'} size={22} color="#fff" style={{ zIndex: 1 }} />
               </View>
@@ -268,14 +268,14 @@ export function PostCreateEmptyCard({
               <BlurView
                 intensity={80}
                 tint={isDark ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
               <View style={styles.actionIcon}>
                 <LinearGradient
                   colors={['#38BDF8', '#14B8A6', '#34D399']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                 />
                 <Ionicons name={isPhoto ? 'camera' : 'videocam'} size={22} color="#fff" style={{ zIndex: 1 }} />
               </View>

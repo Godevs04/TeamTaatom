@@ -253,7 +253,7 @@ export default function AspectImageCropper({
           <View
             pointerEvents="none"
             style={{
-              ...StyleSheet.absoluteFillObject,
+              ...StyleSheet.absoluteFill,
               borderWidth: 1.5,
               borderColor: 'rgba(255, 255, 255, 0.8)',
               borderRadius,

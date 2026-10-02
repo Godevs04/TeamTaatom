@@ -1010,7 +1010,7 @@ export default function UserProfileScreen() {
                     colors={['#1C73B4', '#50C878']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={[StyleSheet.absoluteFillObject, { borderRadius: 37, padding: 2, alignItems: 'center', justifyContent: 'center' }]}
+                    style={[StyleSheet.absoluteFill, { borderRadius: 37, padding: 2, alignItems: 'center', justifyContent: 'center' }]}
                   >
                     <View style={[
                       styles.avatarContainer,
@@ -1110,7 +1110,7 @@ export default function UserProfileScreen() {
                     {followState !== 'FOLLOWING' && (
                       <ExpoLinearGradient
                         colors={['#1C73B4', '#50C878']}
-                        style={StyleSheet.absoluteFillObject}
+                        style={StyleSheet.absoluteFill}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                       />
@@ -1130,7 +1130,7 @@ export default function UserProfileScreen() {
                     >
                       <ExpoLinearGradient
                         colors={['#50C878', '#1C73B4']}
-                        style={StyleSheet.absoluteFillObject}
+                        style={StyleSheet.absoluteFill}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                       />
@@ -1290,7 +1290,7 @@ export default function UserProfileScreen() {
                 {activeTab === 'posts' && (
                   <ExpoLinearGradient
                     colors={['#1C73B4', '#50C878']}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                   />
@@ -1312,7 +1312,7 @@ export default function UserProfileScreen() {
                 {activeTab === 'shorts' && (
                   <ExpoLinearGradient
                     colors={['#1C73B4', '#50C878']}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                   />
@@ -1359,7 +1359,7 @@ export default function UserProfileScreen() {
                         <View
                           pointerEvents="none"
                           style={[
-                            StyleSheet.absoluteFillObject,
+                            StyleSheet.absoluteFill,
                             { backgroundColor: FILTER_PREVIEW_OVERLAY[item.filter as ImageFilterType]! },
                           ]}
                         />
@@ -1535,7 +1535,7 @@ export default function UserProfileScreen() {
       
       {enlargedPhotoSource && (
         <View 
-          style={[StyleSheet.absoluteFillObject, { 
+          style={[StyleSheet.absoluteFill, { 
             backgroundColor: 'rgba(0, 0, 0, 0.85)', 
             justifyContent: 'center', 
             alignItems: 'center', 

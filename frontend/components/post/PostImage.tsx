@@ -183,7 +183,7 @@ const CarouselItem = React.memo(({
               <View
                 pointerEvents="none"
                 style={[
-                  StyleSheet.absoluteFillObject,
+                  StyleSheet.absoluteFill,
                   { backgroundColor: FILTER_PREVIEW_OVERLAY[filter as ImageFilterType]! },
                 ]}
               />
@@ -711,7 +711,7 @@ function PostImage({
                   <View
                     pointerEvents="none"
                     style={[
-                      StyleSheet.absoluteFillObject,
+                      StyleSheet.absoluteFill,
                       { backgroundColor: FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType]! },
                     ]}
                   />

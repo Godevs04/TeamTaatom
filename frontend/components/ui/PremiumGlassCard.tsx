@@ -66,7 +66,7 @@ export default function PremiumGlassCard({
         <BlurView
           intensity={subtle ? theme.glass.blur.light : strong ? theme.glass.blur.medium : theme.glass.blur.light}
           tint={isDark ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFillObject, { borderRadius: finalRadius }]}
+          style={[StyleSheet.absoluteFill, { borderRadius: finalRadius }]}
         />
       ) : null}
       <LinearGradient
@@ -74,7 +74,7 @@ export default function PremiumGlassCard({
           theme.colors.innerHighlight || 'rgba(255,255,255,0.08)',
           isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.18)',
         ]}
-        style={[StyleSheet.absoluteFillObject, { borderRadius: finalRadius }]}
+        style={[StyleSheet.absoluteFill, { borderRadius: finalRadius }]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         pointerEvents="none"
@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   innerLift: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     opacity: 0.58,
   },
   innerLiftSubtle: {

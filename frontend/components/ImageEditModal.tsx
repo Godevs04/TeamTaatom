@@ -123,7 +123,7 @@ export default function ImageEditModal({
           <BlurView
             intensity={80}
             tint={mode === 'dark' ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <LinearGradient
             colors={
@@ -133,7 +133,7 @@ export default function ImageEditModal({
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 0.4, y: 0.4 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
           <View style={{ flex: 1, zIndex: 1 }}>
@@ -220,7 +220,7 @@ export default function ImageEditModal({
                           colors={['#38BDF8', '#14B8A6', '#34D399']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 0 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                         />
                       )}
                       {isActive && (
@@ -228,7 +228,7 @@ export default function ImageEditModal({
                           colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 0.4 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         />
                       )}
@@ -302,7 +302,7 @@ export default function ImageEditModal({
                           <View
                             pointerEvents="none"
                             style={[
-                              StyleSheet.absoluteFillObject,
+                              StyleSheet.absoluteFill,
                               { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]!, borderRadius: 12 },
                             ]}
                           />
@@ -340,7 +340,7 @@ export default function ImageEditModal({
                           colors={['#38BDF8', '#14B8A6', '#34D399']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 0 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                         />
                       )}
                       {selected && (
@@ -348,7 +348,7 @@ export default function ImageEditModal({
                           colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 0.4 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         />
                       )}
@@ -406,7 +406,7 @@ export default function ImageEditModal({
                   colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 0, y: 0.4 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   pointerEvents="none"
                 />
                 <Text style={{

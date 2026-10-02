@@ -56,7 +56,7 @@ export const MediaManagerModal = ({
           <BlurView
             intensity={80}
             tint={mode === 'dark' ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <View style={{ flex: 1, zIndex: 1 }}>
             {/* Modal Header */}
@@ -181,7 +181,7 @@ export const MediaManagerModal = ({
                   colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 0, y: 0.4 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   pointerEvents="none"
                 />
                 <Text style={{

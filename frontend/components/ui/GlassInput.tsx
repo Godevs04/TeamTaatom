@@ -104,7 +104,7 @@ export const GlassInput = ({ label, error, containerStyle, onFocus, onBlur, left
   return (
     <View style={[styles.wrapper, containerStyle]}>
       <Animated.View style={[styles.container, animatedContainerStyle]}>
-        <BlurView intensity={theme.glass.blur.light} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={theme.glass.blur.light} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
         
         {label && (
           <Animated.Text style={[

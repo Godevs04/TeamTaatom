@@ -52,7 +52,7 @@ export default function CloudChatCommandHeader({
           }
         ]}
       >
-        <BlurView intensity={isDark ? 95 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={isDark ? 95 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
         <View style={styles.topRow}>
           {onBack ? (
             <TouchableOpacity onPress={onBack} style={[styles.iconBtn, { overflow: 'hidden', borderRadius: 16 }]} hitSlop={10}>
@@ -60,7 +60,7 @@ export default function CloudChatCommandHeader({
                 colors={['#1C73B4', '#50C878']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
               <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
             </TouchableOpacity>

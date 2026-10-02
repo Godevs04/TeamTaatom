@@ -121,7 +121,7 @@ export default function CustomAlert({
         <BlurView
           intensity={isDark ? 55 : 45}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         
         <Animated.View
@@ -137,7 +137,7 @@ export default function CustomAlert({
           <BlurView
             intensity={isDark ? 80 : 90}
             tint={isDark ? 'dark' : 'light'}
-            style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]}
+            style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
           />
           
           <View style={styles.contentWrapper}>

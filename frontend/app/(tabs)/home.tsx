@@ -1759,7 +1759,7 @@ export default function HomeScreen() {
       <LinearGradient
         key={isDark ? 'dark' : 'light'}
         colors={screenGradientColors}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         locations={screenGradientLocs}
       />
     </>
@@ -1779,7 +1779,7 @@ export default function HomeScreen() {
             <BlurView
               intensity={95}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             {renderTopHeader()}
             {renderFeedTabs()}
@@ -1957,7 +1957,7 @@ export default function HomeScreen() {
           <BlurView
             intensity={95}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           {renderTopHeader()}
           {renderFeedTabs()}

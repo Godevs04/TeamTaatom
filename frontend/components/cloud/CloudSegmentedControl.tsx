@@ -41,7 +41,7 @@ export default function CloudSegmentedControl<T extends string>({
         style,
       ]}
     >
-      <BlurView intensity={isDark ? 40 : 24} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+      <BlurView intensity={isDark ? 40 : 24} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
       {segments.map((seg) => {
         const active = value === seg.key;
         const useGradient = active && (seg.key === 'recents' || seg.key === 'locale' || seg.key === 'feed' || seg.key === 'watch');
@@ -65,7 +65,7 @@ export default function CloudSegmentedControl<T extends string>({
             {useGradient && (
               <LinearGradient
                 colors={['#1C73B4', '#50C878']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               />

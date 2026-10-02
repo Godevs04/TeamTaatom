@@ -30,7 +30,7 @@ export default function CloudActionGroup({ children, style }: CloudActionGroupPr
       <BlurView
         intensity={isDark ? 42 : 28}
         tint={isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       <View style={styles.content}>{children}</View>
     </View>

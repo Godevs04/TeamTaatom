@@ -196,7 +196,7 @@ export const SongBar: React.FC<SongBarProps> = ({
                 colors={BLUE_ICON_GRADIENT}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
             )}
             <Text style={[styles.durationChipText, { color: is30 ? '#fff' : theme.colors.textSecondary }]}>30s</Text>
@@ -211,7 +211,7 @@ export const SongBar: React.FC<SongBarProps> = ({
                 colors={BLUE_ICON_GRADIENT}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
             )}
             <Text style={[styles.durationChipText, { color: !is30 ? '#fff' : theme.colors.textSecondary }]}>60s</Text>
@@ -228,7 +228,7 @@ export const SongBar: React.FC<SongBarProps> = ({
             colors={BLUE_ICON_GRADIENT}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <Ionicons name={isPlaying ? "pause" : "play"} size={16} color="white" />
         </TouchableOpacity>

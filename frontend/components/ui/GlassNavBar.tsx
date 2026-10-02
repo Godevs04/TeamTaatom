@@ -39,7 +39,7 @@ export const GlassNavBar = ({ title, showBack = true, rightComponent, style, ...
         intensity={80} 
         tint={isDark ? 'dark' : 'light'} 
         style={[
-          StyleSheet.absoluteFillObject,
+          StyleSheet.absoluteFill,
           {
             backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
           }
@@ -52,7 +52,7 @@ export const GlassNavBar = ({ title, showBack = true, rightComponent, style, ...
               colors={['#1C73B4', '#50C878']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <Ionicons name="chevron-back-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
