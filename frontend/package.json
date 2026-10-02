@@ -40,6 +40,7 @@
     "cashfree-pg-api-contract": "^2.1.1",
     "expo": "^57.0.26",
     "expo-asset": "~57.0.18",
+    "expo-audio": "~57.0.5",
     "expo-auth-session": "~57.0.13",
     "expo-av": "~16.0.8",
     "expo-blur": "~57.0.3",
