@@ -7,11 +7,6 @@
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
     "scheme": "taatom",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
     "assetBundlePatterns": [
       "**/*",
       "policies/**/*"
@@ -191,6 +186,14 @@
         "expo-updates",
         {
           "username": "taatom"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
         }
       ],
       "expo-font",

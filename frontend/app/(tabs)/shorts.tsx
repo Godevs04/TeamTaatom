@@ -27,7 +27,7 @@ import { FlashList, FlashListRef } from '@shopify/flash-list';
 const AnyFlashList = FlashList as any;
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
+import { Video, ResizeMode, Audio, type AVPlaybackStatus } from '../../utils/expoAv';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';

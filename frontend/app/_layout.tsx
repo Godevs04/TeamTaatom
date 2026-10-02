@@ -34,10 +34,14 @@ import { BackgroundLocationDisclosureHost } from '../components/permissions/Back
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
 import * as Location from 'expo-location';
-// Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
-// Will migrate to expo-audio in future SDK update
-import { Audio } from 'expo-av';
 import logger from '../utils/logger';
+import { Audio } from '../utils/expoAv';
+
+function setAudioModeSafe(mode: Parameters<typeof Audio.setAudioModeAsync>[0]) {
+  return Audio.setAudioModeAsync(mode).catch((error) => {
+    logger.warn('[RootLayout] Audio mode is not available in Expo Go', error);
+  });
+}
 import { audioManager } from '../utils/audioManager';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { imageCacheManager } from '../utils/imageCacheManager';
@@ -153,7 +157,7 @@ function RootLayoutInner() {
   useEffect(() => {
     const configureAudioSession = async () => {
       try {
-        await Audio.setAudioModeAsync({
+        await setAudioModeSafe({
           playsInSilentModeIOS: true,        // Play audio in silent mode on iOS
           staysActiveInBackground: false,    // Stop audio when app goes to background
           shouldDuckAndroid: true,           // Duck audio for notifications on Android
@@ -326,7 +330,7 @@ function RootLayoutInner() {
   // Global Audio Mode Setup (MANDATORY for iOS streaming)
   // Optimized for Shorts: allows Video + Audio.Sound to play together
   useEffect(() => {
-    Audio.setAudioModeAsync({
+    setAudioModeSafe({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,   // 🔴 REQUIRED for iOS
       staysActiveInBackground: false,  // Audio stops when app backgrounded

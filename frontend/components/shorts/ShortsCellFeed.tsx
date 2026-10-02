@@ -16,7 +16,7 @@ import {
   Easing,
   FlatList,
 } from 'react-native';
-import { Video, ResizeMode, Audio, AVPlaybackStatus } from 'expo-av';
+import { Video, ResizeMode, Audio, type AVPlaybackStatus } from '../../utils/expoAv';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';

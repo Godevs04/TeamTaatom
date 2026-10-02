@@ -20,9 +20,9 @@ import { Image as ExpoImage } from 'expo-image';
 import { getSongs, Song } from '../services/songs';
 import AlertService from '../services/alertService';
 import { useTheme } from '../context/ThemeContext';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router';
 import logger from '../utils/logger';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/expoAv';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 

@@ -11,7 +11,7 @@ import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageE
 import { Platform } from 'react-native';
 import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
-import { Audio } from 'expo-av';
+import { Audio } from '../../utils/expoAv';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS, withSpring } from 'react-native-reanimated';
 import MaskedView from '@react-native-masked-view/masked-view';

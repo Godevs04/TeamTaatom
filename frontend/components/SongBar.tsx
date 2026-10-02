@@ -10,8 +10,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
-import { Audio } from 'expo-av';
-import { useIsFocused } from '@react-navigation/native';
+import { Audio } from '../utils/expoAv';
+import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { Song } from '../services/songs';
 

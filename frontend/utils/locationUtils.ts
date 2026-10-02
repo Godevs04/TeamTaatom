@@ -37,6 +37,18 @@ const PLACES_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 // Distance cache: stores calculated driving distances (exported for use in components)
 export const distanceCache = new Map<string, number>();
 
+/** Set when Distance Matrix cannot be used at all (missing key or a denied key), so the locale list does not call Google once per card. */
+let drivingDistanceUnavailableReason: string | null = null;
+let loggedDrivingDistanceFallback = false;
+
+function noteDrivingDistanceUnavailable(reason: string): void {
+  drivingDistanceUnavailableReason = reason;
+  if (!loggedDrivingDistanceFallback) {
+    loggedDrivingDistanceFallback = true;
+    logger.warn(`Google Maps driving distance unavailable (${reason}). Using straight-line distance.`);
+  }
+}
+
 // Simple in-memory cache for geocoding results
 const geocodeCache = new Map<string, { result: string | null; timestamp: number }>();
 const GEOCODE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -721,9 +733,14 @@ const calculateDrivingDistanceWithGoogleMaps = async (
   localeLon: number
 ): Promise<number | null> => {
   try {
+    if (drivingDistanceUnavailableReason) {
+      return null;
+    }
+
     const apiKey = getGoogleMapsApiKeyFromMaps();
     if (!apiKey) {
-      return null; // No API key, will fall back to OSRM
+      noteDrivingDistanceUnavailable('no API key');
+      return null;
     }
 
     // Check cache first
@@ -777,11 +794,14 @@ const calculateDrivingDistanceWithGoogleMaps = async (
         }
       }
       
-      // API returned but no valid distance
-      if (__DEV__) {
-        logger.debug(`⚠️ Google Maps API returned status: ${data.status}, falling back to OSRM`);
+      const apiStatus = data?.status || 'UNKNOWN';
+      const elementStatus = data?.rows?.[0]?.elements?.[0]?.status;
+      if (apiStatus === 'REQUEST_DENIED' || apiStatus === 'OVER_DAILY_LIMIT' || apiStatus === 'INVALID_REQUEST') {
+        noteDrivingDistanceUnavailable(data?.error_message || apiStatus);
+      } else if (__DEV__) {
+        logger.debug(`Google Maps distance status: ${apiStatus}${elementStatus ? ` / ${elementStatus}` : ''}`);
       }
-      return null; // Will fall back to OSRM
+      return null;
     } catch (fetchError: any) {
       clearTimeout(timeoutId);
       
@@ -826,8 +846,6 @@ export const calculateDrivingDistanceKm = async (
       return googleMapsDistance;
     }
     
-    // Google API failed or key missing — use straight-line distance instead of OSRM for accuracy and consistency
-    logger.warn('⚠️ Google Maps distance calculation failed/unconfigured. Falling back to straight-line distance for accuracy.');
     return straightLineDistance;
   } catch (error: any) {
     logger.error('❌ Error calculating driving distance:', error);

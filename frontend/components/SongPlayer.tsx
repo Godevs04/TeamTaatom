@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/expoAv';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import logger from '../utils/logger';

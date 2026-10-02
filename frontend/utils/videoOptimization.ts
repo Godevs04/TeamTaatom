@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import logger from './logger';
+import { Audio } from './expoAv';
 
 /**
  * Get the cache directory path
@@ -80,7 +81,7 @@ export const compressVideo = async (
     // Get total duration of the video to calculate progress percentage
     let totalDurationMs = 0;
     try {
-      const { sound } = await require('expo-av').Audio.Sound.createAsync(
+      const { sound } = await Audio.Sound.createAsync(
         { uri: videoUri },
         { shouldPlay: false }
       );
