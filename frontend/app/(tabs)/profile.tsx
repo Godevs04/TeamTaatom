@@ -1582,7 +1582,7 @@ export default function ProfileScreen() {
                 <View
                   pointerEvents="none"
                   style={[
-                    StyleSheet.absoluteFillObject,
+                    StyleSheet.absoluteFill,
                     {
                       backgroundColor: FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType]!,
                     }
@@ -1600,7 +1600,7 @@ export default function ProfileScreen() {
               <View style={styles.checkmarkCircle}>
                 <LinearGradient
                   colors={['#1C73B4', '#50C878']}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
@@ -1745,7 +1745,7 @@ export default function ProfileScreen() {
           >
             <LinearGradient
               colors={['#50C878', '#1C73B4']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             />
@@ -1767,7 +1767,7 @@ export default function ProfileScreen() {
       <LinearGradient
         key={isDark ? 'dark' : 'light'}
         colors={theme.colors.screenGradient as [string, string, ...string[]]}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         locations={screenGradientLocations}
       />
 
@@ -1797,7 +1797,7 @@ export default function ProfileScreen() {
           intensity={95}
           tint={isDark ? 'dark' : 'light'}
           style={[
-            StyleSheet.absoluteFillObject,
+            StyleSheet.absoluteFill,
             {
               backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
             }
@@ -1986,7 +1986,7 @@ export default function ProfileScreen() {
                       {activeTab === tab && (
                         <LinearGradient
                           colors={['#1C73B4', '#50C878']}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 0 }}
                         />
@@ -2022,7 +2022,7 @@ export default function ProfileScreen() {
                       {activeSavedSubTab === subTab && (
                         <LinearGradient
                           colors={['#1C73B4', '#50C878']}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 0 }}
                         />
@@ -2132,7 +2132,7 @@ export default function ProfileScreen() {
 
       {enlargedPhotoSource && (
         <View 
-          style={[StyleSheet.absoluteFillObject, { 
+          style={[StyleSheet.absoluteFill, { 
             backgroundColor: 'rgba(0, 0, 0, 0.85)', 
             justifyContent: 'center', 
             alignItems: 'center', 
@@ -3141,7 +3141,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   selectionOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 30,

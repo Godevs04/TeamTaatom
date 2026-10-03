@@ -23,7 +23,7 @@ import { TextInput } from 'react-native';
 import { theme } from '../../constants/theme';
 import { resendVerificationEmail, deleteAccount, exportUserData } from '../../services/userManagement';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import * as Sharing from 'expo-sharing';
 
 // Responsive dimensions

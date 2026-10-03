@@ -12,7 +12,7 @@ function ToasterAfterMount() {
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
   if (!mounted) return null;
-  return <Toaster richColors position="top-right" />;
+  return <Toaster richColors position="top-center" offset={{ top: "4.25rem" }} />;
 }
 
 export default function AppProviders({ children }: { children: React.ReactNode }) {

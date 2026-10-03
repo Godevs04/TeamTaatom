@@ -29,7 +29,7 @@ import LongVideoCard from '../../components/LongVideoCard';
 import { getImageAspectRatio } from '../../components/post/PostImage';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Audio } from 'expo-av';
+import { Audio } from '../../utils/expoAv';
 import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
@@ -1759,7 +1759,7 @@ export default function HomeScreen() {
       <LinearGradient
         key={isDark ? 'dark' : 'light'}
         colors={screenGradientColors}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         locations={screenGradientLocs}
       />
     </>
@@ -1779,7 +1779,7 @@ export default function HomeScreen() {
             <BlurView
               intensity={95}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             {renderTopHeader()}
             {renderFeedTabs()}
@@ -1814,7 +1814,6 @@ export default function HomeScreen() {
       <View style={styles.safeArea}>
         {/* Scrollable feed container (zIndex: 1) */}
         <View style={[styles.feedClip, { zIndex: 1 }]}>
-          <View style={StyleSheet.absoluteFillObject}>
             <AnyFlashList
               ref={flatListRef}
               data={feedData}
@@ -1822,7 +1821,6 @@ export default function HomeScreen() {
               renderItem={renderItem}
               extraData={feedExtraData}
               getItemType={(item: FeedItem) => (isAdItem(item) ? 'ad' : 'post')}
-              estimatedItemSize={580}
               overrideItemLayout={overrideItemLayout}
               style={styles.postsContainer}
               contentContainerStyle={[
@@ -1948,7 +1946,6 @@ export default function HomeScreen() {
               viewabilityConfig={viewabilityConfig}
               drawDistance={screenHeight * 1.2}
             />
-          </View>
           <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
         </View>
 
@@ -1960,7 +1957,7 @@ export default function HomeScreen() {
           <BlurView
             intensity={95}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           {renderTopHeader()}
           {renderFeedTabs()}

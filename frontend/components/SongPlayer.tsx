@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import type { Audio } from 'expo-av';
+import { createSongSound, type SongSound } from '../utils/expoAudioSound';
+
+/** Same methods Shorts and audioManager already call. The native player is expo-audio. */
+function asAvSound(sound: SongSound): Audio.Sound {
+  return sound as unknown as Audio.Sound;
+}
 import * as FileSystem from 'expo-file-system/legacy';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import logger from '../utils/logger';
@@ -110,14 +116,14 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
     });
   }
   const { theme } = useTheme();
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<SongSound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(() => externalMuted !== undefined ? externalMuted : audioManager.getSessionMuted());
   const [isLoading, setIsLoading] = useState(false);
   // URL fetched dynamically when getShorts URL generation failed (storage issues, etc.)
   const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<SongSound | null>(null);
   const isInitializedRef = useRef(false);
   const isMountedRef = useRef(true); // Track if component is mounted
   // Mirrors the isVisible prop synchronously so loadAndPlaySong can detect a
@@ -332,9 +338,6 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
       // Determine if we should play immediately
       const shouldPlayNow = forcePlay || autoPlay;
 
-      // 🔴 CRITICAL: Use streaming pattern (or local file URI)
-      const newSound = new Audio.Sound();
-
       const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
 
       // Calculate initial sync position if video position getter is provided
@@ -342,19 +345,14 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
       const offsetMs = initialVideoPosition % segmentMs;
       const targetPositionMillis = startTime * 1000 + offsetMs;
 
-      // Load sound - since it is local, it initializes instantly
-      await newSound.loadAsync(
-        { uri: audioUrl },
-        {
-          shouldPlay: shouldPlayNow, // Play immediately if needed
-          progressUpdateIntervalMillis: 150,
-          isLooping: !endTime,
-          isMuted: effectiveMuted,
-          volume: effectiveMuted ? 0 : volume,
-          positionMillis: targetPositionMillis,
-        },
-        false // Keep false to allow fast initialization
-      );
+      // One player per load. Re-renders do not create another.
+      const newSound = await createSongSound(audioUrl, {
+        shouldPlay: shouldPlayNow,
+        isLooping: !endTime,
+        isMuted: effectiveMuted,
+        volume: effectiveMuted ? 0 : volume,
+        positionMillis: targetPositionMillis,
+      });
 
       // Force explicit mute/volume configuration on the newly loaded sound instance if we are going to play
       if (shouldPlayNow) {
@@ -389,8 +387,8 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
           return;
         }
         audioManager.unfreeze();
-        await audioManager.playSound(newSound, post._id.toString());
-        onPlayingChange?.(newSound);
+        await audioManager.playSound(asAvSound(newSound), post._id.toString());
+        onPlayingChange?.(asAvSound(newSound));
         preloadedRef.current = false;
       } else {
         // Preload path: sound is loaded with shouldPlay:false and is not yet
@@ -543,7 +541,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
                 }
                 await soundRef.current?.playAsync().catch(() => {});
                 audioManager.unfreeze();
-                if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString()).catch(() => {});
+                if (soundRef.current) await audioManager.playSound(asAvSound(soundRef.current), post._id.toString()).catch(() => {});
               } else if (post._id && currentPostId === post._id.toString()) {
                 logger.debug('[SONGPLAYER] Resuming same post audio immediately');
                 if (initialVideoPosition > 0) {
@@ -558,7 +556,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
                   await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
                 }
                 audioManager.unfreeze();
-                if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString());
+                if (soundRef.current) await audioManager.playSound(asAvSound(soundRef.current), post._id.toString());
               } else {
                 if (initialVideoPosition > 0) {
                   await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
@@ -566,7 +564,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
                 await soundRef.current?.playAsync().catch(() => {});
               }
               setIsPlaying(true);
-              onPlayingChange?.(soundRef.current);
+              onPlayingChange?.(soundRef.current ? asAvSound(soundRef.current) : null);
             } catch (err) {
               logger.error('[SONGPLAYER] Error checking sound status or playing:', err);
               // Fallback: reload
@@ -659,10 +657,10 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
           // Use audioManager.playSound to ensure previous audio stops
           if (post._id && soundRef.current) {
             audioManager.unfreeze();
-            await audioManager.playSound(soundRef.current, post._id.toString());
+            await audioManager.playSound(asAvSound(soundRef.current), post._id.toString());
           }
           setIsPlaying(true);
-          onPlayingChange?.(soundRef.current);
+          onPlayingChange?.(soundRef.current ? asAvSound(soundRef.current) : null);
           logger.debug('Playback started');
         }
       } else {

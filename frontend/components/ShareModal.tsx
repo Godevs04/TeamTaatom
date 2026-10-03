@@ -932,7 +932,7 @@ export default function ShareModal({
             >
               <LinearGradient
                 colors={['#50C878', '#1C73B4']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               />
@@ -1136,7 +1136,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   userPickerBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   userPickerContent: {

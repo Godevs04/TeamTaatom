@@ -638,7 +638,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         
         {/* Main Status Row */}
@@ -858,7 +858,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mapContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1,
   },
   map: {
@@ -1072,7 +1072,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',

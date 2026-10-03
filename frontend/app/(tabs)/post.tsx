@@ -24,9 +24,9 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
-import * as MediaLibrary from "expo-media-library";
+import * as MediaLibrary from "expo-media-library/legacy";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useAlert } from "../../context/AlertContext";
@@ -59,7 +59,7 @@ import { shouldCompressVideo, compressVideo, cancelCompression } from "../../uti
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
+import { Video, Audio, ResizeMode, type AVPlaybackStatus } from "../../utils/expoAv";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -74,7 +74,6 @@ import { SongSelector } from '../../components/SongSelector';
 import { audioManager } from '../../utils/audioManager';
 import { SongBar } from '../../components/SongBar';
 import { Song } from '../../services/songs';
-import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
@@ -3788,10 +3787,10 @@ export default function PostScreen() {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
-        <View style={StyleSheet.absoluteFillObject}>
+        <View style={StyleSheet.absoluteFill}>
           <CloudPostMountainBackground />
           {(selectedImages.length > 0 || selectedVideo) && (
-            <BlurView intensity={80} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+            <BlurView intensity={80} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           )}
         </View>
         {showDetails ? (
@@ -3975,7 +3974,7 @@ export default function PostScreen() {
                   <View
                     pointerEvents="none"
                     style={[
-                      StyleSheet.absoluteFillObject,
+                      StyleSheet.absoluteFill,
                       { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]!, borderRadius: theme.borderRadius.xl },
                     ]}
                   />
@@ -4071,7 +4070,7 @@ export default function PostScreen() {
                           colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 0.4 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         />
                         <Ionicons name="add" size={20} color="white" style={{ zIndex: 1 }} />
@@ -4433,7 +4432,7 @@ export default function PostScreen() {
                               colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                               start={{ x: 0, y: 0 }}
                               end={{ x: 0, y: 0.4 }}
-                              style={StyleSheet.absoluteFillObject}
+                              style={StyleSheet.absoluteFill}
                               pointerEvents="none"
                             />
                             <Ionicons name="search" size={16} color="#FFFFFF" style={{ zIndex: 1 }} />
@@ -4734,7 +4733,7 @@ export default function PostScreen() {
                           colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 0.4 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         />
                         {isLoading ? (
@@ -5040,7 +5039,7 @@ export default function PostScreen() {
                              colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                              start={{ x: 0, y: 0 }}
                              end={{ x: 0, y: 0.4 }}
-                             style={StyleSheet.absoluteFillObject}
+                             style={StyleSheet.absoluteFill}
                              pointerEvents="none"
                            />
                            <Ionicons name="search" size={16} color="#FFFFFF" style={{ zIndex: 1 }} />
@@ -5355,7 +5354,7 @@ export default function PostScreen() {
                           colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 0, y: 0.4 }}
-                          style={StyleSheet.absoluteFillObject}
+                          style={StyleSheet.absoluteFill}
                           pointerEvents="none"
                         />
                         {isLoading ? (
@@ -5648,9 +5647,9 @@ export default function PostScreen() {
               <BlurView
                 intensity={80}
                 tint={mode === 'dark' ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
               <LinearGradient
                 colors={
                   mode === 'dark'
@@ -5659,7 +5658,7 @@ export default function PostScreen() {
                 }
                 start={{ x: 0, y: 0 }}
                 end={{ x: 0.4, y: 0.4 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
               {/* Drag Handle */}
@@ -5840,9 +5839,9 @@ export default function PostScreen() {
               <BlurView
                 intensity={80}
                 tint={mode === 'dark' ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
               <LinearGradient
                 colors={
                   mode === 'dark'
@@ -5851,7 +5850,7 @@ export default function PostScreen() {
                 }
                 start={{ x: 0, y: 0 }}
                 end={{ x: 0.4, y: 0.4 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 pointerEvents="none"
               />
               {/* Drag Handle */}

@@ -1,6 +1,7 @@
-import { Audio } from "expo-av";
+import type { Audio } from "expo-av";
 import { AppState } from "react-native";
 import logger from './logger';
+import { Audio as ExpoAudio } from "./expoAv";
 
 class AudioManager {
   currentSound: Audio.Sound | null = null;
@@ -94,7 +95,8 @@ class AudioManager {
   async deactivateSession(): Promise<void> {
     await this.stopAll();
     try {
-      await Audio.setAudioModeAsync({
+      if (!ExpoAudio) return;
+      await ExpoAudio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: false,
         staysActiveInBackground: false,

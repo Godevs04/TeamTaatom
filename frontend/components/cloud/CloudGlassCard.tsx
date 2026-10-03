@@ -83,7 +83,7 @@ export default function CloudGlassCard({
         <BlurView
           intensity={65}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           {...(Platform.OS === 'android'
             ? { experimentalBlurMethod: 'dimezisBlurView' as const }
             : {})}
@@ -97,7 +97,7 @@ export default function CloudGlassCard({
         }
         start={{ x: 0, y: 0 }}
         end={{ x: 0.4, y: 0.4 }}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
       <View style={[styles.content, contentStyle]}>{children}</View>

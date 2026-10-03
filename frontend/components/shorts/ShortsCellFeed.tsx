@@ -15,8 +15,10 @@ import {
   ActivityIndicator,
   Easing,
   FlatList,
+  type LayoutChangeEvent,
 } from 'react-native';
-import { Video, ResizeMode, Audio, AVPlaybackStatus } from 'expo-av';
+import { Video, Audio, type AVPlaybackStatus } from '../../utils/expoAv';
+import ShortsExpoPlayer from './ShortsExpoPlayer';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -151,6 +153,8 @@ interface ShortsCellProps {
   isMuted: boolean;
   currentUser: any;
   containerHeight: number;
+  /** Measured overlap (px) of the floating tab bar with the bottom of the Shorts screen. */
+  bottomClearance: number;
   isFollowing: boolean;
   isSaved: boolean;
   isLiked: boolean;
@@ -183,6 +187,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     isMuted: isMutedProp,
     currentUser,
     containerHeight,
+    bottomClearance,
     isFollowing,
     isSaved,
     isLiked,
@@ -240,6 +245,10 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const lastMuteEnforceAtRef = useRef<number>(0);
   // BUG 15: Animated opacity for crossfade from thumbnail -> video
   const videoOpacity = useRef(new Animated.Value(0)).current;
+  const videoFrameRef = useRef<View>(null);
+  const [videoFrameSize, setVideoFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const urlRefetchAttemptedRef = useRef(false);
 
   // Clean up timeouts on unmount
   useEffect(() => {
@@ -253,23 +262,20 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   // BUG 15: Reset video ready state & opacity when cell is recycled for a new item
   useEffect(() => {
     setVideoReady(false);
+    setVideoFailed(false);
+    urlRefetchAttemptedRef.current = false;
     videoOpacity.setValue(0);
   }, [item._id]);
 
-  // Reset ready state when shouldRenderVideo changes to false (unmounted)
+  // Only the active cell owns a player, so leaving it unmounts the player and the thumbnail must come back.
   useEffect(() => {
-    if (!shouldRenderVideo) {
+    if (!isActive) {
       setVideoReady(false);
+      setVideoFailed(false);
+      urlRefetchAttemptedRef.current = false;
       videoOpacity.setValue(0);
     }
-  }, [shouldRenderVideo]);
-
-  const retryVideoLoadLocally = () => {
-    setTimeout(() => {
-      setSourceVersion(prev => prev + 1);
-      setVideoReady(false);
-    }, 1000);
-  };
+  }, [isActive]);
 
   // Sync playback state based on visibility and focus
   const shouldPlay = isActive && isVideoPlaying && isScreenFocused && !userPaused && appState === 'active';
@@ -299,36 +305,15 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
   }, [isMuted, isActive, item.song]);
 
-  // Recovery check inside ShortsCell
-  useEffect(() => {
-    if (!isActive || videoReady || !isScreenFocused || appState !== 'active') return;
-    
-    const timer = setTimeout(() => {
-      const video = videoRef.current;
-      if (video) {
-        video.getStatusAsync().then((status) => {
-          if (!status.isLoaded) {
-            logger.warn(`Video ${item._id} still not loaded after 1.5s - triggering URL refetch recovery`);
-            handlers.refetchShortWithFreshUrl(item._id)
-              .then((freshShort: PostType | null) => {
-                if (freshShort) {
-                  setSourceVersion(prev => prev + 1);
-                  setVideoReady(false);
-                  logger.info(`Successfully recovered visible video ${item._id} with fresh signed URL`);
-                } else {
-                  retryVideoLoadLocally();
-                }
-              })
-              .catch(() => {
-                retryVideoLoadLocally();
-              });
-          }
-        }).catch(() => {});
-      }
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, [isActive, videoReady, isScreenFocused, appState]);
+  const handleVideoFrameLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width <= 0 || height <= 0) return;
+    setVideoFrameSize(prev =>
+      prev && Math.abs(prev.width - width) < 0.5 && Math.abs(prev.height - height) < 0.5
+        ? prev
+        : { width, height }
+    );
+  }, []);
 
   const showLikeAnimationTemporarily = () => {
     likeAnimationVal.setValue(0);
@@ -448,6 +433,14 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     const delay = 300;
     const videoId = item._id;
 
+    if (videoFailed) {
+      urlRefetchAttemptedRef.current = false;
+      setVideoFailed(false);
+      setVideoReady(false);
+      setSourceVersion(prev => prev + 1);
+      return;
+    }
+
     if (now - lastTapRef.current < delay) {
       if (tapTimeoutRef.current) {
         clearTimeout(tapTimeoutRef.current);
@@ -497,6 +490,8 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const clearance = 16;
   const bottomContentOffset = progressBottom + progressHeight + clearance;
   
+  // The video frame starts at the top of the cell and stops where the floating tab bar begins.
+  const videoFrameHeight = Math.max(1, containerHeight - (isScopedView ? 0 : bottomClearance));
   const shouldShowPauseButton = !showLikeAnimation && showPauseButton;
   const pauseButtonIcon = isPlaying ? "pause" : "play";
 
@@ -530,41 +525,15 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
             accessibilityLabel="Tap to play or pause video"
             accessibilityRole="button"
           >
-            <View style={StyleSheet.absoluteFillObject}>
-              {(item.thumbnailUrl || item.imageUrl) ? (
-                <ExpoImage
-                  source={{ uri: item.thumbnailUrl || item.imageUrl }}
-                  style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                  contentFit="contain"
-                  cachePolicy="memory-disk"
-                  transition={0}
-                  onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
-                    shortId: item._id,
-                    url: (item.thumbnailUrl || item.imageUrl)?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
-                />
-              ) : (
-                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-                  <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
-                </View>
-              )}
-              {shouldRenderVideo && (
-                // BUG 15: Wrap in Animated.View — opacity crossfades thumbnail->video;
-                // translateY keeps the native SurfaceView off-screen until first frame ready
-                // so the black punch-through never shows over the thumbnail.
-                <Animated.View
-                  style={[
-                    styles.shortVideo,
-                    StyleSheet.absoluteFillObject,
-                    {
-                      opacity: videoOpacity,
-                      transform: [{ translateY: videoReady ? 0 : 9999 }],
-                    },
-                  ]}
-                  pointerEvents={videoReady ? 'none' : 'none'}
-                >
-                <MemoizedVideo
+            <View style={StyleSheet.absoluteFill}>
+              <View
+                ref={videoFrameRef}
+                style={[styles.videoFrame, { height: videoFrameHeight }]}
+                onLayout={handleVideoFrameLayout}
+                pointerEvents="none"
+              >
+              {isActive && videoFrameSize && !videoFailed && (
+                <ShortsExpoPlayer
                 key={`video-${item._id}-${sourceVersion}`}
                 ref={(ref) => {
                   videoRef.current = ref;
@@ -574,12 +543,10 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                     delete videoRefs.current[item._id];
                   }
                 }}
-                source={getVideoSource(handlers.getVideoUrl(item))}
-                style={[styles.shortVideo, StyleSheet.absoluteFillObject]}
-                resizeMode={ResizeMode.CONTAIN}
+                source={{ uri: handlers.getVideoUrl(item) }}
+                resizeMode="cover"
                 shouldPlay={shouldPlay}
                 isLooping
-                progressUpdateIntervalMillis={100}
                 isMuted={!isActive || !!(item.song?.songId?._id || item.song?.songId) || isMuted}
                 volume={(!!(item.song?.songId?._id || item.song?.songId) || isMuted) ? 0.0 : 1.0}
                 onLoadStart={() => {
@@ -618,14 +585,16 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                     /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
                   const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
 
-                  if (isExpiredUrl || isTimeoutError) {
+                  // At most one fresh-URL attempt per activation; after that keep the thumbnail and show the fallback.
+                  if ((isExpiredUrl || isTimeoutError) && !urlRefetchAttemptedRef.current) {
+                    urlRefetchAttemptedRef.current = true;
                     const errorType = isTimeoutError ? 'timeout' : 'expired URL';
                     logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
                     handlers.refetchShortWithFreshUrl(item._id)
                       .then((freshShort: PostType | null) => {
                         const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
                         if (!freshShort || !freshVideoUrl) {
-                          retryVideoLoadLocally();
+                          setVideoFailed(true);
                           return;
                         }
                         setSourceVersion(prev => prev + 1);
@@ -633,10 +602,10 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                       })
                       .catch((refetchError: any) => {
                         logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
-                        retryVideoLoadLocally();
+                        setVideoFailed(true);
                       });
                   } else {
-                    retryVideoLoadLocally();
+                    setVideoFailed(true);
                   }
                 }}
                 onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
@@ -758,8 +727,38 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   }
                 }}
                 />
-                </Animated.View>
               )}
+              {/* Thumbnail stays above the player until its first frame is on screen. */}
+              <View
+                style={[StyleSheet.absoluteFill, { opacity: videoReady ? 0 : 1 }]}
+                pointerEvents="none"
+              >
+                {(item.thumbnailUrl || item.imageUrl) ? (
+                  <ExpoImage
+                    source={{ uri: item.thumbnailUrl || item.imageUrl }}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={0}
+                    onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
+                      shortId: item._id,
+                      url: (item.thumbnailUrl || item.imageUrl)?.substring(0, 120),
+                      error: e?.error || e?.nativeEvent?.error || String(e),
+                    })}
+                  />
+                ) : (
+                  <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
+                    <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
+                  </View>
+                )}
+              </View>
+              {videoFailed && (
+                <View style={styles.videoFailedOverlay} pointerEvents="none">
+                  <Ionicons name="alert-circle-outline" size={28} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.videoFailedText}>Video unavailable. Tap to retry.</Text>
+                </View>
+              )}
+              </View>
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -1286,7 +1285,7 @@ const ShortsProgressBar = ({
             colors={['#50C878', '#1C73B4']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
         </View>
       </View>
@@ -1760,6 +1759,26 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: 'black',
   },
+  videoFrame: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    overflow: 'hidden',
+    backgroundColor: 'black',
+  },
+  videoFailedOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  videoFailedText: {
+    marginTop: 8,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   shortItemAdWrapper: {
     height: SHORTS_ITEM_HEIGHT,
     overflow: 'hidden',
@@ -1796,7 +1815,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   likeAnimationContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 15,
     justifyContent: 'center',
     alignItems: 'center',

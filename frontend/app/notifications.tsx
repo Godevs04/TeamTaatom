@@ -658,7 +658,7 @@ export default function NotificationsScreen() {
                     <View
                       pointerEvents="none"
                       style={[
-                        StyleSheet.absoluteFillObject,
+                        StyleSheet.absoluteFill,
                         { backgroundColor: FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType]! },
                       ]}
                     />

@@ -119,7 +119,7 @@ function PickerModal({
         style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
       >
         <TouchableOpacity
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           activeOpacity={1}
           onPress={onClose}
         />
@@ -1388,7 +1388,7 @@ export default function ConnectHubScreen() {
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <View style={styles.topBarContent}>
           <PremiumIconButton

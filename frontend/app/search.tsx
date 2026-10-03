@@ -298,7 +298,7 @@ export default function SearchScreen() {
       <BlurView
         intensity={65}
         tint={isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
       
       <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, width: '100%' }}>
@@ -403,7 +403,7 @@ export default function SearchScreen() {
         <BlurView
           intensity={65}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         
         <View style={{ padding: 16 }}>
@@ -487,7 +487,7 @@ export default function SearchScreen() {
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>

@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   videoContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1,
   },
 });

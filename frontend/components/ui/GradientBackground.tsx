@@ -20,11 +20,11 @@ export const GradientBackground = ({ children, style }: GradientBackgroundProps)
       {/* 1. Base solid gradient layer */}
       <LinearGradient
         colors={backgroundColors}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
 
       {/* 2. Advanced atmospheric SVG overlay */}
-      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Svg height="100%" width="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
           <Defs>
             {/* Top Right Vibrant Cobalt Glow */}

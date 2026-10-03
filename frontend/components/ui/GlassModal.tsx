@@ -17,7 +17,7 @@ export const GlassModal = ({ visible, onClose, children, style, ...props }: Glas
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
-          <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} />
+          <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
         </View>
       </TouchableWithoutFeedback>
       <KeyboardAvoidingView 
@@ -41,7 +41,7 @@ export const GlassModal = ({ visible, onClose, children, style, ...props }: Glas
           ]}
           {...props}
         >
-          <BlurView intensity={0.9} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+          <BlurView intensity={0.9} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           <View style={styles.indicator} />
           <View style={styles.innerContent}>
             {children}
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   modalContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'flex-end',
   },
   modalContent: {

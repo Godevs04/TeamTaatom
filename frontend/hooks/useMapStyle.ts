@@ -1,13 +1,14 @@
-import { Platform } from 'react-native';
 import { useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { calmMorningMapStyle, midnightGlassMapStyle } from '../constants/mapStyles';
+import { calmMorningMapStyle } from '../constants/mapStyles';
+import { CARTO_STYLE } from '../utils/mapEngine';
 
 export function useMapStyle() {
   const { isDark } = useTheme();
 
   return useMemo(() => {
-    // ALWAYS use calmMorningMapStyle (light/day theme) for map base layer as requested
+    // customMapStyle stays for the legacy Apple/Google engine (restore path).
+    // mapStyle is the CARTO vector style used by MapLibre, matching the web map.
     const customMapStyle = calmMorningMapStyle;
     const userInterfaceStyle = 'light';
 
@@ -18,7 +19,10 @@ export function useMapStyle() {
       routeColor: '#06B6D4', // Vibrant Cyan (matching blue-green gradient)
       routeGlowColor: 'rgba(6, 182, 212, 0.22)',
       userInterfaceStyle,
-      nativeMapProps: { customMapStyle },
+      nativeMapProps: {
+        customMapStyle,
+        mapStyle: isDark ? CARTO_STYLE.dark : CARTO_STYLE.light,
+      },
     };
   }, [isDark]);
 }

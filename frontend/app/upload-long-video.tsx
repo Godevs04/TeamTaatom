@@ -207,7 +207,7 @@ export default function UploadLongVideoScreen() {
             <BlurView
               intensity={isDark ? 40 : 70}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <View style={[styles.header, { backgroundColor: colors.glass }]}>
               <Pressable
@@ -402,7 +402,7 @@ export default function UploadLongVideoScreen() {
             <BlurView
               intensity={isDark ? 36 : 64}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <View style={[styles.dock, { backgroundColor: colors.glass }]}>
               {canPublish ? (
@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   previewScrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   previewMeta: {
     position: 'absolute',

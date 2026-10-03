@@ -4,7 +4,7 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Video, { VideoRef } from 'react-native-video';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router';
 import logger from '../../utils/logger';
 
 interface ShortsVideoProps {

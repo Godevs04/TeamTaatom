@@ -255,7 +255,7 @@ router.get('/check-username', checkUsernameAvailability);
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
-router.post('/resend-otp', authValidations.verifyOtp, endpointLimiters.otp, resendOTP);
+router.post('/resend-otp', authValidations.resendOtp, endpointLimiters.otp, resendOTP);
 /**
  * @swagger
  * /api/v1/auth/signin:

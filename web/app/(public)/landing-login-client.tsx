@@ -98,7 +98,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
   const onSubmit = async (values: FormValues) => {
     try {
       const signedInUser = await signIn(values);
-      toast.success("Welcome back");
+      toast.success("Welcome back", { duration: 1200 });
       router.replace(getPostSignInPath(signedInUser, nextUrl));
     } catch (e: unknown) {
       if (isVerifyRequiredError(e)) {

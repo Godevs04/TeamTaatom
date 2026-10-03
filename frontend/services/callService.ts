@@ -1,6 +1,6 @@
 import { socketService } from './socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/expoAv';
 import logger from '../utils/logger';
 
 export interface CallState {

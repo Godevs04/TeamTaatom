@@ -20,9 +20,9 @@ import { Image as ExpoImage } from 'expo-image';
 import { getSongs, Song } from '../services/songs';
 import AlertService from '../services/alertService';
 import { useTheme } from '../context/ThemeContext';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused } from 'expo-router';
 import logger from '../utils/logger';
-import { Audio } from 'expo-av';
+import { Audio } from '../utils/expoAv';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -1318,7 +1318,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               >
                 <LinearGradient
                   colors={['#50C878', '#1C73B4']}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
@@ -1386,7 +1386,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 >
                   <LinearGradient
                     colors={['#50C878', '#1C73B4']}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                   />

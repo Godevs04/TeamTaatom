@@ -7,11 +7,6 @@
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
     "scheme": "taatom",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
     "assetBundlePatterns": [
       "**/*",
       "policies/**/*"
@@ -193,7 +188,18 @@
           "username": "taatom"
         }
       ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
       "expo-font",
+      "expo-video",
+      "@maplibre/maplibre-react-native",
+      "expo-audio",
       "expo-task-manager",
       [
         "react-native-google-mobile-ads",
@@ -245,6 +251,9 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "deploymentTarget": "16.4"
+          },
           "android": {
             "proguardRules": "./proguard-rules.pro"
           }
@@ -259,8 +268,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "https://api.taatom.com",
-      "WEB_SHARE_URL": "https://taatom.com",
+      "API_BASE_URL": "http://192.168.1.33:3000",
+      "WEB_SHARE_URL": "http://192.168.1.33:3000",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",

@@ -314,7 +314,7 @@ async function processJob(job, Post) {
     }
 
     // Preserve custom thumbnail if one exists in the postDoc's storageKeys
-    const customThumbnailKey = postDoc.storageKeys.find(
+    const customThumbnailKey = (postDoc.storageKeys || []).find(
       (k) => k !== rawKey && (k.endsWith('.jpg') || k.endsWith('.png') || k.endsWith('.jpeg'))
     );
 
@@ -349,7 +349,17 @@ async function processJob(job, Post) {
       const bitrateOk = bitrate > 0 && bitrate <= 5000000; // Capped at 5Mbps
 
       const isPortrait = height > width;
-      if (videoOk && audioOk && resolutionOk && fpsOk && bitrateOk && !isPortrait) {
+      // Shorts that stay on a signed raw MP4 fail in iOS AVPlayer (-11819).
+      // Always build the HLS derivative for shorts. Other video types can still
+      // skip HLS when the file is already a compliant landscape encode.
+      if (postDoc.type === 'short') {
+        needsHLSTranscode = true;
+        logger.info('[transcodeWorker] Short requires an HLS derivative.', {
+          postId,
+          resolution: videoStream ? `${width}x${height}` : 'unknown',
+          portrait: isPortrait,
+        });
+      } else if (videoOk && audioOk && resolutionOk && fpsOk && bitrateOk && !isPortrait) {
         needsHLSTranscode = false;
         logger.info('[transcodeWorker] Video is compliant (H.264/AAC, ≤1080p, ≤30fps, ≤5Mbps) and landscape. Bypassing HLS transcoding.', {
           postId,
@@ -367,7 +377,7 @@ async function processJob(job, Post) {
           resolution: videoStream ? `${width}x${height}` : 'unknown',
           fps: fps.toFixed(2),
           bitrate: bitrate ? (bitrate / 1000000).toFixed(2) + ' Mbps' : 'unknown',
-          reason: !videoOk ? 'video codec' : !audioOk ? 'audio codec' : !resolutionOk ? 'resolution' : !fpsOk ? 'framerate' : 'bitrate',
+          reason: !videoOk ? 'video codec' : !audioOk ? 'audio codec' : !resolutionOk ? 'resolution' : !fpsOk ? 'framerate' : isPortrait ? 'portrait' : 'bitrate',
         });
       }
     } catch (probeErr) {
@@ -504,6 +514,38 @@ async function processJob(job, Post) {
 
 let workerRunning = false;
 let workerIntervalId = null;
+let missingShortHlsEnqueued = false;
+
+async function enqueueShortsMissingHls(Post, TranscodeJob) {
+  const shorts = await Post.find({
+    type: 'short',
+    isActive: { $ne: false },
+    status: { $nin: ['removed', 'failed'] },
+    storageKey: { $type: 'string', $not: /index\.m3u8$/ },
+  }).select('_id storageKey').lean();
+
+  let enqueued = 0;
+  for (const short of shorts) {
+    if (!short.storageKey) continue;
+    const inFlight = await TranscodeJob.findOne({
+      post: short._id,
+      status: { $in: ['pending', 'processing'] },
+    }).select('_id').lean();
+    if (inFlight) continue;
+
+    await TranscodeJob.create({
+      post: short._id,
+      rawStorageKey: short.storageKey,
+      status: 'pending',
+    });
+    enqueued += 1;
+  }
+
+  if (enqueued > 0) {
+    logger.info(`[transcodeWorker] Enqueued HLS generation for ${enqueued} shorts that are still raw files`);
+  }
+  return enqueued;
+}
 
 async function runWorkerOnce() {
   if (workerRunning) return;
@@ -518,6 +560,11 @@ async function runWorkerOnce() {
     require('../models/Post');
     const TranscodeJob = mongoose.model('TranscodeJob');
     const Post = mongoose.model('Post');
+
+    if (!missingShortHlsEnqueued) {
+      await enqueueShortsMissingHls(Post, TranscodeJob);
+      missingShortHlsEnqueued = true;
+    }
 
     // Process all pending jobs sequentially
     let job;

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Video, ResizeMode, type AVPlaybackStatus } from '../../utils/expoAv';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import ReAnimated, {
   useSharedValue,

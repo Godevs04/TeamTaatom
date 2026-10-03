@@ -20,7 +20,7 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode } from '../../utils/expoAv';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { BlurView } from 'expo-blur';
@@ -623,11 +623,11 @@ export default function ContentPreviewScreen() {
               activeOpacity={0.7}
             >
               {effectiveBg ? (
-                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: effectiveBg }]} />
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: effectiveBg }]} />
               ) : (
                 <LinearGradient
                   colors={['#50C878', '#1C73B4']}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
@@ -679,12 +679,12 @@ export default function ContentPreviewScreen() {
           <BlurView
             intensity={45}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
           />
           <View
             style={{
-              ...StyleSheet.absoluteFillObject,
+              ...StyleSheet.absoluteFill,
               backgroundColor: isDark ? 'rgba(30, 30, 30, 0.45)' : 'rgba(245, 245, 245, 0.45)',
               justifyContent: 'center',
               alignItems: 'center',
@@ -774,11 +774,11 @@ export default function ContentPreviewScreen() {
         <BlurView
           intensity={85}
           tint="dark"
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <View
           style={[
-            StyleSheet.absoluteFillObject,
+            StyleSheet.absoluteFill,
             { backgroundColor: 'rgba(15, 15, 15, 0.4)' }
           ]}
         />
@@ -860,7 +860,7 @@ export default function ContentPreviewScreen() {
                   <BlurView
                     intensity={15}
                     tint={isDark ? 'dark' : 'light'}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                   />
                   <View style={styles.buyItemInner}>
                     {item.imageUrl ? (
@@ -987,7 +987,7 @@ export default function ContentPreviewScreen() {
                   >
                     <LinearGradient
                       colors={['#50C878', '#1C73B4']}
-                      style={StyleSheet.absoluteFillObject}
+                      style={StyleSheet.absoluteFill}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                     />
@@ -1031,7 +1031,7 @@ export default function ContentPreviewScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setCheckoutModalVisible(false)} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCheckoutModalVisible(false)} />
           <View
             style={[
               styles.checkoutModalBox,
@@ -1044,7 +1044,7 @@ export default function ContentPreviewScreen() {
             <BlurView
               intensity={90}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <View style={styles.modalHeader}>
               <Text style={[styles.checkoutModalTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Checkout</Text>

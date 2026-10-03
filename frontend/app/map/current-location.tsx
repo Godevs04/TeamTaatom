@@ -103,7 +103,7 @@ const createStyles = (isDark: boolean) => {
       padding: 8,
     },
     mapContainer: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
     },
     map: {
       flex: 1,
@@ -1102,8 +1102,8 @@ function initMap(){
       if (window.polyline1) window.polyline1.setMap(null);
       if (window.polyline2) window.polyline2.setMap(null);
       
-      window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
-      window.polyline2 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+      window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.18,strokeWeight:3.5,map:map});
+      window.polyline2 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.9,strokeWeight:2,map:map});
       var bounds=new google.maps.LatLngBounds();
       path.forEach(function(p){bounds.extend(p);});
       map.fitBounds(bounds,64);
@@ -1451,7 +1451,7 @@ function initMap(){
               })()}
               color={mapStyle.routeColor}
               glowColor={mapStyle.routeGlowColor}
-              strokeWidth={5}
+              strokeWidth={2}
               simplifyDistance={4}
               applyKalman={false}
               latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
@@ -1562,7 +1562,7 @@ function initMap(){
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <View style={styles.header}>
             <TouchableOpacity 
@@ -1577,7 +1577,7 @@ function initMap(){
                 colors={['#1C73B4', '#50C878']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
               <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -1690,7 +1690,7 @@ function initMap(){
                         colors={['#1C73B4', '#50C878']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        style={StyleSheet.absoluteFillObject}
+                        style={StyleSheet.absoluteFill}
                       />
                       {routeLoading ? (
                         <LoadingGlobe color="white" size="small" />

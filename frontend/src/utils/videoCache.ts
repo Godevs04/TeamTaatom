@@ -170,6 +170,11 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
     throw new Error(`Video cache is locked: ${videoId}`);
   }
 
+  if (cachedVideoIds.has(videoId)) {
+    const ext = cachedVideoExtensions.get(videoId) || 'mp4';
+    return `${getCachePath()}shorts/${videoId}.${ext}`;
+  }
+
   // Return active download promise if already in progress to prevent duplicate fetching
   const existingDownload = activeDownloads.get(videoId);
   if (existingDownload) {

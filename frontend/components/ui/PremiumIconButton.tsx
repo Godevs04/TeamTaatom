@@ -46,7 +46,7 @@ export default function PremiumIconButton({
           colors={isGradient ? ['#1C73B4', '#50C878'] : ['rgba(255,255,255,0.62)', 'rgba(217,239,255,0.28)']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <Ionicons name={icon} size={iconSize} color={isGradient ? '#FFFFFF' : iconColor} />
       </PremiumGlassCard>

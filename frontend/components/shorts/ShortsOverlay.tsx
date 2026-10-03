@@ -459,7 +459,7 @@ const ShortsOverlay = ({
 
 const styles = StyleSheet.create({
   gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   bottomContent: {
     position: 'absolute',
@@ -490,7 +490,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
   },
   avatarBorder: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 22,
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.5)',
@@ -589,13 +589,13 @@ const styles = StyleSheet.create({
     color: '#00E5FF',
   },
   likeAnimationContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 4,
   },
   playButton: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 3,

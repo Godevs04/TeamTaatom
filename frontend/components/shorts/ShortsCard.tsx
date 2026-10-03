@@ -247,7 +247,7 @@ export default function ShortsCard({
           <View style={styles.checkmarkCircle}>
             <LinearGradient
               colors={['#1C73B4', '#50C878']}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             />
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   selectionOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 30,
