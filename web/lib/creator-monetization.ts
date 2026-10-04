@@ -46,6 +46,12 @@ export type MonetizationDashboard = {
     bankIfsc: string;
     upiId: string;
     taxId: string;
+    bankName?: string;
+    bankBranch?: string;
+    bankCity?: string;
+    bankState?: string;
+    hasBankAccount?: boolean;
+    hasTaxId?: boolean;
   };
   paymentMethods: string[];
   requireTaxIdentity: boolean;
@@ -78,6 +84,21 @@ export async function activateCreatorMonetization() {
   } catch (error) {
     throw new Error(messageFrom(error, "Could not activate monetization."));
   }
+}
+
+export type IfscBank = {
+  ifsc: string;
+  bank: string;
+  branch: string;
+  address: string;
+  city: string;
+  state: string;
+  pin?: string;
+};
+
+export async function lookupCreatorIfsc(code: string) {
+  const res = await api.get(`/creator-monetization/ifsc/${encodeURIComponent(code)}`);
+  return res.data.bank as IfscBank;
 }
 
 export async function saveCreatorPayoutProfile(body: Record<string, string>) {

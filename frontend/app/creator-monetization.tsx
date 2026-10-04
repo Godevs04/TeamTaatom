@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,9 +19,11 @@ import { theme } from '../constants/theme';
 import {
   activateCreatorMonetization,
   getCreatorMonetizationDashboard,
+  lookupCreatorIfsc,
   requestCreatorWithdrawal,
   saveCreatorPayoutProfile,
   submitCreatorVerification,
+  type IfscBank,
   type MonetizationDashboard,
   type MonetizationGate,
 } from '../services/creatorMonetization';
@@ -37,6 +39,47 @@ const STATUS_LABEL: Record<string, string> = {
 
 const inr = (value: number) => `₹${Number(value || 0).toFixed(2)}`;
 const count = (value: number) => Number(value || 0).toLocaleString('en-IN');
+const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const UPI_PATTERN = /^[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}$/;
+const digitsOnly = (value: string) => value.replace(/\D/g, '').slice(0, 18);
+const ifscText = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11);
+const panText = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+
+function payoutProblems(input: {
+  legalName: string;
+  method: 'bank' | 'upi';
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  upiId: string;
+  taxId: string;
+  requireTax: boolean;
+  keepAccount: boolean;
+  keepTax: boolean;
+  bankReady: boolean;
+}) {
+  const problems: Record<string, string> = {};
+  const legalName = input.legalName.trim();
+  if (legalName.length < 2 || !/[A-Za-z]/.test(legalName)) problems.legalName = 'Enter the legal name on the account.';
+  if (input.method === 'bank') {
+    const accountName = input.bankAccountName.trim();
+    if (accountName.length < 2 || !/[A-Za-z]/.test(accountName)) problems.bankAccountName = 'Enter the name as it appears on the bank account.';
+    const accountNumber = input.bankAccountNumber.trim();
+    if (!(accountNumber === '' && input.keepAccount) && !/^\d{9,18}$/.test(accountNumber)) {
+      problems.bankAccountNumber = 'Use 9 to 18 digits from the passbook. Letters are not allowed.';
+    }
+    if (!IFSC_PATTERN.test(input.bankIfsc)) problems.bankIfsc = 'Enter an 11-character IFSC, such as HDFC0001234.';
+    else if (!input.bankReady) problems.bankIfsc = 'Wait until the bank and branch appear for this IFSC.';
+  } else if (!UPI_PATTERN.test(input.upiId.trim())) {
+    problems.upiId = 'Enter a UPI ID such as name@okbank.';
+  }
+  const taxId = input.taxId.trim();
+  if (input.requireTax && !(taxId === '' && input.keepTax) && !PAN_PATTERN.test(taxId)) {
+    problems.taxId = 'Enter a PAN such as ABCDE1234F.';
+  }
+  return problems;
+}
 
 function statusCopy(status: string) {
   if (status === 'eligible') {
@@ -103,6 +146,9 @@ export default function CreatorMonetizationScreen() {
   const [upiId, setUpiId] = useState('');
   const [taxId, setTaxId] = useState('');
   const [amount, setAmount] = useState('');
+  const [problems, setProblems] = useState<Record<string, string>>({});
+  const [ifscBank, setIfscBank] = useState<IfscBank | null>(null);
+  const [ifscNote, setIfscNote] = useState('');
 
   const load = useCallback(async (quiet = false) => {
     try {
@@ -115,6 +161,17 @@ export default function CreatorMonetizationScreen() {
       setBankIfsc(next.payoutProfile.bankIfsc || '');
       setUpiId(next.payoutProfile.upiId || '');
       setAmount((current) => current || String(next.minimumWithdrawal || 1000));
+      if (next.payoutProfile.bankName && next.payoutProfile.bankIfsc) {
+        setIfscBank({
+          ifsc: next.payoutProfile.bankIfsc,
+          bank: next.payoutProfile.bankName,
+          branch: next.payoutProfile.bankBranch || '',
+          address: '',
+          city: next.payoutProfile.bankCity || '',
+          state: next.payoutProfile.bankState || '',
+        });
+        setIfscNote('');
+      }
       setError('');
       hasLoaded.current = true;
     } catch (err: any) {
@@ -128,6 +185,39 @@ export default function CreatorMonetizationScreen() {
   useFocusEffect(useCallback(() => {
     load(hasLoaded.current);
   }, [load]));
+
+  useEffect(() => {
+    const code = ifscText(bankIfsc);
+    if (!IFSC_PATTERN.test(code)) {
+      setIfscBank(null);
+      setIfscNote('');
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setIfscNote('Checking this IFSC…');
+      lookupCreatorIfsc(code)
+        .then((bank) => {
+          if (cancelled) return;
+          setIfscBank(bank);
+          setIfscNote('');
+          setProblems((current) => {
+            const next = { ...current };
+            delete next.bankIfsc;
+            return next;
+          });
+        })
+        .catch((err: any) => {
+          if (cancelled) return;
+          setIfscBank(null);
+          setIfscNote(err?.response?.data?.message || 'No bank was found for this IFSC code.');
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [bankIfsc]);
 
   const run = async (action: () => Promise<MonetizationDashboard>) => {
     try {
@@ -296,32 +386,67 @@ export default function CreatorMonetizationScreen() {
                   ))}
                 </View>
 
-                <Field icon="person-outline" label="Legal name" value={legalName} onChangeText={setLegalName} placeholder="Enter your legal name" text={text} muted={muted} border={border} background={fieldBg} />
+                <Field icon="person-outline" label="Legal name" value={legalName} onChangeText={setLegalName} placeholder="Enter your legal name" text={text} muted={muted} border={problems.legalName ? '#DC2626' : border} background={fieldBg} error={problems.legalName} />
                 {method === 'bank' ? (
                   <>
-                    <Field icon="card-outline" label="Account name" value={bankAccountName} onChangeText={setBankAccountName} placeholder="As per bank records" text={text} muted={muted} border={border} background={fieldBg} />
-                    <Field icon="keypad-outline" label="Account number" value={bankAccountNumber} onChangeText={setBankAccountNumber} placeholder={dashboard.payoutProfile.bankAccountNumber || 'Enter account number'} keyboardType="number-pad" text={text} muted={muted} border={border} background={fieldBg} />
-                    <Field icon="business-outline" label="IFSC" value={bankIfsc} onChangeText={setBankIfsc} placeholder="Enter IFSC code" autoCapitalize="characters" text={text} muted={muted} border={border} background={fieldBg} />
+                    <Field icon="card-outline" label="Account name" value={bankAccountName} onChangeText={setBankAccountName} placeholder="As per bank records" text={text} muted={muted} border={problems.bankAccountName ? '#DC2626' : border} background={fieldBg} error={problems.bankAccountName} />
+                    <Field icon="keypad-outline" label="Account number" value={bankAccountNumber} onChangeText={(value) => {
+                      if (/[A-Za-z]/.test(value)) setProblems((current) => ({ ...current, bankAccountNumber: 'Use 9 to 18 digits from the passbook. Letters are not allowed.' }));
+                      else setProblems((current) => { const next = { ...current }; delete next.bankAccountNumber; return next; });
+                      setBankAccountNumber(digitsOnly(value));
+                    }} placeholder={dashboard.payoutProfile.bankAccountNumber || '9 to 18 digits'} keyboardType="number-pad" text={text} muted={muted} border={problems.bankAccountNumber ? '#DC2626' : border} background={fieldBg} error={problems.bankAccountNumber} />
+                    <Field icon="business-outline" label="IFSC" value={bankIfsc} onChangeText={(value) => setBankIfsc(ifscText(value))} placeholder="HDFC0001234" autoCapitalize="characters" text={text} muted={muted} border={(problems.bankIfsc || (bankIfsc && !IFSC_PATTERN.test(ifscText(bankIfsc))) || (ifscNote && ifscNote !== 'Checking this IFSC…' && !ifscBank)) ? '#DC2626' : border} background={fieldBg} error={problems.bankIfsc || (bankIfsc && !IFSC_PATTERN.test(ifscText(bankIfsc)) ? 'Enter an 11-character IFSC, such as HDFC0001234.' : '') || (ifscNote && ifscNote !== 'Checking this IFSC…' && !ifscBank ? ifscNote : '')} />
+                    {ifscBank && ifscBank.ifsc === ifscText(bankIfsc) ? (
+                      <View style={styles.bankCard}>
+                        <Text style={styles.bankName}>{ifscBank.bank}</Text>
+                        {ifscBank.branch ? <Text style={styles.bankMeta}>{ifscBank.branch}</Text> : null}
+                        {ifscBank.address ? <Text style={styles.bankMeta}>{ifscBank.address}</Text> : null}
+                        <Text style={styles.bankMeta}>{[ifscBank.city, ifscBank.state].filter(Boolean).join(', ')}{ifscBank.pin ? ` ${ifscBank.pin}` : ''}</Text>
+                      </View>
+                    ) : ifscNote === 'Checking this IFSC…' ? (
+                      <Text style={[styles.note, { color: muted }]}>{ifscNote}</Text>
+                    ) : null}
                   </>
                 ) : (
-                  <Field icon="at-outline" label="UPI ID" value={upiId} onChangeText={setUpiId} placeholder="name@bank" autoCapitalize="none" text={text} muted={muted} border={border} background={fieldBg} />
+                  <Field icon="at-outline" label="UPI ID" value={upiId} onChangeText={setUpiId} placeholder="name@bank" autoCapitalize="none" text={text} muted={muted} border={problems.upiId ? '#DC2626' : border} background={fieldBg} error={problems.upiId} />
                 )}
                 {dashboard.requireTaxIdentity ? (
-                  <Field icon="card-outline" label="PAN" value={taxId} onChangeText={setTaxId} placeholder={dashboard.payoutProfile.taxId || 'Enter PAN number'} autoCapitalize="characters" text={text} muted={muted} border={border} background={fieldBg} />
+                  <Field icon="card-outline" label="PAN" value={taxId} onChangeText={(value) => setTaxId(panText(value))} placeholder={dashboard.payoutProfile.taxId || 'ABCDE1234F'} autoCapitalize="characters" text={text} muted={muted} border={(problems.taxId || (taxId && !/[A-Z]/.test(panText(taxId)))) ? '#DC2626' : border} background={fieldBg} error={problems.taxId || (taxId && !/[A-Z]/.test(panText(taxId)) ? 'PAN looks like ABCDE1234F, not only numbers.' : '')} />
                 ) : null}
 
                 <TouchableOpacity
                   style={[styles.primary, { backgroundColor: blue }]}
                   disabled={busy}
-                  onPress={() => run(() => saveCreatorPayoutProfile({
-                    legalName,
-                    method,
-                    bankAccountName,
-                    bankAccountNumber,
-                    bankIfsc,
-                    upiId,
-                    taxId,
-                  }))}
+                  onPress={() => {
+                    const next = payoutProblems({
+                      legalName,
+                      method,
+                      bankAccountName,
+                      bankAccountNumber,
+                      bankIfsc: ifscText(bankIfsc),
+                      upiId,
+                      taxId: panText(taxId),
+                      requireTax: dashboard.requireTaxIdentity,
+                      keepAccount: !!dashboard.payoutProfile.hasBankAccount && !bankAccountNumber,
+                      keepTax: !!dashboard.payoutProfile.hasTaxId && !taxId,
+                      bankReady: !!ifscBank && ifscBank.ifsc === ifscText(bankIfsc),
+                    });
+                    setProblems(next);
+                    const first = Object.values(next)[0];
+                    if (first) {
+                      Alert.alert('Payout details', first);
+                      return;
+                    }
+                    run(() => saveCreatorPayoutProfile({
+                      legalName,
+                      method,
+                      bankAccountName,
+                      bankAccountNumber,
+                      bankIfsc: ifscText(bankIfsc),
+                      upiId,
+                      taxId: panText(taxId),
+                    }));
+                  }}
                 >
                   <Text style={styles.primaryText}>Save payout details</Text>
                 </TouchableOpacity>
@@ -490,6 +615,7 @@ function Field({
   background,
   keyboardType,
   autoCapitalize,
+  error,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -502,6 +628,7 @@ function Field({
   background: string;
   keyboardType?: 'default' | 'number-pad' | 'decimal-pad';
   autoCapitalize?: 'none' | 'characters' | 'sentences';
+  error?: string;
 }) {
   return (
     <View style={styles.field}>
@@ -515,9 +642,11 @@ function Field({
           placeholderTextColor="#94A3B8"
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          autoCorrect={false}
           style={[styles.input, { color: text }]}
         />
       </View>
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
 }
@@ -619,6 +748,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   input: { flex: 1, paddingVertical: 12, fontSize: 15 },
+  fieldError: { color: '#DC2626', fontSize: 12, lineHeight: 16 },
+  bankCard: { backgroundColor: '#ECFDF3', borderRadius: 14, padding: 12, gap: 2 },
+  bankName: { color: '#166534', fontSize: 14, fontWeight: '800' },
+  bankMeta: { color: '#166534', fontSize: 12, lineHeight: 16 },
   primary: { borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   primaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   outline: { borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1.5, backgroundColor: 'transparent' },

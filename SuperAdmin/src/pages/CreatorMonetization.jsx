@@ -483,6 +483,7 @@ function VerificationTab() {
             <Mini label="Method" value={labelize(row.payoutProfile?.method)} />
             <Mini label="Account" value={row.payoutProfile?.bankAccountNumber || '—'} />
             <Mini label="IFSC" value={row.payoutProfile?.bankIfsc || '—'} />
+            <Mini label="Bank" value={[row.payoutProfile?.bankName, row.payoutProfile?.bankBranch, row.payoutProfile?.bankCity].filter(Boolean).join(' · ') || '—'} />
             <Mini label="UPI" value={row.payoutProfile?.upiId || '—'} />
             <Mini label="PAN" value={row.payoutProfile?.taxId || '—'} />
           </div>
@@ -546,7 +547,7 @@ function WithdrawalsTab() {
             <Badge value={row.status} />
           </div>
           <p className="mt-2 text-gray-500">{labelize(row.method)} · {row.destinationSnapshot?.legalName} · {row.destinationSnapshot?.bankAccountNumber || row.destinationSnapshot?.upiId || '—'}</p>
-          {row.destinationSnapshot?.bankIfsc ? <p className="text-gray-500">IFSC {row.destinationSnapshot.bankIfsc}</p> : null}
+          {row.destinationSnapshot?.bankIfsc ? <p className="text-gray-500">IFSC {row.destinationSnapshot.bankIfsc}{row.destinationSnapshot.bankName ? ` · ${row.destinationSnapshot.bankName}` : ''}{row.destinationSnapshot.bankBranch ? ` · ${row.destinationSnapshot.bankBranch}` : ''}</p> : null}
           {row.payoutReference ? <p className="mt-1">Reference {row.payoutReference}</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <Action onClick={() => act(row, 'hold')}>Hold</Action>

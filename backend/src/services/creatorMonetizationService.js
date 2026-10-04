@@ -248,6 +248,10 @@ const publicProfile = (account) => {
     bankAccountName: profile.bankAccountName || '',
     bankAccountNumber: maskAccount(profile.bankAccountNumber),
     bankIfsc: profile.bankIfsc || '',
+    bankName: profile.bankName || '',
+    bankBranch: profile.bankBranch || '',
+    bankCity: profile.bankCity || '',
+    bankState: profile.bankState || '',
     upiId: profile.upiId || '',
     taxId: profile.taxId ? maskAccount(profile.taxId) : '',
     hasBankAccount: !!profile.bankAccountNumber,
@@ -378,6 +382,102 @@ const activate = async (userId) => {
   return getDashboard(userId);
 };
 
+const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const ifscCache = new Map();
+
+const validatePayoutFields = (profile, requireTaxIdentity = true) => {
+  const legalName = String(profile.legalName || '').trim();
+  if (legalName.length < 2 || !/[A-Za-z]/.test(legalName)) return 'Enter the legal name on the account.';
+  if (profile.method === 'bank') {
+    const accountName = String(profile.bankAccountName || '').trim();
+    if (accountName.length < 2 || !/[A-Za-z]/.test(accountName)) return 'Enter the name as it appears on the bank account.';
+    if (!/^\d{9,18}$/.test(String(profile.bankAccountNumber || ''))) return 'Enter the bank account number as 9 to 18 digits.';
+    if (!IFSC_PATTERN.test(String(profile.bankIfsc || ''))) return 'Enter a valid IFSC code. It looks like HDFC0001234.';
+  } else if (!/^[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}$/.test(String(profile.upiId || ''))) {
+    return 'Enter a valid UPI ID, such as name@okbank.';
+  }
+  if (requireTaxIdentity && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(String(profile.taxId || ''))) {
+    return 'Enter a valid PAN. It looks like ABCDE1234F.';
+  }
+  return '';
+};
+
+const formatIfscAddress = (address, parts) => {
+  let street = String(address || '').replace(/\s+/g, ' ').trim();
+  const pinMatch = street.match(/(\d{3}\s?\d{3})$/);
+  const pin = pinMatch ? pinMatch[1].replace(/\s/g, '') : '';
+  if (pinMatch) street = street.slice(0, -pinMatch[1].length);
+  const tokens = [parts.centre, parts.district, parts.city, parts.state]
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item) => item.length >= 3);
+  const unique = [...new Set(tokens)].sort((left, right) => right.length - left.length);
+  for (let pass = 0; pass < 8; pass += 1) {
+    const upper = street.toUpperCase();
+    const hit = unique.find((token) => upper.endsWith(token));
+    if (!hit) break;
+    street = street.slice(0, street.length - hit.length);
+  }
+  street = street.replace(/[\s,.-]+$/g, '').replace(/,(\S)/g, ', $1').replace(/\s+/g, ' ').trim();
+  return { street, pin };
+};
+
+const lookupIfsc = async (raw) => {
+  const code = String(raw || '').trim().toUpperCase();
+  if (!IFSC_PATTERN.test(code)) {
+    const error = new Error('Enter a valid IFSC code. It looks like HDFC0001234.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (ifscCache.has(code)) return ifscCache.get(code);
+  let response;
+  try {
+    response = await fetch(`https://ifsc.razorpay.com/${encodeURIComponent(code)}`, {
+      signal: AbortSignal.timeout(5000),
+      headers: { Accept: 'application/json' },
+    });
+  } catch (cause) {
+    const error = new Error('Could not verify this IFSC right now. Try again.');
+    error.statusCode = 503;
+    error.cause = cause;
+    throw error;
+  }
+  if (response.status === 404) {
+    const error = new Error('No bank was found for this IFSC code.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error('Could not verify this IFSC right now. Try again.');
+    error.statusCode = 503;
+    throw error;
+  }
+  const body = await response.json();
+  const city = String(body.CITY || body.CENTRE || '').trim();
+  const state = String(body.STATE || '').trim();
+  const formatted = formatIfscAddress(body.ADDRESS, {
+    city,
+    state,
+    district: body.DISTRICT,
+    centre: body.CENTRE,
+  });
+  const details = {
+    ifsc: String(body.IFSC || code).toUpperCase(),
+    bank: String(body.BANK || '').trim(),
+    branch: String(body.BRANCH || '').trim(),
+    address: formatted.street,
+    city,
+    state,
+    pin: formatted.pin,
+  };
+  if (!details.bank) {
+    const error = new Error('No bank was found for this IFSC code.');
+    error.statusCode = 400;
+    throw error;
+  }
+  ifscCache.set(code, details);
+  return details;
+};
+
 const savePayoutProfile = async (userId, body) => {
   const settings = await getSettings();
   const account = await ensureAccount(userId);
@@ -399,6 +499,10 @@ const savePayoutProfile = async (userId, body) => {
     bankAccountName: String(body.bankAccountName || '').trim(),
     bankAccountNumber: String(body.bankAccountNumber || '').replace(/\s/g, ''),
     bankIfsc: String(body.bankIfsc || '').trim().toUpperCase(),
+    bankName: '',
+    bankBranch: '',
+    bankCity: '',
+    bankState: '',
     upiId: String(body.upiId || '').trim(),
     taxId: String(body.taxId || '').trim().toUpperCase(),
   };
@@ -410,31 +514,18 @@ const savePayoutProfile = async (userId, body) => {
   if ((!submittedTax.trim() || /[•*]/.test(submittedTax)) && account.payoutProfile?.taxId) {
     profile.taxId = account.payoutProfile.taxId;
   }
-  if (method === 'bank') {
-    if (!/^\d{9,18}$/.test(profile.bankAccountNumber)) {
-      const error = new Error('Enter a valid bank account number.');
-      error.statusCode = 400;
-      throw error;
-    }
-    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(profile.bankIfsc)) {
-      const error = new Error('Enter a valid IFSC code.');
-      error.statusCode = 400;
-      throw error;
-    }
-    if (!profile.bankAccountName) {
-      const error = new Error('Enter the bank account name.');
-      error.statusCode = 400;
-      throw error;
-    }
-  } else if (!/^[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}$/.test(profile.upiId)) {
-    const error = new Error('Enter a valid UPI ID.');
+  const fieldError = validatePayoutFields(profile, settings.requireTaxIdentity);
+  if (fieldError) {
+    const error = new Error(fieldError);
     error.statusCode = 400;
     throw error;
   }
-  if (settings.requireTaxIdentity && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(profile.taxId)) {
-    const error = new Error('Enter a valid PAN for tax identity.');
-    error.statusCode = 400;
-    throw error;
+  if (method === 'bank') {
+    const bank = await lookupIfsc(profile.bankIfsc);
+    profile.bankName = bank.bank;
+    profile.bankBranch = bank.branch;
+    profile.bankCity = bank.city;
+    profile.bankState = bank.state;
   }
   const changed = JSON.stringify(profile) !== JSON.stringify({
     legalName: account.payoutProfile?.legalName || '',
@@ -442,6 +533,10 @@ const savePayoutProfile = async (userId, body) => {
     bankAccountName: account.payoutProfile?.bankAccountName || '',
     bankAccountNumber: account.payoutProfile?.bankAccountNumber || '',
     bankIfsc: account.payoutProfile?.bankIfsc || '',
+    bankName: account.payoutProfile?.bankName || '',
+    bankBranch: account.payoutProfile?.bankBranch || '',
+    bankCity: account.payoutProfile?.bankCity || '',
+    bankState: account.payoutProfile?.bankState || '',
     upiId: account.payoutProfile?.upiId || '',
     taxId: account.payoutProfile?.taxId || '',
   });
@@ -525,6 +620,10 @@ const requestWithdrawal = async (userId, body) => {
         bankAccountName: profile.bankAccountName,
         bankAccountNumber: profile.bankAccountNumber,
         bankIfsc: profile.bankIfsc,
+        bankName: profile.bankName || '',
+        bankBranch: profile.bankBranch || '',
+        bankCity: profile.bankCity || '',
+        bankState: profile.bankState || '',
         upiId: profile.upiId,
       },
     });
@@ -1277,6 +1376,9 @@ const adminListAdjustments = async () => (
 
 module.exports = {
   getSettings,
+  validatePayoutFields,
+  formatIfscAddress,
+  lookupIfsc,
   getDashboard,
   activate,
   savePayoutProfile,

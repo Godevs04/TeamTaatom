@@ -24,6 +24,51 @@ describe('Creator monetization rules', () => {
     expect(kolkataMonth(new Date('2026-03-31T18:30:00.000Z')).key).toBe('2026-04');
   });
 
+  test('payout details reject an account number, IFSC, or PAN in the wrong shape', () => {
+    const { validatePayoutFields } = require('../services/creatorMonetizationService');
+    expect(validatePayoutFields({
+      legalName: 'Kavinkumar K',
+      method: 'bank',
+      bankAccountName: 'Kanihj',
+      bankAccountNumber: 'KASHIU',
+      bankIfsc: '987698076',
+      taxId: '83472389',
+    })).toMatch(/9 to 18 digits/);
+    expect(validatePayoutFields({
+      legalName: 'Kavinkumar K',
+      method: 'bank',
+      bankAccountName: 'Kanihj',
+      bankAccountNumber: '123456789012',
+      bankIfsc: '987698076',
+      taxId: 'ABCDE1234F',
+    })).toMatch(/IFSC/);
+    expect(validatePayoutFields({
+      legalName: 'Kavinkumar K',
+      method: 'bank',
+      bankAccountName: 'Kanihj',
+      bankAccountNumber: '123456789012',
+      bankIfsc: 'HDFC0000001',
+      taxId: '83472389',
+    })).toMatch(/PAN/);
+    expect(validatePayoutFields({
+      legalName: 'Kavinkumar K',
+      method: 'upi',
+      upiId: 'kavin@okaxis',
+      taxId: 'ABCDE1234F',
+    }    )).toBe('');
+  });
+
+  test('IFSC addresses split the street from the glued city and PIN', () => {
+    const { formatIfscAddress } = require('../services/creatorMonetizationService');
+    expect(formatIfscAddress(
+      'NO. 37/953, 24TH MAIN, J. P. NAGAR,II PHASE, BANGALOREKARNATAKABANGALOREKARNATAKA560078',
+      { centre: 'BANGALORE', district: 'BANGALORE', city: 'BANGALORE URBAN', state: 'KARNATAKA' }
+    )).toEqual({
+      street: 'NO. 37/953, 24TH MAIN, J. P. NAGAR, II PHASE',
+      pin: '560078',
+    });
+  });
+
   test('only active shorts and long videos are eligible', () => {
     expect(isVideoEligible({ type: 'photo', status: 'active' })).toBe(false);
     expect(isVideoEligible({ type: 'short', status: 'active', source: 'youtube' })).toBe(false);

@@ -34,6 +34,15 @@ const activate = async (req, res) => {
   }
 };
 
+const lookupIfsc = async (req, res) => {
+  try {
+    const bank = await service.lookupIfsc(req.params.code);
+    return send(res, { bank });
+  } catch (error) {
+    return fail(res, error, 'Could not look up this IFSC.');
+  }
+};
+
 const savePayoutProfile = async (req, res) => {
   try {
     const dashboard = await service.savePayoutProfile(userIdFrom(req), req.body || {});
@@ -73,6 +82,7 @@ const listWithdrawals = async (req, res) => {
 module.exports = {
   getDashboard,
   activate,
+  lookupIfsc,
   savePayoutProfile,
   submitVerification,
   requestWithdrawal,
