@@ -27,7 +27,7 @@ import { FlashList, FlashListRef } from '@shopify/flash-list';
 const AnyFlashList = FlashList as any;
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Video, ResizeMode, Audio, type AVPlaybackStatus } from '../../utils/expoAv';
+import { Video, ResizeMode, Audio, type AVPlaybackStatus, type AvPlaybackHandle, type AvSound } from '../../utils/expoAv';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -525,7 +525,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const consecutiveAdFailuresRef = useRef(0);
 
   const flatListRef = useRef<FlashListRef<ShortsItem>>(null);
-  const videoRefs = useRef<{ [key: string]: Video | null }>({});
+  const videoRefs = useRef<{ [key: string]: AvPlaybackHandle | null }>({});
   // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
   // shared by the pause-button hide timer AND the like-animation hide timer,
   // so a tap-then-like (or vice versa) on the same cell within 1.5s overwrote
@@ -538,7 +538,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const activeVideoIdRef = useRef<string | null>(null);
   const userPausedShortIdsRef = useRef<Set<string>>(new Set());
   // Track current audio player (Sound from SongPlayer) so we can pause when tab/focus/scroll/background
-  const currentPlayerRef = useRef<Audio.Sound | null>(null);
+  const currentPlayerRef = useRef<AvSound | null>(null);
   // Callbacks map to track position/duration of playing videos and update progress bars efficiently
   const progressCallbacks = useRef<Record<string, (position: number, duration: number) => void>>({});
   // Track each video's last known position to detect native loop restarts
@@ -634,7 +634,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
    * current video position so they start aligned instead of audio permanently
    * trailing the visual.
    */
-  const handleSongPlayingChange = useCallback((s: Audio.Sound | null) => {
+  const handleSongPlayingChange = useCallback((s: AvSound | null) => {
     currentPlayerRef.current = s;
     if (!s) return;
     const activeId = activeVideoIdRef.current;

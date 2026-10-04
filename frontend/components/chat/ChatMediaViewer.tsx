@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode, type AVPlaybackStatus } from '../../utils/expoAv';
+import { Video, ResizeMode, type AVPlaybackStatus, type AvVideo } from '../../utils/expoAv';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import ReAnimated, {
   useSharedValue,
@@ -91,7 +91,7 @@ export default function ChatMediaViewer({
 
   const { visible: isVisible, type, uri, onClose } = state;
 
-  const videoRef = useRef<Video>(null);
+  const videoRef = useRef<AvVideo>(null);
   const [imageLoading, setImageLoading] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
 

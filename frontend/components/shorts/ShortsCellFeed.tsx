@@ -17,7 +17,7 @@ import {
   FlatList,
   type LayoutChangeEvent,
 } from 'react-native';
-import { Video, Audio, type AVPlaybackStatus } from '../../utils/expoAv';
+import { Video, Audio, type AVPlaybackStatus, type AvVideo, type AvSound, type AvPlaybackHandle } from '../../utils/expoAv';
 import ShortsExpoPlayer from './ShortsExpoPlayer';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -96,10 +96,10 @@ const getVideoSource = (uri) => {
   return videoSourceCache.get(uri);
 };
 
-const ShortsVideoPlayerComponent = React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
-  const localRef = useRef<Video | null>(null);
+const ShortsVideoPlayerComponent = React.forwardRef<AvVideo, React.ComponentProps<typeof Video>>((props, ref) => {
+  const localRef = useRef<AvVideo | null>(null);
 
-  const combinedRef = useCallback((node: Video | null) => {
+  const combinedRef = useCallback((node: AvVideo | null) => {
     localRef.current = node;
     if (typeof ref === 'function') {
       ref(node);
@@ -163,8 +163,8 @@ interface ShortsCellProps {
   isSavedShorts?: boolean;
   effectiveUserId?: string | null;
   handlers: any;
-  videoRefs: React.MutableRefObject<Record<string, Video | null>>;
-  currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
+  videoRefs: React.MutableRefObject<Record<string, AvPlaybackHandle | null>>;
+  currentPlayerRef: React.MutableRefObject<AvSound | null>;
   progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
   lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
   activeStartedWithRemoteRef: React.MutableRefObject<Record<string, boolean>>;
@@ -234,7 +234,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const router = useRouter();
 
   // Local Refs
-  const videoRef = useRef<Video | null>(null);
+  const videoRef = useRef<AvPlaybackHandle | null>(null);
   const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const likeAnimTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTapRef = useRef<number>(0);
@@ -1035,11 +1035,11 @@ interface ShortsProgressBarProps {
   shortId: string;
   index: number;
   isActive: boolean;
-  getVideoRef: () => Video | null;
+  getVideoRef: () => AvPlaybackHandle | null;
   hasMusic: boolean;
   songStartSec?: number;
   songEndSec?: number;
-  currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
+  currentPlayerRef: React.MutableRefObject<AvSound | null>;
   progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
   lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
   isScopedView?: boolean;

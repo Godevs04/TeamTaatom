@@ -119,9 +119,26 @@ const UnavailableVideo = React.forwardRef(function UnavailableVideo(
 
 export const Audio = expoAv?.Audio ?? (UnavailableAudio as unknown as ExpoAvModule["Audio"]);
 export const Video = expoAv?.Video ?? (UnavailableVideo as unknown as ExpoAvModule["Video"]);
-export const ResizeMode = expoAv?.ResizeMode ?? {
+
+type ResizeModeEnum = ExpoAvModule["ResizeMode"];
+export const ResizeMode: ResizeModeEnum = expoAv?.ResizeMode ?? ({
   CONTAIN: "contain",
   COVER: "cover",
   STRETCH: "stretch",
+} as ResizeModeEnum);
+
+/** Instance types. The runtime exports are values, so refs cannot use them as types. */
+export type AvVideo = InstanceType<ExpoAvModule["Video"]>;
+export type AvSound = InstanceType<ExpoAvModule["Audio"]["Sound"]>;
+export type AvRecording = InstanceType<ExpoAvModule["Audio"]["Recording"]>;
+/** Methods shared by expo-av Video and the Shorts expo-video player handle. */
+export type AvPlaybackHandle = {
+  playAsync: () => Promise<{ isLoaded?: boolean }>;
+  pauseAsync: () => Promise<unknown>;
+  unloadAsync: () => Promise<unknown>;
+  getStatusAsync: () => Promise<{ isLoaded: boolean }>;
+  setPositionAsync: (positionMillis: number, tolerances?: unknown) => Promise<unknown>;
+  setIsMutedAsync: (muted: boolean) => Promise<unknown>;
+  setVolumeAsync: (volume: number, audioPan?: number) => Promise<unknown>;
 };
 export type AVPlaybackStatus = import("expo-av").AVPlaybackStatus;

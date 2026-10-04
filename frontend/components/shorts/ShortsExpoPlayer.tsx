@@ -1,6 +1,7 @@
 import React, { useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { StyleSheet } from "react-native";
 import { useVideoPlayer, VideoView, type VideoContentFit } from "expo-video";
+import type { AvPlaybackHandle } from "../../utils/expoAv";
 
 type PlaybackStatus = {
   isLoaded: boolean;
@@ -60,7 +61,7 @@ function statusOf(player: {
   };
 }
 
-const ShortsExpoPlayer = React.forwardRef(function ShortsExpoPlayer(props: Props, ref: React.ForwardedRef<unknown>) {
+const ShortsExpoPlayer = React.forwardRef<AvPlaybackHandle, Props>(function ShortsExpoPlayer(props, ref) {
   const uri = sourceUri(props.source);
   const callbacks = useRef(props);
   callbacks.current = props;

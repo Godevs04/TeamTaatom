@@ -10,7 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
-import { Audio } from '../utils/expoAv';
+import { Audio, type AvSound } from '../utils/expoAv';
 import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { Song } from '../services/songs';
@@ -58,7 +58,7 @@ export const SongBar: React.FC<SongBarProps> = ({
 }) => {
   const { theme } = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AvSound | null>(null);
   const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const isFocused = useIsFocused();

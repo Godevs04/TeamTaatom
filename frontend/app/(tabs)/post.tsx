@@ -59,7 +59,7 @@ import { shouldCompressVideo, compressVideo, cancelCompression } from "../../uti
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { Video, Audio, ResizeMode, type AVPlaybackStatus } from "../../utils/expoAv";
+import { Video, Audio, ResizeMode, type AVPlaybackStatus, type AvVideo, type AvSound } from "../../utils/expoAv";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -373,8 +373,8 @@ const resolveAndSnapLocation = async (
 export default function PostScreen() {
   const { showSuccess, showError, showConfirm } = useAlert();
   const isFocused = useIsFocused();
-  const videoRef = useRef<Video | null>(null);
-  const previewSoundRef = useRef<Audio.Sound | null>(null);
+  const videoRef = useRef<AvVideo | null>(null);
+  const previewSoundRef = useRef<AvSound | null>(null);
   const audioSyncStateRef = useRef<{
     isPlaying: boolean;
     positionMillis: number;
@@ -2119,7 +2119,7 @@ export default function PostScreen() {
           
           // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
-          let soundInstance: Audio.Sound | null = null;
+          let soundInstance: AvSound | null = null;
           try {
             const { sound } = await Audio.Sound.createAsync(
               { uri: asset.uri },
@@ -2492,7 +2492,7 @@ export default function PostScreen() {
           
           // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
-          let soundInstance: Audio.Sound | null = null;
+          let soundInstance: AvSound | null = null;
           try {
             const { sound } = await Audio.Sound.createAsync(
               { uri: asset.uri },
