@@ -25,6 +25,7 @@ const connectRoutes = require('../connectRoutes');
 const geoRoutes = require('../geoRoutes');
 const longVideoRoutes = require('../longVideoRoutes');
 const videoCreatorRoutes = require('../videoCreatorRoutes');
+const creatorMonetizationRoutes = require('../creatorMonetizationRoutes');
 
 const router = express.Router();
 
@@ -55,6 +56,7 @@ router.use('/connect', connectRoutes);
 router.use('/geo', geoRoutes);
 router.use('/long-videos', longVideoRoutes);
 router.use('/video-creator', videoCreatorRoutes);
+router.use('/creator-monetization', creatorMonetizationRoutes);
 router.get('/subscription/status', authMiddleware, subscriptionController.getGlobalSubscriptionStatus);
 router.use('/', userManagementRoutes.syncRoute); // For /sync route
 

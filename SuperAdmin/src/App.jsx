@@ -25,6 +25,7 @@ const Profile = lazyWithRetry(() => import('./pages/Profile'))
 const TestPage = import.meta.env.DEV ? lazyWithRetry(() => import('./pages/TestPage')) : null
 const Songs = lazyWithRetry(() => import('./pages/Songs'))
 const LongVideos = lazyWithRetry(() => import('./pages/LongVideos'))
+const CreatorMonetization = lazyWithRetry(() => import('./pages/CreatorMonetization'))
 const Locales = lazyWithRetry(() => import('./pages/Locales'))
 const TripScoreAnalytics = lazyWithRetry(() => import('./pages/TripScoreAnalytics'))
 const TravelVerification = lazyWithRetry(() => import('./pages/TravelVerification'))
@@ -106,6 +107,7 @@ function App() {
                         <Route path="/feature-flags" element={<FeatureFlags />} />
                         <Route path="/songs" element={<Songs />} />
                         <Route path="/watch" element={<LongVideos />} />
+                        <Route path="/creator-monetization" element={<CreatorMonetization />} />
                         <Route path="/locales" element={<Locales />} />
                         <Route path="/tripscore-analytics" element={<TripScoreAnalytics />} />
                         <Route path="/travel-verification" element={<TravelVerification />} />

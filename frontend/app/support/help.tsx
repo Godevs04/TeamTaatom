@@ -33,6 +33,16 @@ export default function HelpCenter() {
       ],
     },
     {
+      title: 'Creator Monetization',
+      icon: 'cash-outline' as const,
+      items: [
+        'Open Profile, then Creator Dashboard. You become eligible at 100 followers, 4 eligible videos this month, and 2,000 eligible views. Activation is a separate step.',
+        'Only logged-in views count: not your own, not a repeat, and not from an unverified account. Photos do not earn. YouTube imports earn only if TAATOM marks that video eligible.',
+        'This month’s earnings stay pending until the month is checked, then move to Available. The minimum withdrawal is ₹1000 after identity verification.',
+        'Two months in a row below the requirements lock new earnings. One later qualifying month unlocks the same account. Buying views, bots, fake accounts, or view exchanges can end monetization.',
+      ],
+    },
+    {
       title: 'Account & Settings',
       icon: 'settings-outline' as const,
       items: [

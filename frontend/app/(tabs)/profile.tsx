@@ -1873,6 +1873,11 @@ export default function ProfileScreen() {
                   onPress: () => router.push('/upload-long-video' as any),
                 },
                 {
+                  label: 'Creator Dashboard',
+                  icon: 'cash-outline',
+                  onPress: () => router.push('/creator-monetization' as any),
+                },
+                {
                   label: 'Settings',
                   icon: 'settings-outline',
                   onPress: () => router.push('/settings'),

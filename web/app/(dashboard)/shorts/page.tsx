@@ -55,6 +55,7 @@ import {
   ShortsSlideMedia,
   ShortsSoundtrack,
 } from "../../../components/shorts/shorts-slide-media";
+import { ContentViewPing } from "../../../components/content-view-ping";
 
 function getThumbnailUrl(short: Post): string {
   const raw =
@@ -161,6 +162,8 @@ export default function ShortsPage() {
     if (!item || isFeedAdSlot(item)) return null;
     return item;
   }, [activeIndex, shortsItems]);
+
+  const activeShortId = activeShort?._id || "";
 
   React.useEffect(() => {
     mediaTimeRef.current = 0;
@@ -416,6 +419,7 @@ export default function ShortsPage() {
 
   return (
     <div className="h-full bg-transparent">
+      {activeShortId ? <ContentViewPing postId={activeShortId} delayMs={1000} watchMs={1000} /> : null}
       {q.isPending ? (
         <div className="grid h-full place-items-center p-6">
           <div className="w-full max-w-[440px] space-y-4">

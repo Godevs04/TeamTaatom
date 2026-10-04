@@ -203,6 +203,14 @@ export const handleNotificationClick = async (notification: any): Promise<{
         };
       }
 
+      case 'creator_program':
+        return {
+          success: true,
+          message: notification.metadata?.message || 'Opening Creator Dashboard...',
+          shouldNavigate: true,
+          navigationPath: '/creator-monetization',
+        };
+
       case 'post_deleted':
       case 'short_deleted':
         return {

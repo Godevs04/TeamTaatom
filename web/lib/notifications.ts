@@ -58,11 +58,9 @@ export function getNotificationLink(n: Notification): { href: string; label: str
       if (fromId) return { href: `/profile/${fromId}`, label: "View profile" };
       return null;
     case "follow_request":
-      // No page on web has an accept/decline UI at this href — the requester's
-      // own profile has no way to act on a request *they* sent. The notifications
-      // list handles this type itself (an inline approve/decline modal) instead
-      // of navigating anywhere, so this deliberately has no link.
       return null;
+    case "creator_program":
+      return { href: "/creator-monetization", label: "Open Creator Dashboard" };
     default:
       return fromId ? { href: `/profile/${fromId}`, label: "View" } : null;
   }

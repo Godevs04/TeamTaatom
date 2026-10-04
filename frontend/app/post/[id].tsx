@@ -126,7 +126,7 @@ export default function PostDetail() {
     if (!post?._id) return;
 
     const timer = setTimeout(() => {
-      trackPostView(post._id, { type: post.type || 'photo', source: 'post_detail' });
+      trackPostView(post._id, { type: post.type || 'photo', source: 'post_detail', watch_ms: 2000 });
     }, 2000);
 
     return () => clearTimeout(timer);

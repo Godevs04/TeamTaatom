@@ -77,6 +77,21 @@ const trackEvents = async (req, res) => {
                 viewAggregator.addView(postId);
                 logger.info(`[VIEW TRACKING] Post/short ${postId} view event queued in aggregator for ${event.userId ? 'User ' + event.userId : 'Session ' + event.sessionId}.`);
               }
+
+              try {
+                const creatorMonetization = require('../services/creatorMonetizationService');
+                const watchMs = event.properties?.watch_ms
+                  ?? event.properties?.watchMs
+                  ?? event.properties?.duration_ms;
+                await creatorMonetization.recordMonetizationView({
+                  post,
+                  viewerId: event.userId || null,
+                  countMonthlyView: shouldIncrement,
+                  watchMs,
+                });
+              } catch (monetizationError) {
+                logger.error(`[VIEW TRACKING] Creator monetization view failed for post ${postId}:`, monetizationError);
+              }
             }
           } catch (err) {
             logger.error(`[VIEW TRACKING] Error incrementing views for post ${postId}:`, err);

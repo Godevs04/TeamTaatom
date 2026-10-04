@@ -197,6 +197,18 @@ const postSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  monetizationExcluded: {
+    type: Boolean,
+    default: false
+  },
+  monetizationForceEligible: {
+    type: Boolean,
+    default: false
+  },
+  monetizationEligibilityReason: {
+    type: String,
+    default: ''
+  },
   sharesCount: {
     type: Number,
     default: 0

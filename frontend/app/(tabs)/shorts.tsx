@@ -2373,7 +2373,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           viewTimerRef.current = null;
           return;
         }
-        const result = await logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed' });
+        const result = await logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed', watch_ms: 1000 });
         if (result.incremented) {
           const existing = shortsRef.current.find(short => short._id === currentShort._id);
           const emittedViewsCount = existing

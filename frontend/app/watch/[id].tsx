@@ -260,7 +260,7 @@ export default function WatchDetailScreen() {
   useEffect(() => {
     if (!post?._id) return;
     const timer = setTimeout(() => {
-      trackPostView(post._id, { type: 'long_video', source: 'watch_detail' });
+      trackPostView(post._id, { type: 'long_video', source: 'watch_detail', watch_ms: 2000 });
     }, 2000);
     return () => clearTimeout(timer);
   }, [post?._id]);

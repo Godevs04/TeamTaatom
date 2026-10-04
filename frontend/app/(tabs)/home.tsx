@@ -1675,7 +1675,7 @@ export default function HomeScreen() {
               viewTimerRef.current = null;
               return;
             }
-            const result = await logContentView(postId, 'post', { type: 'photo', source: 'home_feed' });
+            const result = await logContentView(postId, 'post', { type: 'photo', source: 'home_feed', watch_ms: 1000 });
             if (result.incremented) {
               const existing = postsRef.current.find(post => post._id === postId);
               const emittedViewsCount = existing
