@@ -124,11 +124,35 @@ const syncPending = async (userId) => {
 };
 
 const recomputeLedgerEarnings = async (ledger, rate) => {
-  const formula = earningsFor(ledger.earningViews, rate);
-  ledger.ratePerThousand = rate;
-  ledger.earnings = round2(Math.max(0, formula + (ledger.manualAdjustment || 0)));
-  await ledger.save();
-  return ledger;
+  let current = ledger;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const earningViews = current.earningViews || 0;
+    const manualAdjustment = current.manualAdjustment || 0;
+    const earnings = round2(Math.max(0, earningsFor(earningViews, rate) + manualAdjustment));
+    const saved = await CreatorMonthLedger.findOneAndUpdate(
+      { _id: current._id, earningViews, manualAdjustment },
+      { $set: { earnings, ratePerThousand: rate } },
+      { new: true }
+    );
+    if (saved) {
+      ledger.earnings = saved.earnings;
+      ledger.ratePerThousand = saved.ratePerThousand;
+      ledger.earningViews = saved.earningViews;
+      ledger.manualAdjustment = saved.manualAdjustment;
+      return saved;
+    }
+    current = await CreatorMonthLedger.findById(current._id);
+    if (!current) return ledger;
+  }
+  return current;
+};
+
+const requireObjectId = (value, message) => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    const error = new Error(message);
+    error.statusCode = 400;
+    throw error;
+  }
 };
 
 const notifyUser = async (userId, message) => {
@@ -378,10 +402,12 @@ const savePayoutProfile = async (userId, body) => {
     upiId: String(body.upiId || '').trim(),
     taxId: String(body.taxId || '').trim().toUpperCase(),
   };
-  if (!body.bankAccountNumber && account.payoutProfile?.bankAccountNumber) {
+  const submittedAccount = String(body.bankAccountNumber || '');
+  const submittedTax = String(body.taxId || '');
+  if ((!submittedAccount.trim() || /[•*]/.test(submittedAccount)) && account.payoutProfile?.bankAccountNumber) {
     profile.bankAccountNumber = account.payoutProfile.bankAccountNumber;
   }
-  if (!body.taxId && account.payoutProfile?.taxId) {
+  if ((!submittedTax.trim() || /[•*]/.test(submittedTax)) && account.payoutProfile?.taxId) {
     profile.taxId = account.payoutProfile.taxId;
   }
   if (method === 'bank') {
@@ -453,7 +479,7 @@ const requestWithdrawal = async (userId, body) => {
     throw error;
   }
   const amount = round2(body.amount);
-  if (!(amount > 0)) {
+  if (!Number.isFinite(amount) || !(amount > 0)) {
     const error = new Error('Enter a withdrawal amount.');
     error.statusCode = 400;
     throw error;
@@ -691,12 +717,28 @@ const settleAccountMonth = async (account, monthKey, settings) => {
   );
   if (!claimed) return CreatorMonetization.findById(account._id);
 
-  account.availableBalance = round2(account.availableBalance + payout);
   if (account.status === 'active' || account.status === 'locked') {
     applyMonthOutcome(account, passed, settings);
   }
   try {
-    await account.save();
+    const updated = await CreatorMonetization.findOneAndUpdate(
+      { _id: account._id },
+      {
+        $inc: { availableBalance: payout },
+        $set: {
+          status: account.status,
+          consecutiveFailMonths: account.consecutiveFailMonths,
+          qualifyingMonths: account.qualifyingMonths,
+          lockReason: account.lockReason || '',
+        },
+      },
+      { new: true }
+    );
+    if (!updated) {
+      const error = new Error('Creator account could not be settled.');
+      error.statusCode = 500;
+      throw error;
+    }
   } catch (error) {
     await CreatorMonthLedger.updateOne({ _id: ledger._id }, { $set: { settlement: 'pending', settledAt: null } });
     throw error;
@@ -785,7 +827,8 @@ const updateSettings = async (patch, actorId) => {
 
 const adminListCreators = async ({ status, q, page = 1, limit = 20 }) => {
   const filter = {};
-  if (status) filter.status = status;
+  const allowedStatus = ['not_eligible', 'eligible', 'active', 'locked', 'under_review', 'terminated'];
+  if (status && allowedStatus.includes(status)) filter.status = status;
   if (q) {
     const { escapeRegex } = require('../utils/regexEscape');
     const users = await User.find({
@@ -814,12 +857,16 @@ const adminListCreators = async ({ status, q, page = 1, limit = 20 }) => {
         monthlyViews: gates.monthlyViews,
         allMet: gates.allMet,
       },
+      payoutProfile: row.payoutProfile
+        ? { legalName: row.payoutProfile.legalName || '', method: row.payoutProfile.method || '' }
+        : undefined,
     };
   }));
   return { creators, total, page: Number(page), limit: Number(limit) };
 };
 
 const adminGetCreator = async (userId) => {
+  requireObjectId(userId, 'Creator not found.');
   const settings = await getSettings();
   const account = await CreatorMonetization.findOne({ user: userId }).populate('user', 'username fullName isVerified email');
   if (!account) {
@@ -868,6 +915,7 @@ const adminSetStatus = async ({ userId, status, reason, reverseAvailable, actorI
     error.statusCode = 400;
     throw error;
   }
+  requireObjectId(userId, 'Creator not found.');
   const account = await ensureAccount(userId);
   account.status = status;
   if (status === 'locked') {
@@ -915,6 +963,7 @@ const adminSetHold = async ({ userId, hold, reason, actorId }) => {
     error.statusCode = 400;
     throw error;
   }
+  requireObjectId(userId, 'Creator not found.');
   const account = await ensureAccount(userId);
   account.withdrawalHold = !!hold;
   account.withdrawalHoldReason = hold ? note : '';
@@ -979,6 +1028,7 @@ const adminSetVideoEligibility = async ({ postId, eligible, reason, voidExisting
     error.statusCode = 400;
     throw error;
   }
+  requireObjectId(postId, 'Short or long video not found.');
   const post = await Post.findById(postId);
   if (!post || (post.type !== 'short' && post.type !== 'long_video')) {
     const error = new Error('Short or long video not found.');
@@ -1033,6 +1083,12 @@ const adminAdjust = async ({ userId, monthKey, eligibleViewsDelta = 0, amountDel
   const note = String(reason || '').trim();
   if (!note) {
     const error = new Error('A reason is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+  requireObjectId(userId, 'Creator not found.');
+  if (monthKey && !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(monthKey))) {
+    const error = new Error('Month must be YYYY-MM.');
     error.statusCode = 400;
     throw error;
   }
@@ -1107,6 +1163,7 @@ const adminReviewVerification = async ({ userId, status, note }) => {
     error.statusCode = 400;
     throw error;
   }
+  requireObjectId(userId, 'Creator not found.');
   const account = await ensureAccount(userId);
   account.verificationStatus = status;
   account.verificationNote = String(note || '').trim();
@@ -1121,11 +1178,13 @@ const adminReviewVerification = async ({ userId, status, note }) => {
 
 const adminListWithdrawals = async ({ status }) => {
   const filter = {};
-  if (status) filter.status = status;
+  const allowed = ['requested', 'on_hold', 'processing', 'paid', 'rejected'];
+  if (status && allowed.includes(status)) filter.status = status;
   return CreatorWithdrawal.find(filter).sort({ createdAt: -1 }).limit(100).populate('user', 'username fullName').lean();
 };
 
 const adminWithdrawalAction = async ({ withdrawalId, action, reason, payoutReference, actorId }) => {
+  requireObjectId(withdrawalId, 'Withdrawal not found.');
   const withdrawal = await CreatorWithdrawal.findById(withdrawalId);
   if (!withdrawal) {
     const error = new Error('Withdrawal not found.');

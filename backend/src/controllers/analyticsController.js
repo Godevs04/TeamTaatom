@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
 const trackEvents = async (req, res) => {
   try {
     const { events } = req.body;
-    // User is optional - analytics can work without auth
+    // Only the authenticated session may be credited. A user id in the body can be forged.
     const userId = req.user?.id || req.user?._id || null;
 
     if (!Array.isArray(events) || events.length === 0) {
@@ -21,7 +21,7 @@ const trackEvents = async (req, res) => {
     // Validate and save events
     const eventsToSave = events.map(event => ({
       event: event.event,
-      userId: event.userId || userId,
+      userId,
       properties: event.properties || {},
       platform: event.platform,
       sessionId: event.sessionId,
