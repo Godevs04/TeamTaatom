@@ -290,7 +290,7 @@ function AllLocationsMapInner() {
                 <Polyline
                   coordinates={segment}
                   strokeColor={glowColor}
-                  strokeWidth={strokeWidth + 8}
+                  strokeWidth={strokeWidth + 1.25}
                   lineCap="round"
                   lineJoin="round"
                   geodesic={true}
