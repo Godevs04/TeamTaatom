@@ -260,7 +260,7 @@ export default function WatchDetailScreen() {
   useEffect(() => {
     if (!post?._id) return;
     const timer = setTimeout(() => {
-      trackPostView(post._id, { type: 'long_video', source: 'watch_detail' });
+      trackPostView(post._id, { type: 'long_video', source: 'watch_detail', watch_ms: 2000 });
     }, 2000);
     return () => clearTimeout(timer);
   }, [post?._id]);
@@ -696,7 +696,7 @@ export default function WatchDetailScreen() {
           <BlurView
             intensity={dark ? 40 : 70}
             tint={dark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <View style={[styles.header, { backgroundColor: colors.glass }]}>
             <Pressable
@@ -822,7 +822,7 @@ export default function WatchDetailScreen() {
                     setChromeVisible(true);
                   }}
                 />
-                <Pressable style={StyleSheet.absoluteFillObject} onPress={onPlayerPress} />
+                <Pressable style={StyleSheet.absoluteFill} onPress={onPlayerPress} />
               </View>
             ) : !videoUri ? (
               <View style={styles.missing}>
@@ -1154,7 +1154,7 @@ export default function WatchDetailScreen() {
                     setChromeVisible(true);
                   }}
                 />
-                <Pressable style={StyleSheet.absoluteFillObject} onPress={onPlayerPress} />
+                <Pressable style={StyleSheet.absoluteFill} onPress={onPlayerPress} />
               </View>
             ) : null}
 
@@ -1246,7 +1246,7 @@ const styles = StyleSheet.create({
   },
   missingText: { color: 'rgba(255,255,255,0.65)', fontSize: 14, fontWeight: '600' },
   adOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1344,7 +1344,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fsFill: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   fsRotateBox: {
     backgroundColor: '#000',
@@ -1352,7 +1352,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   fsVideoHit: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   fsVideo: {
     width: '100%',

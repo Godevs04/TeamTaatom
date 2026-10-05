@@ -128,7 +128,7 @@ export default function ProfilePremiumView({
               colors={['#1C73B4', '#50C878']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 37, padding: 2, alignItems: 'center', justifyContent: 'center' }]}
+              style={[StyleSheet.absoluteFill, { borderRadius: 37, padding: 2, alignItems: 'center', justifyContent: 'center' }]}
             >
               <View style={[
                 styles.avatarContainer,
@@ -235,7 +235,7 @@ export default function ProfilePremiumView({
         >
           <LinearGradient
             colors={['#1C73B4', '#50C878']}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
           />
@@ -449,6 +449,6 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   highlightGrad: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
 });

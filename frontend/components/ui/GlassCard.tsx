@@ -220,14 +220,14 @@ export const GlassCard = ({
             colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.01)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
         ) : (
           <LinearGradient
             colors={['rgba(255, 255, 255, 0.20)', 'rgba(255, 255, 255, 0.02)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
         )}
         <View style={styles.content}>

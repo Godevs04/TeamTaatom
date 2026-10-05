@@ -21,6 +21,10 @@ const faqs = [
     q: "Taatom music on shorts",
     a: "When uploading a short, choose Use Taatom music to pick a licensed track from our library and optional trim points.",
   },
+  {
+    q: "How does Creator Monetization work?",
+    a: "Open your profile and choose Creator Dashboard. You need 100 followers, 4 eligible videos in the calendar month, and 2,000 eligible views, then you activate it yourself. Earnings use eligible views only and stay pending until the Asia/Kolkata month is validated. The minimum withdrawal is ₹1000 after identity verification. Two months below the requirements lock new earnings. One later qualifying month unlocks the same account. Photos do not earn, and YouTube imports earn only if TAATOM marks that video eligible. Buying views, bots, or view exchanges can end the program. This is separate from Connect subscriptions.",
+  },
 ];
 
 export default function HelpCenterPage() {

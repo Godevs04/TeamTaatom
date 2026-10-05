@@ -23,6 +23,7 @@ import {
   Compass,
   Layers,
   ShoppingBag,
+  Wallet,
 } from 'lucide-react'
 
 const navItems = [
@@ -35,6 +36,7 @@ const navItems = [
   { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
   { name: 'Songs', href: '/songs', icon: Music, permission: 'canManageContent' },
   { name: 'Video Creators', href: '/watch', icon: Users, permission: 'canManageContent' },
+  { name: 'Creator Monetization', href: '/creator-monetization', icon: Wallet, permission: 'canManageContent' },
   { name: 'Locales', href: '/locales', icon: MapPin, permission: 'canManageContent' },
   { name: 'Subscriptions', href: '/connect-subscriptions', icon: Star, permission: 'canManageContent' },
   { name: 'Connect', href: '/connect-dashboard', icon: Layers, permission: 'canManageContent' },

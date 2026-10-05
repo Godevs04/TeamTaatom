@@ -119,7 +119,7 @@ export const LocationDisclosureModal = ({
       statusBarTranslucent
     >
       <View style={styles.overlay}>
-        <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFill} />
         
         <Animated.View
           entering={SlideInDown.duration(400).springify().damping(15)}
@@ -134,7 +134,7 @@ export const LocationDisclosureModal = ({
             },
           ]}
         >
-          <BlurView intensity={35} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+          <BlurView intensity={35} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           
           <View style={styles.cardContent}>
             {renderContent()}

@@ -27,7 +27,7 @@ import { FlashList, FlashListRef } from '@shopify/flash-list';
 const AnyFlashList = FlashList as any;
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
+import { Video, ResizeMode, Audio, type AVPlaybackStatus, type AvPlaybackHandle, type AvSound } from '../../utils/expoAv';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -60,6 +60,7 @@ import Constants from 'expo-constants';
 import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
+import { useTabBarGeometry } from '../../utils/tabBarGeometry';
 import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
@@ -260,6 +261,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const isScreenFocusedRef = useRef(true);
   const [appState, setAppState] = useState(AppState.currentState);
   const [containerHeight, setContainerHeight] = useState(isGeneralFeed ? SCREEN_HEIGHT - TAB_BAR_HEIGHT : SCREEN_HEIGHT);
+  const containerViewRef = useRef<View>(null);
+  const [containerWindowFrame, setContainerWindowFrame] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const tabBarGeometry = useTabBarGeometry();
+  const isScopedShortsView = !!(effectiveUserId || props.isSavedShorts);
+  // Vertical overlap between the floating (absolute) tab bar and this screen, both measured in window space.
+  const bottomClearance = useMemo(() => {
+    if (isScopedShortsView || !containerWindowFrame || !tabBarGeometry) return 0;
+    const containerBottom = containerWindowFrame.y + containerWindowFrame.height;
+    return Math.max(0, Math.round(containerBottom - tabBarGeometry.y));
+  }, [isScopedShortsView, containerWindowFrame, tabBarGeometry]);
+
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
   const [isFeedMuted, setIsFeedMuted] = useState(() => {
@@ -513,7 +525,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const consecutiveAdFailuresRef = useRef(0);
 
   const flatListRef = useRef<FlashListRef<ShortsItem>>(null);
-  const videoRefs = useRef<{ [key: string]: Video | null }>({});
+  const videoRefs = useRef<{ [key: string]: AvPlaybackHandle | null }>({});
   // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
   // shared by the pause-button hide timer AND the like-animation hide timer,
   // so a tap-then-like (or vice versa) on the same cell within 1.5s overwrote
@@ -526,7 +538,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const activeVideoIdRef = useRef<string | null>(null);
   const userPausedShortIdsRef = useRef<Set<string>>(new Set());
   // Track current audio player (Sound from SongPlayer) so we can pause when tab/focus/scroll/background
-  const currentPlayerRef = useRef<Audio.Sound | null>(null);
+  const currentPlayerRef = useRef<AvSound | null>(null);
   // Callbacks map to track position/duration of playing videos and update progress bars efficiently
   const progressCallbacks = useRef<Record<string, (position: number, duration: number) => void>>({});
   // Track each video's last known position to detect native loop restarts
@@ -622,7 +634,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
    * current video position so they start aligned instead of audio permanently
    * trailing the visual.
    */
-  const handleSongPlayingChange = useCallback((s: Audio.Sound | null) => {
+  const handleSongPlayingChange = useCallback((s: AvSound | null) => {
     currentPlayerRef.current = s;
     if (!s) return;
     const activeId = activeVideoIdRef.current;
@@ -1012,18 +1024,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const getVideoUrl = useCallback((item: PostType) => {
     const videoId = item._id;
 
-    // Return local URI if available and we didn't start playing with a remote URL
-    if (localVideoUris[videoId] && !activeStartedWithRemoteRef.current[videoId]) {
-      return localVideoUris[videoId];
-    }
-
+    // Play the server URL. A cached file was replacing the HLS stream and the player never drew a frame.
     // Prioritize videoUrl for shorts, fallback to mediaUrl or imageUrl
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
     
     // DETAILED LOGGING: Track URL resolution for first 2 shorts
     const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) !== -1 && shorts.indexOf(item) < 2;
     if (isFirstTwoShorts) {
-      logger.info(`[FIRST_2_SHORTS] getVideoUrl called for short at index ${shorts.indexOf(item)}:`, {
+      logger.debug(`[FIRST_2_SHORTS] getVideoUrl called for short at index ${shorts.indexOf(item)}:`, {
         videoId,
         hasVideoUrl: !!item.videoUrl,
         hasMediaUrl: !!item.mediaUrl,
@@ -1066,7 +1074,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           // Check if cache is close to expiry (within 2 minutes)
           if (cacheAge < (CACHE_MAX_AGE - 2 * 60 * 1000)) {
             if (isFirstTwoShorts) {
-              logger.info(`[FIRST_2_SHORTS] Cache HIT for short at index ${shorts.indexOf(item)}, age: ${Math.round(cacheAge / 1000)}s`);
+              logger.debug(`[FIRST_2_SHORTS] Cache HIT for short at index ${shorts.indexOf(item)}, age: ${Math.round(cacheAge / 1000)}s`);
             }
             return cached.url;
           } else {
@@ -1074,7 +1082,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             // This will force a refresh on next call
             logger.debug(`Video ${videoId} cache is close to expiry (${Math.round(cacheAge / 1000 / 60)} minutes old)`);
             if (isFirstTwoShorts) {
-              logger.info(`[FIRST_2_SHORTS] Cache NEAR_EXPIRY for short at index ${shorts.indexOf(item)}`);
+              logger.debug(`[FIRST_2_SHORTS] Cache NEAR_EXPIRY for short at index ${shorts.indexOf(item)}`);
             }
             return cached.url;
           }
@@ -1095,7 +1103,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     } else {
       if (isFirstTwoShorts) {
-        logger.info(`[FIRST_2_SHORTS] Cache MISS for short at index ${shorts.indexOf(item)}`);
+        logger.debug(`[FIRST_2_SHORTS] Cache MISS for short at index ${shorts.indexOf(item)}`);
       }
     }
     
@@ -1116,7 +1124,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     });
     
     if (isFirstTwoShorts) {
-      logger.info(`[FIRST_2_SHORTS] Generated URL for short at index ${shorts.indexOf(item)}: ${url.substring(0, 100)}...`);
+      logger.debug(`[FIRST_2_SHORTS] Generated URL for short at index ${shorts.indexOf(item)}: ${url.substring(0, 100)}...`);
     }
     logger.debug(`Video URL for ${videoId} (fresh):`, url.substring(0, 100) + '...');
     return url;
@@ -2365,7 +2373,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           viewTimerRef.current = null;
           return;
         }
-        const result = await logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed' });
+        const result = await logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed', watch_ms: 1000 });
         if (result.incremented) {
           const existing = shortsRef.current.find(short => short._id === currentShort._id);
           const emittedViewsCount = existing
@@ -2498,6 +2506,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
         currentUser={currentUser}
         containerHeight={containerHeight}
+        bottomClearance={bottomClearance}
         isFollowing={isFollowing}
         isSaved={isSaved}
         isLiked={isLiked}
@@ -2526,6 +2535,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     isFeedMuted,
     currentUser,
     containerHeight,
+    bottomClearance,
     followStates,
     savedShorts,
     localVideoUris,
@@ -2626,12 +2636,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   return (
     <ErrorBoundary level="route">
     <View 
+      ref={containerViewRef}
       style={styles.container}
       onLayout={(e) => {
         const { height } = e.nativeEvent.layout;
-        if (height > 0 && height !== containerHeight) {
+        if (height <= 0) return;
+        if (Math.abs(height - containerHeight) > 1) {
           setContainerHeight(height);
         }
+        containerViewRef.current?.measureInWindow((x, y, w, h) => {
+          if (h <= 0) return;
+          setContainerWindowFrame((prev) =>
+            prev && Math.abs(prev.y - y) < 0.5 && Math.abs(prev.height - h) < 0.5 && Math.abs(prev.width - w) < 0.5
+              ? prev
+              : { x, y, width: w, height: h }
+          );
+        });
       }}
     >
       <Animated.View
@@ -2922,7 +2942,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   likeAnimationContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 15,
     justifyContent: 'center',
     alignItems: 'center',

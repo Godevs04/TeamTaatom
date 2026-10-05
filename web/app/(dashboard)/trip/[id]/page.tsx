@@ -14,6 +14,7 @@ import { PostDetailActionBar } from "../../../../components/trip/post-detail-act
 import { PostDetailMedia } from "../../../../components/trip/post-detail-media";
 import { createMetadata } from "../../../../lib/seo";
 import { MapPin, Music } from "lucide-react";
+import { ContentViewPing } from "../../../../components/content-view-ping";
 
 async function fetchPost(id: string): Promise<Post | null> {
   const res = await fetchWithAuth(`${API_V1_ABS}/posts/${id}`);
@@ -92,6 +93,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6 pb-16">
+      {isShort ? <ContentViewPing postId={post._id} delayMs={1000} watchMs={1000} /> : null}
       {/* Top Header Card */}
       <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90 sm:p-6">
         <div className="flex items-center justify-between gap-4">

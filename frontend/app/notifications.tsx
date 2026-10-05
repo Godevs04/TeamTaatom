@@ -483,6 +483,8 @@ export default function NotificationsScreen() {
         return 'map-outline';
       case 'subscription_active':
         return 'cash';
+      case 'creator_program':
+        return 'cash-outline';
       default:
         return 'notifications';
     }
@@ -522,6 +524,8 @@ export default function NotificationsScreen() {
           ? `${userName} ${verb} your page "${pageName}"`
           : `${userName} ${verb} your page`;
       }
+      case 'creator_program':
+        return metadata?.message || 'Creator Monetization was updated. Open Creator Dashboard for the current rules.';
       default:
         return 'You have a new notification';
     }
@@ -658,7 +662,7 @@ export default function NotificationsScreen() {
                     <View
                       pointerEvents="none"
                       style={[
-                        StyleSheet.absoluteFillObject,
+                        StyleSheet.absoluteFill,
                         { backgroundColor: FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType]! },
                       ]}
                     />

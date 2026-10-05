@@ -17,6 +17,7 @@ import type { User } from "../../types/user";
 import {
   UserPen,
   Settings,
+  Wallet,
   UserPlus,
   UserMinus,
   Loader2,
@@ -169,6 +170,12 @@ export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
           <Link href="/settings/account#profile">
             <UserPen className="h-4 w-4" />
             Edit profile
+          </Link>
+        </Button>
+        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
+          <Link href="/creator-monetization">
+            <Wallet className="h-4 w-4" />
+            Creator Dashboard
           </Link>
         </Button>
         <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">

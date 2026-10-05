@@ -492,8 +492,8 @@ window.updateMapData = function(path, currentLat, currentLng) {
     if(currentSegment.length > 0) segments.push(currentSegment);
     segments.forEach(function(seg){
       if(seg.length > 1){
-        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
-        var core = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${routeColor}',strokeOpacity:1.0,strokeWeight:5,map:map});
+        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${routeColor}',strokeOpacity:0.18,strokeWeight:3.5,map:map});
+        var core = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${routeColor}',strokeOpacity:0.9,strokeWeight:2,map:map});
         polylines.push(glow);
         polylines.push(core);
       }
@@ -638,7 +638,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         
         {/* Main Status Row */}
@@ -858,7 +858,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mapContainer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1,
   },
   map: {
@@ -1072,7 +1072,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',

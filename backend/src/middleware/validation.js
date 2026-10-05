@@ -84,6 +84,12 @@ const authValidations = {
     body('otp').isLength({ min: 6, max: 6 }).isNumeric().withMessage('OTP must be 6 digits'),
     handleValidationErrors,
   ],
+  // Resend only needs the address. Do not reuse verifyOtp: clients send { email }
+  // and that validator rejects the request before the handler runs.
+  resendOtp: [
+    commonValidations.email(),
+    handleValidationErrors,
+  ],
 };
 
 // Post validations

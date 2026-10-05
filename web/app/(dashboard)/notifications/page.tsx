@@ -139,8 +139,14 @@ function NotificationRow({ n, onOpenRequest }: { n: Notification; onOpenRequest:
 
       <div className="min-w-0 flex-1">
         <p className="text-[14px] leading-5 text-slate-600 dark:text-zinc-300">
-          <span className="font-semibold text-slate-900 dark:text-zinc-50">{name}</span>{" "}
-          {actionCopy(n.type)}
+          {n.type === "creator_program" ? (
+            n.metadata?.message || "Creator Monetization was updated. Open Creator Dashboard for the current rules."
+          ) : (
+            <>
+              <span className="font-semibold text-slate-900 dark:text-zinc-50">{name}</span>{" "}
+              {actionCopy(n.type)}
+            </>
+          )}
         </p>
         <p className="mt-0.5 text-[12px] text-slate-400 dark:text-zinc-500">
           <NotificationTime iso={n.createdAt} />

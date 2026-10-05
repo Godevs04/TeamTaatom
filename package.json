@@ -6,5 +6,8 @@
   },
   "devDependencies": {
     "husky": "^9.1.7"
+  },
+  "dependencies": {
+    "expo-modules-core": "~57.0.20"
   }
 }

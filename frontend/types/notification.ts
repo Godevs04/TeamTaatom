@@ -13,7 +13,8 @@ export interface Notification {
     | 'route_access_request'
     | 'route_access_approved'
     | 'route_access_accepted'
-    | 'route_access_rejected';
+    | 'route_access_rejected'
+    | 'creator_program';
   fromUser: {
     _id: string;
     fullName: string;

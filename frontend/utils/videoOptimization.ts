@@ -1,5 +1,12 @@
+import { NativeModules } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import logger from './logger';
+import { Audio } from './expoAv';
+
+/** Expo Go does not ship FFmpegKit. Importing the package constructs a NativeEventEmitter and crashes. */
+function isFfmpegNativeAvailable(): boolean {
+  return NativeModules.FFmpegKitReactNativeModule != null;
+}
 
 /**
  * Get the cache directory path
@@ -49,7 +56,9 @@ export const compressVideo = async (
   progressCallback?: (progress: number) => void
 ): Promise<string> => {
   try {
-    // Dynamically import FFmpegKit to prevent build/init issues on unsupported environments
+    if (!isFfmpegNativeAvailable()) {
+      throw new Error('FFmpegKit native module is not available on this platform/build');
+    }
     const ffmpegModule = await import('@wokcito/ffmpeg-kit-react-native');
     if (!ffmpegModule || !ffmpegModule.FFmpegKit || !ffmpegModule.FFmpegKitConfig) {
       throw new Error('FFmpegKit native module is not available on this platform/build');
@@ -80,7 +89,7 @@ export const compressVideo = async (
     // Get total duration of the video to calculate progress percentage
     let totalDurationMs = 0;
     try {
-      const { sound } = await require('expo-av').Audio.Sound.createAsync(
+      const { sound } = await Audio.Sound.createAsync(
         { uri: videoUri },
         { shouldPlay: false }
       );
@@ -164,6 +173,7 @@ export const compressVideo = async (
  */
 export const cancelCompression = async (): Promise<void> => {
   try {
+    if (!isFfmpegNativeAvailable()) return;
     const ffmpegModule = await import('@wokcito/ffmpeg-kit-react-native');
     if (ffmpegModule && ffmpegModule.FFmpegKit && typeof ffmpegModule.FFmpegKit.cancel === 'function') {
       await ffmpegModule.FFmpegKit.cancel();

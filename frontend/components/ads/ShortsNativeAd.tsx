@@ -326,10 +326,10 @@ const styles = StyleSheet.create({
     marginTop: -20,
   },
   media: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   sponsoredWrap: {
     position: 'absolute',

@@ -39,9 +39,9 @@ export default function CloudChatConversationHeader({
     <View style={[styles.wrap, { borderBottomColor: theme.colors.border }]}>
       <LinearGradient
         colors={[theme.colors.surface, theme.colors.background]}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
-      <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+      <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
       <View style={[styles.border, { backgroundColor: theme.colors.border }]} />
       <View style={styles.row}>
         <TouchableOpacity onPress={onBack} style={[styles.back, { overflow: 'hidden', borderRadius: 16 }]} hitSlop={10}>
@@ -49,7 +49,7 @@ export default function CloudChatConversationHeader({
             colors={['#1C73B4', '#50C878']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
         </TouchableOpacity>

@@ -51,7 +51,7 @@ export default function CloudGlassSurface({
         <BlurView
           intensity={glass.blurIntensity}
           tint={glass.isDark ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFillObject, { borderRadius }]}
+          style={[StyleSheet.absoluteFill, { borderRadius }]}
         />
       ) : null}
       <View style={[styles.content, contentStyle]}>{children}</View>

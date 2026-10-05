@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Bookmark,
   Cloud,
+  Wallet,
 } from "lucide-react";
 
 export type SettingsNavItem = {
@@ -71,6 +72,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
       { id: "saved", title: "Saved Content", href: "/saved", icon: Bookmark },
       { id: "activity", title: "Activity Feed", href: "/activity", icon: Activity },
       { id: "data", title: "Data & Storage", href: "/settings/data", icon: Cloud },
+      { id: "creator-monetization", title: "Creator Dashboard", href: "/creator-monetization", icon: Wallet, description: "View earnings and withdrawals" },
     ],
   },
   {

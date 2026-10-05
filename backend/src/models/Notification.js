@@ -24,6 +24,7 @@ const notificationSchema = new mongoose.Schema({
       'route_access_approved',
       'route_access_accepted',
       'route_access_rejected',
+      'creator_program',
     ],
     required: true
   },

@@ -5786,4 +5786,7 @@ router.get('/long-videos/:id', checkPermission('canManageContent'), getLongVideo
 router.patch('/long-videos/:id', checkPermission('canManageContent'), updateLongVideo)
 router.delete('/long-videos/:id', checkPermission('canManageContent'), deleteLongVideo)
 
+const creatorMonetizationAdminRoutes = require('./creatorMonetizationAdminRoutes')
+router.use('/creator-monetization', creatorMonetizationAdminRoutes)
+
 module.exports = router

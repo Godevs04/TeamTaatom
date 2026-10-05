@@ -12,8 +12,8 @@ import {
   getTrackingPermissionsAsync,
   requestTrackingPermissionsAsync,
   isAvailable as isTrackingTransparencyAvailable,
+  PermissionStatus,
 } from 'expo-tracking-transparency';
-import { PermissionStatus } from 'expo-modules-core';
 import { isAdsEnabled } from '../constants/admob';
 import logger from '../utils/logger';
 

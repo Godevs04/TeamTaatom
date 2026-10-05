@@ -6,7 +6,8 @@ export type NotificationType =
   | "follow"
   | "follow_request"
   | "follow_approved"
-  | "post_mention";
+  | "post_mention"
+  | "creator_program";
 
 export type Notification = {
   _id: string;
@@ -16,6 +17,7 @@ export type Notification = {
   post?: { _id: string; imageUrl?: string; thumbnailUrl?: string };
   comment?: { _id: string; text?: string };
   isRead?: boolean;
+  metadata?: { message?: string };
   createdAt?: string;
   updatedAt?: string;
 };

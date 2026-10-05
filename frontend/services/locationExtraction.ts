@@ -3,7 +3,7 @@
  * Handles extraction of location data from photos/videos using multiple strategies
  */
 
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { getAddressFromCoords } from '../utils/locationUtils';
 import { createLogger } from '../utils/logger';
 

@@ -1,3 +1,4 @@
+import { NativeModules } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { createLogger } from '../../utils/logger';
 
@@ -32,7 +33,9 @@ async function muxForUpload(
   audioPath: string
 ): Promise<string> {
   try {
-    // Dynamically import FFmpegKit only when needed
+    if (NativeModules.FFmpegKitReactNativeModule == null) {
+      throw new Error('FFmpegKit native module is not available on this platform/build');
+    }
     const { FFmpegKit, ReturnCode } = await import('@wokcito/ffmpeg-kit-react-native');
     
     const outputPath = `${getCachePath()}upload_mux_${Date.now()}.mp4`;

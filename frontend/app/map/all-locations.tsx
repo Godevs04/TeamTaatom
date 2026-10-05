@@ -290,7 +290,7 @@ function AllLocationsMapInner() {
                 <Polyline
                   coordinates={segment}
                   strokeColor={glowColor}
-                  strokeWidth={strokeWidth + 8}
+                  strokeWidth={strokeWidth + 1.25}
                   lineCap="round"
                   lineJoin="round"
                   geodesic={true}
@@ -1787,9 +1787,9 @@ function AllLocationsMapInner() {
         ]}
       >
         {Platform.OS !== 'android' ? (
-          <BlurView pointerEvents="none" intensity={80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+          <BlurView pointerEvents="none" intensity={80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
         ) : (
-          <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
         )}
         <View style={styles.floatingHeaderContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -2433,7 +2433,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.8)',

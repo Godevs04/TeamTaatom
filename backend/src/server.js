@@ -284,6 +284,13 @@ process.on('unhandledRejection', async (reason, promise) => {
         logger.warn('Failed to start journey auto-end job:', err.message);
       }
 
+      try {
+        const { startCreatorMonetizationJob } = require('./jobs/creatorMonetizationMonthClose');
+        startCreatorMonetizationJob();
+      } catch (err) {
+        logger.warn('Failed to start creator monetization job:', err.message);
+      }
+
       // Start stale-init subscription poll job. Catches subscriptions stuck
       // in `initialized` because the Cashfree webhook was missed (sandbox,
       // network drop, callback URL misconfigured) so they don't sit forever

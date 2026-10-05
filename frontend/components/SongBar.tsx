@@ -10,8 +10,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
-import { Audio } from 'expo-av';
-import { useIsFocused } from '@react-navigation/native';
+import { Audio, type AvSound } from '../utils/expoAv';
+import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { Song } from '../services/songs';
 
@@ -58,7 +58,7 @@ export const SongBar: React.FC<SongBarProps> = ({
 }) => {
   const { theme } = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AvSound | null>(null);
   const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const isFocused = useIsFocused();
@@ -196,7 +196,7 @@ export const SongBar: React.FC<SongBarProps> = ({
                 colors={BLUE_ICON_GRADIENT}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
             )}
             <Text style={[styles.durationChipText, { color: is30 ? '#fff' : theme.colors.textSecondary }]}>30s</Text>
@@ -211,7 +211,7 @@ export const SongBar: React.FC<SongBarProps> = ({
                 colors={BLUE_ICON_GRADIENT}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
             )}
             <Text style={[styles.durationChipText, { color: !is30 ? '#fff' : theme.colors.textSecondary }]}>60s</Text>
@@ -228,7 +228,7 @@ export const SongBar: React.FC<SongBarProps> = ({
             colors={BLUE_ICON_GRADIENT}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <Ionicons name={isPlaying ? "pause" : "play"} size={16} color="white" />
         </TouchableOpacity>

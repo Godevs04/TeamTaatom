@@ -558,7 +558,7 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
       {loading && (
         <Animated.View
           style={[
-            StyleSheet.absoluteFillObject,
+            StyleSheet.absoluteFill,
             {
               backgroundColor: 'rgba(255, 255, 255, 0.12)',
               opacity: shimmerAnim,
@@ -896,7 +896,7 @@ const SavedLocaleCard = React.memo(({
       accessibilityHint="Opens locale details"
     >
       {safeImageUrl ? (
-        <View style={StyleSheet.absoluteFillObject}>
+        <View style={StyleSheet.absoluteFill}>
           <ExpoImageWithShimmer
             source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
             style={styles.cardImage as ImageStyle}
@@ -909,7 +909,7 @@ const SavedLocaleCard = React.memo(({
       ) : (
         <LinearGradient
           colors={['#D4EDDA', '#A8DADC']}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
@@ -3652,7 +3652,7 @@ export default function LocaleScreen() {
               >
                 <LinearGradient
                   colors={['#50C878', '#1C73B4']}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
@@ -3797,7 +3797,7 @@ export default function LocaleScreen() {
             >
               <LinearGradient
                 colors={['#50C878', '#1C73B4']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               />
@@ -3884,7 +3884,7 @@ export default function LocaleScreen() {
       <LinearGradient
         key={mode === 'dark' ? 'dark' : 'light'}
         colors={screenGradientColors}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         locations={screenGradientLocs}
       />
       <KeyboardAvoidingView
@@ -3928,7 +3928,7 @@ export default function LocaleScreen() {
         <BlurView
           intensity={95}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
         />
         <View style={styles.topNavigation}>
           <CloudSegmentedControl
@@ -4055,7 +4055,7 @@ export default function LocaleScreen() {
                             {!loadingMore && (
                               <LinearGradient
                                 colors={['#50C878', '#1C73B4']}
-                                style={StyleSheet.absoluteFillObject}
+                                style={StyleSheet.absoluteFill}
                                 start={{ x: 0, y: 0 }}
                                 end={{ x: 1, y: 1 }}
                               />

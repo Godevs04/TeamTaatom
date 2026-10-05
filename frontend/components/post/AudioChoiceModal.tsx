@@ -72,7 +72,7 @@ export const AudioChoiceModal = ({
           <BlurView
             intensity={80}
             tint={mode === 'dark' ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <LinearGradient
             colors={
@@ -82,7 +82,7 @@ export const AudioChoiceModal = ({
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 0.4, y: 0.4 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
           <View style={{ zIndex: 1 }}>
@@ -138,7 +138,7 @@ export const AudioChoiceModal = ({
                     colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 0, y: 0.4 }}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     pointerEvents="none"
                   />
                   <View style={{
@@ -228,7 +228,7 @@ export const AudioChoiceModal = ({
                     colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 0, y: 0.4 }}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                     pointerEvents="none"
                   />
                   <View style={{

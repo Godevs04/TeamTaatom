@@ -73,9 +73,9 @@ export const DetectPlaceModal = ({
           <BlurView
             intensity={80}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
           <LinearGradient
             colors={
               isDark
@@ -84,7 +84,7 @@ export const DetectPlaceModal = ({
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 0.4, y: 0.4 }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
           <View style={{ flexShrink: 1, zIndex: 1 }}>
@@ -205,7 +205,7 @@ export const DetectPlaceModal = ({
                         colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 0, y: 0.4 }}
-                        style={StyleSheet.absoluteFillObject}
+                        style={StyleSheet.absoluteFill}
                         pointerEvents="none"
                       />
                       {isSearchingPlace ? (
@@ -305,7 +305,7 @@ export const DetectPlaceModal = ({
                       colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 0, y: 0.4 }}
-                      style={StyleSheet.absoluteFillObject}
+                      style={StyleSheet.absoluteFill}
                       pointerEvents="none"
                     />
                     <Text style={{

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Platform } from 'react-native';
-import { MapView } from '../utils/mapsWrapper';
+import { MapView, Polyline } from '../utils/mapsWrapper';
 import { isValidMapCoordinate } from '../utils/mapSafety';
 
 /**
@@ -233,7 +233,7 @@ interface PolylineRendererProps {
 /**
  * PolylineRenderer
  *
- * Renders a polyline path on react-native-maps
+ * Renders a polyline path on the native map
  * - Default color: Growth Green (#22C55E)
  * - Default stroke width: 4
  * - Applies sorting and deduplication to prevent crisscrossing and jagged lines
@@ -321,15 +321,12 @@ export default function PolylineRenderer({
     return null;
   }
 
-  // Check if Polyline component is available (not available in WebView mode)
-  if (!MapView || Platform.OS === 'web') {
+  // Web and the JourneyMapView placeholder have no native map to attach a line to.
+  if (!MapView || !Polyline || Platform.OS === 'web') {
     return null;
   }
 
-  // Try to import and render Polyline for native MapView
   try {
-    const { Polyline } = require('react-native-maps');
-
     return processedSegments.flatMap((segment, index) => {
       if (segment.length < 2) return [];
       const lastPt = segment[segment.length - 1];
@@ -341,7 +338,7 @@ export default function PolylineRenderer({
             key={`segment-glow-${segmentKey}`}
             coordinates={segment}
             strokeColor={glowColor}
-            strokeWidth={Math.max(strokeWidth + 8, 10)}
+            strokeWidth={strokeWidth + 1.25}
             lineCap="round"
             lineJoin="round"
             geodesic={true}

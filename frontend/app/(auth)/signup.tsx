@@ -679,7 +679,7 @@ export default function SignUpScreen() {
                         {values.termsAccepted && (
                           <LinearGradient
                             colors={['#1C73B4', '#50C878']}
-                            style={StyleSheet.absoluteFillObject}
+                            style={StyleSheet.absoluteFill}
                             start={{ x: 0, y: 0 }}
                             end={{ x: 1, y: 1 }}
                           />
@@ -707,7 +707,7 @@ export default function SignUpScreen() {
                   >
                     <LinearGradient
                       colors={['#50C878', '#1C73B4']}
-                      style={StyleSheet.absoluteFillObject}
+                      style={StyleSheet.absoluteFill}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                     />

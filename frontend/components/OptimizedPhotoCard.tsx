@@ -1722,7 +1722,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingBottom: 20,
     maxHeight: '80%',
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     top: 'auto',
     bottom: 0,
     shadowColor: '#000',

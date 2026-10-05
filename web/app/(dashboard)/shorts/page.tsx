@@ -4,12 +4,13 @@ import * as React from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { getShorts, toggleLike, getPostById } from "../../../lib/api";
+import { getShorts, toggleLike, getPostById, deletePost, createReport, type ShortsPagination, type ReportReason } from "../../../lib/api";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
 import { TripComments } from "../../../components/trip/comments";
 import { SharePostModal } from "../../../components/trip/share-post-modal";
 import { useAuth } from "../../../context/auth-context";
+import { useConfirm } from "../../../context/confirm-context";
 import { useMounted } from "../../../hooks/use-mounted";
 import {
   cn,
@@ -27,17 +28,20 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Flag,
   Heart,
   Loader2,
   MessageCircle,
   Pause,
   Play,
   Share2,
+  Trash2,
   UserPlus,
   Volume2,
   VolumeX,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { canShowFeedAd } from "../../../lib/adsense";
 import { FeedAdCard } from "../../../components/ads/feed-ad-card";
 import {
@@ -46,6 +50,12 @@ import {
   SHORTS_AD_EVERY_N_REELS,
   type FeedListItem,
 } from "../../../lib/feed-ads";
+import {
+  shortHasLibrarySong,
+  ShortsSlideMedia,
+  ShortsSoundtrack,
+} from "../../../components/shorts/shorts-slide-media";
+import { ContentViewPing } from "../../../components/content-view-ping";
 
 function getThumbnailUrl(short: Post): string {
   const raw =
@@ -81,9 +91,18 @@ function patchShortsQueries(
   qc.setQueriesData<ShortsData>({ queryKey: ["shorts"] }, updater);
 }
 
+const REPORT_REASONS: { id: ReportReason; label: string }[] = [
+  { id: "spam", label: "Spam" },
+  { id: "abuse", label: "Abuse" },
+  { id: "inappropriate_content", label: "Inappropriate Content" },
+  { id: "harassment", label: "Harassment" },
+  { id: "other", label: "Other" },
+];
+
 export default function ShortsPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const mounted = useMounted();
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [muted, setMuted] = React.useState(true);
@@ -92,23 +111,23 @@ export default function ShortsPage() {
   const [tapFeedbackId, setTapFeedbackId] = React.useState<string | null>(null);
   const [commentsShort, setCommentsShort] = React.useState<Post | null>(null);
   const [shareShort, setShareShort] = React.useState<Post | null>(null);
+  const [reportShort, setReportShort] = React.useState<Post | null>(null);
+  const [reportPending, setReportPending] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const feedRef = React.useRef<HTMLDivElement | null>(null);
-  const videoRefs = React.useRef<Map<string, HTMLVideoElement>>(new Map());
+  const mediaTimeRef = React.useRef(0);
 
   const q = useInfiniteQuery({
     queryKey: ["shorts"],
-    queryFn: async ({ pageParam = 1 }) => {
-      const res = await getShorts({ page: pageParam, limit: 10 });
-      return res;
+    queryFn: async ({ pageParam }) => {
+      return getShorts({ cursor: pageParam, limit: 10 });
     },
+    initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => {
-      const p = lastPage?.pagination as { page?: number; totalPages?: number } | undefined;
-      if (!p) return undefined;
-      const page = p.page ?? 1;
-      const totalPages = p.totalPages ?? 1;
-      return page < totalPages ? page + 1 : undefined;
+      const pagination: ShortsPagination | undefined = lastPage?.pagination;
+      if (!pagination?.hasNextPage || !pagination.nextCursor) return undefined;
+      return pagination.nextCursor;
     },
-    initialPageParam: 1,
   });
 
   const rawShorts = React.useMemo<Post[]>(
@@ -130,6 +149,25 @@ export default function ShortsPage() {
     if (!canShowFeedAd() || shorts.length === 0) return shorts;
     return injectFeedAds(shorts, { everyN: SHORTS_AD_EVERY_N_REELS });
   }, [shorts]);
+
+  const nextPlayableIndex = React.useMemo(() => {
+    for (let i = activeIndex + 1; i < shortsItems.length; i += 1) {
+      if (!isFeedAdSlot(shortsItems[i])) return i;
+    }
+    return -1;
+  }, [activeIndex, shortsItems]);
+
+  const activeShort = React.useMemo(() => {
+    const item = shortsItems[activeIndex];
+    if (!item || isFeedAdSlot(item)) return null;
+    return item;
+  }, [activeIndex, shortsItems]);
+
+  const activeShortId = activeShort?._id || "";
+
+  React.useEffect(() => {
+    mediaTimeRef.current = 0;
+  }, [activeShort?._id]);
 
   React.useEffect(() => {
     if (shortsItems.length === 0) return;
@@ -161,31 +199,6 @@ export default function ShortsPage() {
 
     return () => observer.disconnect();
   }, [shortsItems.length]);
-
-  React.useEffect(() => {
-    shortsItems.forEach((item, idx) => {
-      if (isFeedAdSlot(item)) return;
-      const video = videoRefs.current.get(item._id);
-      if (!video) return;
-      const shouldPlay =
-        idx === activeIndex && !manuallyPaused.has(item._id) && !failedVideoIds.has(item._id);
-      if (shouldPlay) {
-        void video.play().catch(() => {
-          setFailedVideoIds((prev) => new Set(prev).add(item._id));
-        });
-      } else {
-        video.pause();
-      }
-    });
-  }, [activeIndex, failedVideoIds, manuallyPaused, shortsItems]);
-
-  React.useEffect(() => {
-    shorts.forEach((short) => {
-      const video = videoRefs.current.get(short._id);
-      if (!video) return;
-      video.muted = muted;
-    });
-  }, [muted, shorts]);
 
   React.useEffect(() => {
     if (!q.hasNextPage || q.isFetchingNextPage) return;
@@ -298,6 +311,81 @@ export default function ShortsPage() {
     [qc]
   );
 
+  const handleReport = React.useCallback(
+    async (reason: ReportReason) => {
+      const authorId = reportShort?.user?._id;
+      if (!user) {
+        toast.error("You must be signed in to report.");
+        return;
+      }
+      if (!reportShort || !authorId) {
+        toast.error("This short can’t be reported.");
+        return;
+      }
+      if (user._id === authorId) {
+        toast.error("You cannot report your own short.");
+        setReportShort(null);
+        return;
+      }
+      setReportPending(true);
+      try {
+        await createReport({
+          type: reason,
+          reportedUserId: authorId,
+          postId: reportShort._id,
+          reason,
+        });
+        toast.success("Report submitted. Our team will review it.");
+        setReportShort(null);
+      } catch (error) {
+        toast.error(getFriendlyErrorMessage(error));
+      } finally {
+        setReportPending(false);
+      }
+    },
+    [reportShort, user]
+  );
+
+  const handleDelete = React.useCallback(
+    async (short: Post) => {
+      if (!user || short.user?._id !== user._id) return;
+      const ok = await confirm({
+        title: "Delete this short?",
+        description: "This removes it for everyone. You can’t undo this.",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        variant: "destructive",
+      });
+      if (!ok) return;
+      setDeletingId(short._id);
+      const previous = qc.getQueriesData<ShortsData>({ queryKey: ["shorts"] });
+      patchShortsQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            shorts: page.shorts.filter((item) => item._id !== short._id),
+          })),
+        };
+      });
+      try {
+        await deletePost(short._id);
+        const saved = getSavedPostIds().filter((id) => id !== short._id);
+        setSavedPostIds(saved);
+        toast.success("Short deleted");
+      } catch (error) {
+        previous.forEach(([key, data]) => {
+          qc.setQueryData(key, data);
+        });
+        toast.error(getFriendlyErrorMessage(error));
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [confirm, qc, user]
+  );
+
   // TripComments manages its own ["post", id] query and doesn't notify the
   // parent when a comment is posted, so the commentsCount badge on this page
   // would otherwise go stale until the next full ["shorts"] refetch (the
@@ -331,6 +419,7 @@ export default function ShortsPage() {
 
   return (
     <div className="h-full bg-transparent">
+      {activeShortId ? <ContentViewPing postId={activeShortId} delayMs={1000} watchMs={1000} /> : null}
       {q.isPending ? (
         <div className="grid h-full place-items-center p-6">
           <div className="w-full max-w-[440px] space-y-4">
@@ -446,21 +535,21 @@ export default function ShortsPage() {
                             onClick={() => handleCenterTap(short._id)}
                             aria-label={isPaused ? "Play short" : "Pause short"}
                           >
-                            <video
-                              ref={(node) => {
-                                if (!node) {
-                                  videoRefs.current.delete(short._id);
-                                  return;
-                                }
-                                videoRefs.current.set(short._id, node);
-                              }}
-                              src={videoUrl}
-                              poster={thumbUrl || undefined}
-                              loop
-                              muted={muted}
-                              playsInline
-                              preload="metadata"
-                              className="h-full w-full object-contain"
+                            <ShortsSlideMedia
+                              url={videoUrl}
+                              poster={thumbUrl}
+                              shouldLoad={idx === activeIndex || idx === nextPlayableIndex}
+                              shouldPlay={
+                                idx === activeIndex && !isPaused && !isVideoFailed
+                              }
+                              muted={muted || shortHasLibrarySong(short)}
+                              onMediaTime={
+                                idx === activeIndex
+                                  ? (currentTime) => {
+                                      mediaTimeRef.current = currentTime;
+                                    }
+                                  : undefined
+                              }
                               onError={() => setFailedVideoIds((prev) => new Set(prev).add(short._id))}
                             />
                             <span
@@ -489,7 +578,13 @@ export default function ShortsPage() {
                         <div className="absolute inset-x-0 bottom-0 space-y-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-sm font-medium text-zinc-100">
-                              {short.user?.fullName ? `@${short.user.fullName}` : "Traveler"}
+                              {short.user?._id ? (
+                                <Link href={`/profile/${short.user._id}`} className="hover:underline">
+                                  {short.user.fullName ? `@${short.user.fullName}` : "Traveler"}
+                                </Link>
+                              ) : (
+                                "Traveler"
+                              )}
                             </p>
                             <Button
                               type="button"
@@ -509,29 +604,29 @@ export default function ShortsPage() {
                       </div>
 
                       <div className="flex flex-col items-center gap-2 self-end pb-5">
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="relative h-12 w-12 overflow-hidden rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
-                          aria-label={`View ${short.user?.username || "user"} profile`}
-                        >
-                          {short.user?.profilePic ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={short.user.profilePic}
-                              alt={short.user?.fullName || "Profile"}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-sm font-semibold">
-                              {(short.user?.fullName || short.user?.username || "U").charAt(0).toUpperCase()}
+                        {short.user?._id ? (
+                          <Link
+                            href={`/profile/${short.user._id}`}
+                            className="relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                            aria-label={`View ${short.user.username || short.user.fullName || "user"} profile`}
+                          >
+                            {short.user.profilePic ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={short.user.profilePic}
+                                alt={short.user.fullName || "Profile"}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-sm font-semibold">
+                                {(short.user.fullName || short.user.username || "U").charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                            <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-primary text-on-primary dark:border-zinc-900">
+                              {short.user.isFollowing ? <Check className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
                             </span>
-                          )}
-                          <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-primary text-on-primary dark:border-zinc-900">
-                            {short.user?.isFollowing ? <Check className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
-                          </span>
-                        </Button>
+                          </Link>
+                        ) : null}
                         <Button
                           type="button"
                           size="icon"
@@ -587,6 +682,40 @@ export default function ShortsPage() {
                             )}
                           />
                         </Button>
+                        {user?._id && short.user?._id === user._id ? (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-red-500/15 disabled:opacity-40 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-red-500/20"
+                            onClick={() => void handleDelete(short)}
+                            disabled={deletingId === short._id}
+                            aria-label="Delete short"
+                          >
+                            {deletingId === short._id ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-5 w-5" />
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                            onClick={() => {
+                              if (!user) {
+                                toast.error("You must be signed in to report.");
+                                return;
+                              }
+                              setReportShort(short);
+                            }}
+                            aria-label="Report short"
+                          >
+                            <Flag className="h-5 w-5" />
+                          </Button>
+                        )}
                         <div className="mt-1 flex flex-col gap-2">
                           <Button
                             type="button"
@@ -679,6 +808,61 @@ export default function ShortsPage() {
         post={shareShort ?? ({} as Post)}
         currentUserId={user?._id}
       />
+      <ShortsSoundtrack
+        short={activeShort && !failedVideoIds.has(activeShort._id) ? activeShort : null}
+        shouldPlay={
+          !!activeShort &&
+          !muted &&
+          !manuallyPaused.has(activeShort._id) &&
+          !failedVideoIds.has(activeShort._id)
+        }
+        mediaTimeRef={mediaTimeRef}
+      />
+      {reportShort && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
+          onClick={() => {
+            if (!reportPending) setReportShort(null);
+          }}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-t-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:rounded-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-label="Report short"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">Report short</h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg"
+                onClick={() => setReportShort(null)}
+                disabled={reportPending}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">Choose a reason for your report</p>
+            <ul className="space-y-1">
+              {REPORT_REASONS.map((reason) => (
+                <li key={reason.id}>
+                  <button
+                    type="button"
+                    disabled={reportPending}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    onClick={() => void handleReport(reason.id)}
+                  >
+                    {reason.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

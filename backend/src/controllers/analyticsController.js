@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
 const trackEvents = async (req, res) => {
   try {
     const { events } = req.body;
-    // User is optional - analytics can work without auth
+    // Only the authenticated session may be credited. A user id in the body can be forged.
     const userId = req.user?.id || req.user?._id || null;
 
     if (!Array.isArray(events) || events.length === 0) {
@@ -21,7 +21,7 @@ const trackEvents = async (req, res) => {
     // Validate and save events
     const eventsToSave = events.map(event => ({
       event: event.event,
-      userId: event.userId || userId,
+      userId,
       properties: event.properties || {},
       platform: event.platform,
       sessionId: event.sessionId,
@@ -76,6 +76,21 @@ const trackEvents = async (req, res) => {
                 const viewAggregator = require('../utils/viewAggregator');
                 viewAggregator.addView(postId);
                 logger.info(`[VIEW TRACKING] Post/short ${postId} view event queued in aggregator for ${event.userId ? 'User ' + event.userId : 'Session ' + event.sessionId}.`);
+              }
+
+              try {
+                const creatorMonetization = require('../services/creatorMonetizationService');
+                const watchMs = event.properties?.watch_ms
+                  ?? event.properties?.watchMs
+                  ?? event.properties?.duration_ms;
+                await creatorMonetization.recordMonetizationView({
+                  post,
+                  viewerId: event.userId || null,
+                  countMonthlyView: shouldIncrement,
+                  watchMs,
+                });
+              } catch (monetizationError) {
+                logger.error(`[VIEW TRACKING] Creator monetization view failed for post ${postId}:`, monetizationError);
               }
             }
           } catch (err) {

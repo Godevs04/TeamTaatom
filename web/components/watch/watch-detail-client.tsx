@@ -19,6 +19,7 @@ import { WatchPlayer } from "./watch-player";
 import { ExpandableText } from "../ui/expandable-text";
 import { canShowWatchAdBreak, getAdSenseWatchBreakSlot } from "../../lib/adsense";
 import { AdSenseUnit } from "../ads/adsense-unit";
+import { ContentViewPing } from "../content-view-ping";
 
 function formatDuration(seconds?: number | null): string {
   if (seconds == null || Number.isNaN(Number(seconds))) return "";
@@ -103,6 +104,7 @@ export function WatchDetailClient({ id }: { id: string }) {
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-5 pb-16">
+      <ContentViewPing postId={post._id} delayMs={2000} watchMs={2000} />
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-3 py-2.5 shadow-sm backdrop-blur dark:border-zinc-800/80 dark:bg-zinc-900/90">
         <button
           type="button"

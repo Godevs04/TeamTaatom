@@ -1,6 +1,6 @@
 import { socketService } from './socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
+import { Audio, type AvSound, type AvRecording } from '../utils/expoAv';
 import logger from '../utils/logger';
 
 export interface CallState {
@@ -29,8 +29,8 @@ class CallService {
   };
   private callbacks: { [key: string]: (data: any) => void } = {};
   private callTimer: ReturnType<typeof setInterval> | null = null;
-  private recording: Audio.Recording | null = null;
-  private sound: Audio.Sound | null = null;
+  private recording: AvRecording | null = null;
+  private sound: AvSound | null = null;
   private isAudioInitialized: boolean = false;
   // WebRTC dynamic members (to avoid hard dependency if lib isn't installed)
   private RTCPeerConnectionImpl: any | null = null;

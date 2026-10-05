@@ -33,6 +33,7 @@ const PROTECTED_PREFIXES = [
   "/discover",
   "/hashtag",
   "/help",
+  "/creator-monetization",
 ];
 
 function isAuthRoute(pathname: string) {
@@ -211,6 +212,8 @@ export const config = {
     "/hashtag/:path*",
     "/help",
     "/help/:path*",
+    "/creator-monetization",
+    "/creator-monetization/:path*",
     "/connect/page/:path*",
   ],
 };

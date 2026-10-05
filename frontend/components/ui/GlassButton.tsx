@@ -76,7 +76,7 @@ export const GlassButton = ({
         </Animated.View>
 
         {loading && (
-          <View style={[StyleSheet.absoluteFillObject, styles.loadingOverlay]}>
+          <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]}>
             <LoadingGlobe color={textColor} />
           </View>
         )}
@@ -101,7 +101,7 @@ export const GlassButton = ({
       >
         <LinearGradient
           colors={['#1C73B4', '#50C878']}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         />

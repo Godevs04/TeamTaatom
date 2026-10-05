@@ -788,7 +788,7 @@ export default function ConnectPageDetailScreen() {
                 colors={['#50C878', '#1C73B4']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
               />
             )}
             <Text style={[styles.contentButtonText, { color: buttonTextColor }]}>
@@ -837,12 +837,12 @@ export default function ConnectPageDetailScreen() {
           <BlurView
             intensity={35}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
           />
           <View
             style={{
-              ...StyleSheet.absoluteFillObject,
+              ...StyleSheet.absoluteFill,
               backgroundColor: isDark ? 'rgba(30, 30, 30, 0.4)' : 'rgba(240, 240, 240, 0.4)',
               zIndex: 10,
             }}
@@ -895,7 +895,7 @@ export default function ConnectPageDetailScreen() {
           <BlurView
             intensity={80}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <View style={styles.headerInner}>
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
@@ -952,14 +952,14 @@ export default function ConnectPageDetailScreen() {
       {page.bannerImage ? (
         <Image
           source={{ uri: optimizeCloudinaryUrl(page.bannerImage, { width: 200, height: 200 }) }}
-          style={[StyleSheet.absoluteFillObject, { opacity: isDark ? 0.12 : 0.22 }]}
+          style={[StyleSheet.absoluteFill, { opacity: isDark ? 0.12 : 0.22 }]}
           resizeMode="cover"
           blurRadius={Platform.OS === 'android' ? 25 : 50}
         />
       ) : page.profileImage ? (
         <Image
           source={{ uri: optimizeCloudinaryUrl(page.profileImage, { width: 200, height: 200 }) }}
-          style={[StyleSheet.absoluteFillObject, { opacity: isDark ? 0.12 : 0.22 }]}
+          style={[StyleSheet.absoluteFill, { opacity: isDark ? 0.12 : 0.22 }]}
           resizeMode="cover"
           blurRadius={Platform.OS === 'android' ? 25 : 50}
         />
@@ -970,7 +970,7 @@ export default function ConnectPageDetailScreen() {
             ? ['rgba(13, 17, 23, 0.92)', 'rgba(6, 8, 12, 0.98)']
             : ['rgba(248, 250, 252, 0.85)', 'rgba(241, 245, 249, 0.95)']
         }
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
 
       {/* Floating Glass Header */}
@@ -995,12 +995,12 @@ export default function ConnectPageDetailScreen() {
         <BlurView
           intensity={75}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
         />
         <View
           style={[
-            StyleSheet.absoluteFillObject,
+            StyleSheet.absoluteFill,
             { backgroundColor: isDark ? 'rgba(15, 15, 15, 0.35)' : 'rgba(255, 255, 255, 0.1)' }
           ]}
         />
@@ -1084,7 +1084,7 @@ export default function ConnectPageDetailScreen() {
             <BlurView
               intensity={50}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <Ionicons name="people-outline" size={32} color={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'} />
@@ -1136,12 +1136,12 @@ export default function ConnectPageDetailScreen() {
           <BlurView
             intensity={50}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
           />
           <View
             style={[
-              StyleSheet.absoluteFillObject,
+              StyleSheet.absoluteFill,
               {
                 backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
               }
@@ -1322,12 +1322,12 @@ export default function ConnectPageDetailScreen() {
             <BlurView
               intensity={45}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <View
               style={[
-                StyleSheet.absoluteFillObject,
+                StyleSheet.absoluteFill,
                 {
                   backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
                 }
@@ -1386,12 +1386,12 @@ export default function ConnectPageDetailScreen() {
             <BlurView
               intensity={45}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <View
               style={[
-                StyleSheet.absoluteFillObject,
+                StyleSheet.absoluteFill,
                 {
                   backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
                 }
@@ -1451,12 +1451,12 @@ export default function ConnectPageDetailScreen() {
             <BlurView
               intensity={45}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <View
               style={[
-                StyleSheet.absoluteFillObject,
+                StyleSheet.absoluteFill,
                 {
                   backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
                 }
@@ -1610,7 +1610,7 @@ export default function ConnectPageDetailScreen() {
                   colors={['#50C878', '#1C73B4']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                 />
                 {savingBio ? (
                   <LoadingGlobe size="small" color="#FFFFFF" />
@@ -1889,7 +1889,7 @@ export default function ConnectPageDetailScreen() {
                     colors={['#50C878', '#1C73B4']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
-                    style={StyleSheet.absoluteFillObject}
+                    style={StyleSheet.absoluteFill}
                   />
                   <Text style={[styles.priceModalBtnText, { color: '#FFFFFF' }]}>Save</Text>
                 </TouchableOpacity>
@@ -1910,7 +1910,7 @@ export default function ConnectPageDetailScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setCheckoutModalVisible(false)} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCheckoutModalVisible(false)} />
           <View
             style={[
               styles.checkoutModalBox,
@@ -1923,7 +1923,7 @@ export default function ConnectPageDetailScreen() {
             <BlurView
               intensity={90}
               tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <View style={styles.modalHeader}>
               <Text style={[styles.checkoutModalTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Checkout</Text>
@@ -2069,7 +2069,7 @@ export default function ConnectPageDetailScreen() {
         onRequestClose={() => setShowSubscriptionManagementModal(false)}
       >
         <View style={styles.bottomSheetOverlay}>
-          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowSubscriptionManagementModal(false)} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSubscriptionManagementModal(false)} />
           <View style={[styles.bottomSheetContent, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
             <View style={styles.bottomSheetDragHandle} />
             
@@ -2114,7 +2114,7 @@ export default function ConnectPageDetailScreen() {
             >
               <LinearGradient
                 colors={['#50C878', '#1C73B4']}
-                style={StyleSheet.absoluteFillObject}
+                style={StyleSheet.absoluteFill}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               />

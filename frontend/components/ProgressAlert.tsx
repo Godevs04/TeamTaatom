@@ -167,7 +167,7 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
                   colors={theme.colors.gradient?.secondary || ['#1C73B4', '#50C878']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                 />
               </Animated.View>
             </View>

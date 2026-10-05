@@ -204,7 +204,7 @@ export default function ActivityFeedScreen() {
             <View
               pointerEvents="none"
               style={[
-                StyleSheet.absoluteFillObject,
+                StyleSheet.absoluteFill,
                 { backgroundColor: FILTER_PREVIEW_OVERLAY[(item.post as PostType).filter as ImageFilterType]! },
               ]}
             />

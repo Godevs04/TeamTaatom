@@ -310,9 +310,9 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
         >
           <View style={styles.watchCardMedia}>
             {resolvedImageUrl ? (
-              <Image source={{ uri: resolvedImageUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+              <Image source={{ uri: resolvedImageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
             ) : (
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#0B1A2B', alignItems: 'center', justifyContent: 'center' }]}>
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: '#0B1A2B', alignItems: 'center', justifyContent: 'center' }]}>
                 {loadingDetails ? (
                   <LoadingGlobe size="small" color="#fff" />
                 ) : (
@@ -323,7 +323,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
             <LinearGradient
               colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.75)']}
               locations={[0, 0.45, 1]}
-              style={StyleSheet.absoluteFillObject}
+              style={StyleSheet.absoluteFill}
             />
             <View style={styles.watchCardPlayWrapper}>
               <View style={styles.watchCardPlayButton}>
@@ -372,9 +372,9 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
           onPress={openSharedContent}
         >
           {resolvedImageUrl ? (
-            <Image source={{ uri: resolvedImageUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+            <Image source={{ uri: resolvedImageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           ) : (
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
               {loadingDetails ? (
                 <LoadingGlobe size="small" color="#fff" />
               ) : (
@@ -385,7 +385,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
 
           <LinearGradient
             colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.5)']}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
 
           <View style={styles.shortCardHeader}>
@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   playButtonOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B1A2B',
   },
   watchCardPlayWrapper: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -701,7 +701,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   shortCardPlayWrapper: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
