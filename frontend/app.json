@@ -59,8 +59,7 @@
         ]
       },
       "config": {
-        "usesNonExemptEncryption": false,
-        "googleMapsApiKey": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+        "usesNonExemptEncryption": false
       },
       "googleServicesFile": "./GoogleService-Info.plist"
     },
