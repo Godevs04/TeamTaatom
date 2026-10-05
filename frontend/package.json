@@ -62,7 +62,6 @@
     "expo-linking": "~57.0.11",
     "expo-location": "~57.0.20",
     "expo-media-library": "~57.0.5",
-    "expo-modules-core": "~57.0.20",
     "expo-notifications": "~57.0.21",
     "expo-router": "~57.0.24",
     "expo-screen-orientation": "~57.0.2",
@@ -113,6 +112,8 @@
     "doctor": {
       "reactNativeDirectoryCheck": {
         "exclude": [
+          "@wokcito/ffmpeg-kit-react-native",
+          "expo-av",
           "react-native-cashfree-pg-sdk",
           "react-native-color-matrix-image-filters",
           "react-native-vector-icons"
