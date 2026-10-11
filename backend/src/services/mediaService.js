@@ -12,6 +12,7 @@
 
 const { getDownloadUrl } = require('./storage');
 const logger = require('../utils/logger');
+const { getCache, setCache, CacheKeys } = require('../utils/cache');
 
 // Expiration times in seconds
 const EXPIRY_TIMES = {
@@ -40,7 +41,15 @@ const generateSignedUrl = async (storageKey, mediaType = 'DEFAULT') => {
 
   try {
     const expiryTime = EXPIRY_TIMES[mediaType.toUpperCase()] || EXPIRY_TIMES.DEFAULT;
+    const cacheKey = CacheKeys.signedUrl(String(mediaType).toUpperCase(), storageKey.trim());
+    const cachedUrl = await getCache(cacheKey);
+    if (cachedUrl) return cachedUrl;
+
     const signedUrl = await getDownloadUrl(storageKey.trim(), expiryTime);
+    if (signedUrl) {
+      const cacheTtl = Math.max(30, Math.floor(expiryTime / 3));
+      await setCache(cacheKey, signedUrl, cacheTtl);
+    }
     
     logger.debug('Generated signed URL:', { 
       storageKey, 

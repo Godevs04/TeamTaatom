@@ -87,7 +87,7 @@ function isAdItem(item: FeedItem): item is {
 const POST_VIEW_DWELL_MS = 2500;
 const HOME_AD_START_DELAY_MS = __DEV__ ? 1000 : 30000;
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 // isWeb is already imported from '../../utils/webOptimizations'
 const isIOS = Platform.OS === 'ios';
@@ -223,20 +223,46 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
+type FeedVisibility = { postId: string | null; index: number | null };
+
 interface FeedListItemProps {
   item: FeedItem;
-  isCurrentlyVisible: boolean;
-  shouldPreload: boolean;
+  index: number;
+  subscribeVisibility: (fn: (visibility: FeedVisibility) => void) => () => void;
   onRefresh: () => void;
   onAdLoadFailed: (adIndex: number) => void;
 }
 
+function useRowPlayback(
+  subscribeVisibility: FeedListItemProps['subscribeVisibility'],
+  postId: string | null,
+  index: number,
+) {
+  const [flags, setFlags] = useState({ visible: false, preload: false, near: false });
+  useEffect(() => {
+    return subscribeVisibility((visibility) => {
+      const visible = !!postId && visibility.postId === postId;
+      const preload = visibility.index != null && index === visibility.index + 1;
+      const near = visibility.index != null && Math.abs(index - visibility.index) <= 1;
+      setFlags((prev) => (
+        prev.visible === visible && prev.preload === preload && prev.near === near
+          ? prev
+          : { visible, preload, near }
+      ));
+    });
+  }, [subscribeVisibility, postId, index]);
+  return flags;
+}
+
 const FeedListItem = React.memo(
-  ({ item, isCurrentlyVisible, shouldPreload, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
+  ({ item, index, subscribeVisibility, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
+    const postId = isAdItem(item) ? null : item._id;
+    const { visible, preload, near } = useRowPlayback(subscribeVisibility, postId, index);
     if (isAdItem(item)) {
       return (
         <NativeAdCard
           adIndex={item.adIndex}
+          visible={near}
           onImpression={() => recordGoogleAdImpression(item.milestone)}
           onLoadFailed={() => onAdLoadFailed(item.adIndex)}
         />
@@ -249,17 +275,17 @@ const FeedListItem = React.memo(
       <OptimizedPhotoCard
         post={item}
         onRefresh={onRefresh}
-        isCurrentlyVisible={isCurrentlyVisible}
-        shouldPreload={shouldPreload}
+        isCurrentlyVisible={visible}
+        shouldPreload={preload}
         hideShareCount={true}
       />
     );
   },
   (prevProps, nextProps) => {
-    if (prevProps.isCurrentlyVisible !== nextProps.isCurrentlyVisible) {
+    if (prevProps.index !== nextProps.index) {
       return false;
     }
-    if (prevProps.shouldPreload !== nextProps.shouldPreload) {
+    if (prevProps.subscribeVisibility !== nextProps.subscribeVisibility) {
       return false;
     }
     if (prevProps.onRefresh !== nextProps.onRefresh) {
@@ -529,6 +555,8 @@ export default function HomeScreen() {
   const savedVisiblePostIdRef = useRef<string | null>(null);
   const visibleIndexRef = useRef<number | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
+  const visibilityRef = useRef<FeedVisibility>({ postId: null, index: null });
+  const visibilityListenersRef = useRef(new Set<(visibility: FeedVisibility) => void>());
   const isRefocusingRef = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
@@ -560,24 +588,38 @@ export default function HomeScreen() {
   const VIEW_DEBOUNCE_MS = POST_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   const viewTimerRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Track visible index for conditional image rendering
-  const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
   // Only apply lazy-load distance restriction after user has scrolled (not on initial render)
   const hasScrolledRef = useRef(false);
-  // Track currently visible post ID for music playback control
-  const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
+
+  const publishVisibility = useCallback((next: FeedVisibility) => {
+    const current = visibilityRef.current;
+    if (current.postId === next.postId && current.index === next.index) return;
+    visibilityRef.current = next;
+    visiblePostIdRef.current = next.postId;
+    visibleIndexRef.current = next.index;
+    visibilityListenersRef.current.forEach((listener) => listener(next));
+  }, []);
+
+  const subscribeVisibility = useCallback((listener: (visibility: FeedVisibility) => void) => {
+    visibilityListenersRef.current.add(listener);
+    listener(visibilityRef.current);
+    return () => {
+      visibilityListenersRef.current.delete(listener);
+    };
+  }, []);
 
   // Strike 20: Force Initial Viewability on mount and load completion
   useEffect(() => {
     if (posts && posts.length > 0) {
-      const hasCurrent = posts.some(p => p._id === visiblePostId);
-      if (!visiblePostId || !hasCurrent) {
-        setVisiblePostId(posts[0]._id);
+      const currentId = visibilityRef.current.postId;
+      const hasCurrent = posts.some(p => p._id === currentId);
+      if (!currentId || !hasCurrent) {
+        publishVisibility({ postId: posts[0]._id, index: visibilityRef.current.index ?? 0 });
       }
     } else {
-      setVisiblePostId(null);
+      publishVisibility({ postId: null, index: null });
     }
-  }, [posts, visiblePostId]);
+  }, [posts, publishVisibility]);
 
   // Frequency control: ads flow unconditionally without scroll or time limits.
   const adCap = useAdCap();
@@ -1153,15 +1195,6 @@ export default function HomeScreen() {
     trackScreenView('home');
   }, [feedMode]); // Re-run when feed mode changes
 
-  // Sync state values to refs for access in focus effect cleanup without stale closures
-  useEffect(() => {
-    visibleIndexRef.current = visibleIndex;
-  }, [visibleIndex]);
-
-  useEffect(() => {
-    visiblePostIdRef.current = visiblePostId;
-  }, [visiblePostId]);
-
   // Navigation lifecycle safety: clear/restore visible index tracking, resume playback, background refresh
   useFocusEffect(
     useCallback(() => {
@@ -1181,11 +1214,11 @@ export default function HomeScreen() {
       }
 
       // 2. Restore playback states
-      if (savedVisibleIndexRef.current !== null) {
-        setVisibleIndex(savedVisibleIndexRef.current);
-      }
-      if (savedVisiblePostIdRef.current !== null) {
-        setVisiblePostId(savedVisiblePostIdRef.current);
+      if (savedVisibleIndexRef.current !== null || savedVisiblePostIdRef.current !== null) {
+        publishVisibility({
+          postId: savedVisiblePostIdRef.current,
+          index: savedVisibleIndexRef.current,
+        });
       }
 
       // Lift any audio freeze
@@ -1230,8 +1263,7 @@ export default function HomeScreen() {
         savedVisibleIndexRef.current = visibleIndexRef.current;
         savedVisiblePostIdRef.current = visiblePostIdRef.current;
         shouldRestoreHomeScrollRef.current = true;
-        setVisibleIndex(null);
-        setVisiblePostId(null);
+        publishVisibility({ postId: null, index: null });
         hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
@@ -1241,7 +1273,7 @@ export default function HomeScreen() {
           logger.error('[Home] Error stopping audio:', error);
         });
       };
-    }, [fetchPosts, fetchUnseenMessageCount])
+    }, [fetchPosts, fetchUnseenMessageCount, publishVisibility])
   );
 
   // Refresh feed when admin approves content or backend signals invalidation
@@ -1575,8 +1607,10 @@ export default function HomeScreen() {
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0 || feedMode === 'watch') return posts as FeedItem[];
     const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
-    return rawFeed;
-  }, [posts, adCap, feedMode]);
+    if (failedAdIndices.length === 0) return rawFeed;
+    const failed = new Set(failedAdIndices);
+    return rawFeed.filter((item) => !isAdItem(item) || !failed.has(item.adIndex));
+  }, [posts, adCap, feedMode, failedAdIndices]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1647,8 +1681,9 @@ export default function HomeScreen() {
         const newVisibleIndex = bestItemToken.index;
 
         if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
-          if (visibleIndexRef.current !== newVisibleIndex) {
-            setVisibleIndex(newVisibleIndex);
+          const postId = item._id;
+          if (visibleIndexRef.current !== newVisibleIndex || visiblePostIdRef.current !== postId) {
+            publishVisibility({ postId, index: newVisibleIndex });
           }
           if (!hasScrolledRef.current && newVisibleIndex > 0) {
             hasScrolledRef.current = true;
@@ -1657,12 +1692,7 @@ export default function HomeScreen() {
           if (!hasSetScrollThresholdRef.current && newVisibleIndex >= threshold) {
             hasSetScrollThresholdRef.current = true;
           }
-          
-          const postId = item._id;
-          if (visiblePostIdRef.current !== postId) {
-            setVisiblePostId(postId);
-          }
-          
+
           // Clear any active timer for a previous post
           if (viewTimerRef.current) {
             clearTimeout(viewTimerRef.current);
@@ -1698,7 +1728,7 @@ export default function HomeScreen() {
         // Set visibleIndex to the first item's index if it exists, for tracking/ads threshold
         const firstToken = viewableItems[0];
         if (firstToken && firstToken.index !== null && firstToken.index !== undefined) {
-          setVisibleIndex(firstToken.index);
+          publishVisibility({ postId: null, index: firstToken.index });
           const threshold = __DEV__ ? 1 : 5;
           if (!hasSetScrollThresholdRef.current && firstToken.index >= threshold) {
             hasSetScrollThresholdRef.current = true;
@@ -1710,7 +1740,6 @@ export default function HomeScreen() {
           clearTimeout(viewTimerRef.current);
           viewTimerRef.current = null;
         }
-        setVisiblePostId(null);
       }
     } else {
       // Clear timer if no viewable items
@@ -1718,31 +1747,26 @@ export default function HomeScreen() {
         clearTimeout(viewTimerRef.current);
         viewTimerRef.current = null;
       }
-      setVisiblePostId(null);
+      publishVisibility({ postId: null, index: null });
     }
-  }, [currentUser?._id, setPosts]);
+  }, [currentUser?._id, setPosts, publishVisibility]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 50, // Item is considered visible when 50% is on screen
     minimumViewTime: 200, // Minimum time item must be visible (ms)
   }).current;
 
-  visiblePostIdRef.current = visiblePostId;
-  visibleIndexRef.current = visibleIndex;
-
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     return (
       <FeedListItem
         item={item}
-        isCurrentlyVisible={!isAdItem(item) && visiblePostIdRef.current === item._id}
-        shouldPreload={visibleIndexRef.current !== null && index === visibleIndexRef.current + 1}
+        index={index}
+        subscribeVisibility={subscribeVisibility}
         onRefresh={handleRefresh}
         onAdLoadFailed={handleAdLoadFailed}
       />
     );
-  }, [handleRefresh, handleAdLoadFailed]);
-
-  const feedExtraData = useMemo(() => ({ visiblePostId, visibleIndex }), [visiblePostId, visibleIndex]);
+  }, [handleRefresh, handleAdLoadFailed, subscribeVisibility]);
 
   const screenGradientColors =
     isDark
@@ -1819,7 +1843,6 @@ export default function HomeScreen() {
               data={feedData}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
-              extraData={feedExtraData}
               getItemType={(item: FeedItem) => (isAdItem(item) ? 'ad' : 'post')}
               overrideItemLayout={overrideItemLayout}
               style={styles.postsContainer}
@@ -1944,7 +1967,7 @@ export default function HomeScreen() {
               }
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
-              drawDistance={screenHeight * 1.2}
+              drawDistance={250}
             />
           <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
         </View>

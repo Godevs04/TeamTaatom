@@ -3,8 +3,20 @@
 # Triggers on push to main when backend/ or this workflow changes.
 #
 # Server layout (EC2):
-#   /home/ubuntu/taatom/TeamTaatom          ← git clone of monorepo
-#   /home/ubuntu/taatom/TeamTaatom/backend  ← docker compose + .env
+#   /home/ubuntu/TeamTaatom          ← git clone of monorepo
+#   /home/ubuntu/TeamTaatom/backend  ← docker compose + .env
+#
+# Compose starts Redis on the private Docker network (service name "redis").
+# After the API /health check passes, the job also requires
+# GET /health/detailed to report services.redis.status = healthy.
+# A failed Redis check rolls the API image back.
+#
+# After every deploy attempt (success, failure, or rollback) the server emails
+# a report through the Brevo key already in backend/.env. Recipients default to
+# kkavinkumar24@gmail.com,admin@taatom.com. To add people later, set the GitHub
+# repository variable DEPLOY_NOTIFY_EMAILS to a comma-separated list. That
+# variable replaces the default. If it is empty, backend/.env DEPLOY_NOTIFY_EMAILS
+# is used, then the built-in list.
 #
 # SSH: store EC2_SSH_KEY as base64 of the PEM (avoids GitHub newline mangling).
 #   base64 -i your-key.pem | pbcopy   # macOS
@@ -123,19 +135,33 @@ jobs:
           fi
           echo "TCP reachability OK from Actions runner"
 
+      - name: Pack deploy report mailer
+        run: |
+          set -euo pipefail
+          test -f backend/scripts/send-deploy-report.py
+          B64="$(base64 -w0 backend/scripts/send-deploy-report.py)"
+          echo "DEPLOY_MAILER_B64=${B64}" >> "$GITHUB_ENV"
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
           REPO_PATH: ${{ secrets.EC2_REPO_PATH }}
           BACKEND_PATH: ${{ secrets.EC2_BACKEND_PATH }}
           HEALTH_URL: ${{ secrets.BACKEND_HEALTH_URL }}
+          DEPLOY_MAILER_B64: ${{ env.DEPLOY_MAILER_B64 }}
+          DEPLOY_NOTIFY_EMAILS: ${{ vars.DEPLOY_NOTIFY_EMAILS }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_SHA: ${{ github.sha }}
+          GH_REF: ${{ github.ref_name }}
+          GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_EVENT: ${{ github.event_name }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key_path: /home/runner/.ssh/ec2.pem
           port: 22
           timeout: 60s
-          envs: REPO_PATH,BACKEND_PATH,HEALTH_URL
+          envs: REPO_PATH,BACKEND_PATH,HEALTH_URL,DEPLOY_MAILER_B64,DEPLOY_NOTIFY_EMAILS,GH_ACTOR,GH_SHA,GH_REF,GH_RUN_URL,GH_EVENT
           script_stop: false
           command_timeout: 25m
           script: |
@@ -154,10 +180,45 @@ jobs:
             echo "BACKEND_PATH=$BACKEND_PATH"
             echo "HEALTH_URL=$HEALTH_URL"
 
+            DEPLOY_RESULT="failed"
+            DEPLOY_REASON="Deploy stopped before it finished"
+            PREV_SHA=""
+            NEW_SHA=""
+            MAILER=/tmp/taatom-send-deploy-report.py
+            if [ -n "${DEPLOY_MAILER_B64:-}" ]; then
+              printf '%s' "$DEPLOY_MAILER_B64" | base64 -d > "$MAILER" || echo "WARNING: could not decode deploy mailer"
+            else
+              echo "WARNING: deploy mailer was not packed; email will be skipped"
+            fi
+            send_deploy_mail() {
+              local code=$?
+              trap - EXIT
+              if [ -f "$MAILER" ]; then
+                python3 "$MAILER" \
+                  --status "$DEPLOY_RESULT" \
+                  --reason "$DEPLOY_REASON" \
+                  --prev-sha "${PREV_SHA:-}" \
+                  --new-sha "${NEW_SHA:-}" \
+                  --intended-sha "${GH_SHA:-}" \
+                  --repo "${REPO_PATH:-}" \
+                  --backend "${BACKEND_PATH:-}" \
+                  --health-url "${HEALTH_URL:-}" \
+                  --actor "${GH_ACTOR:-}" \
+                  --ref "${GH_REF:-}" \
+                  --run-url "${GH_RUN_URL:-}" \
+                  --event "${GH_EVENT:-}" \
+                  --emails "${DEPLOY_NOTIFY_EMAILS:-}" \
+                  || echo "WARNING: deploy email was not sent"
+              fi
+              exit "$code"
+            }
+            trap send_deploy_mail EXIT
+
             if [ ! -d "$REPO_PATH" ]; then
               echo "ERROR: REPO_PATH does not exist: [$REPO_PATH]"
               echo "Set EC2_REPO_PATH secret to: /home/ubuntu/TeamTaatom"
               ls -la /home/ubuntu/TeamTaatom || true
+              DEPLOY_REASON="Server repository path does not exist"
               exit 1
             fi
 
@@ -174,12 +235,14 @@ jobs:
             git fetch origin main
             git checkout main
             git reset --hard origin/main
+            NEW_SHA="$(git rev-parse HEAD)"
 
             if [ ! -d "$BACKEND_PATH" ]; then
               echo "ERROR: BACKEND_PATH does not exist: [$BACKEND_PATH]"
               echo "Set EC2_BACKEND_PATH secret to: /home/ubuntu/taatom/TeamTaatom/backend"
               echo "Contents of repo root:"
               ls -la "$REPO_PATH"
+              DEPLOY_REASON="Backend directory does not exist on the server"
               exit 1
             fi
 
@@ -187,6 +250,7 @@ jobs:
 
             if [ ! -f .env ]; then
               echo "ERROR: $BACKEND_PATH/.env is missing. Create it from .env.example before deploying."
+              DEPLOY_REASON="backend/.env is missing on the server"
               exit 1
             fi
 
@@ -237,13 +301,49 @@ jobs:
               sleep 10
               if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
                 echo "Rollback container is healthy; failing the workflow."
+                DEPLOY_RESULT="rolled_back"
+                DEPLOY_REASON="API /health did not pass. Rollback is healthy on the previous version."
               else
                 echo "CRITICAL: rollback health check also failed. Manual intervention required."
+                DEPLOY_RESULT="failed"
+                DEPLOY_REASON="API /health did not pass, and the rollback health check also failed. The server needs a manual check."
               fi
               exit 1
             fi
 
-            echo "==> Deploy healthy"
-            curl -fsS "$HEALTH_URL" || true
+            echo "==> Checking Redis on ${HEALTH_URL}/detailed"
+            DETAIL_URL="${HEALTH_URL}/detailed"
+            REDIS_OK=0
+            for i in $(seq 1 12); do
+              if python3 -c 'import json,sys,urllib.request; url=sys.argv[1]; body=json.load(urllib.request.urlopen(url, timeout=10)); redis=((body.get("data") or {}).get("services") or {}).get("redis") or {}; status=redis.get("status"); print("redis status=%s responseTimeMs=%s" % (status, redis.get("responseTimeMs"))); sys.exit(0 if status=="healthy" else 1)' "$DETAIL_URL"; then
+                REDIS_OK=1
+                break
+              fi
+              echo "  redis attempt $i/12 — not healthy yet"
+              sleep 5
+            done
+
+            if [ "$REDIS_OK" -ne 1 ]; then
+              echo "==> Redis health check FAILED — rolling back to $PREV_SHA"
+              cd "$REPO_PATH"
+              git reset --hard "$PREV_SHA"
+              cd "$BACKEND_PATH"
+              if docker image inspect "taatom-backend:rollback-${PREV_SHA}" >/dev/null 2>&1; then
+                docker tag "taatom-backend:rollback-${PREV_SHA}" taatom-backend:latest
+                docker compose up -d --no-build --remove-orphans
+              else
+                docker compose up -d --build --remove-orphans
+              fi
+              echo "Rollback started because Redis was not healthy after deploy."
+              DEPLOY_RESULT="rolled_back"
+              DEPLOY_REASON="Redis was not healthy on /health/detailed. The previous image was restored."
+              exit 1
+            fi
+
+            DEPLOY_RESULT="success"
+            DEPLOY_REASON="API and Redis are healthy"
+            echo "==> Deploy healthy (API and Redis)"
+            curl -fsS "$HEALTH_URL" >/dev/null || true
+            curl -fsS "$DETAIL_URL" >/dev/null || true
             docker compose ps
             docker image prune -f >/dev/null 2>&1 || true

@@ -774,7 +774,7 @@ function PostImage({
 
       {/* Song Player - Hidden but active for audio playback */}
       {/* Music plays when post is visible and unmuted, pauses when scrolled away (Instagram-style) */}
-      {post.song?.songId && imageUri && !imageError && (
+      {(isCurrentlyVisible || shouldPreload) && post.song?.songId && imageUri && !imageError && (
         <View style={styles.hiddenSongPlayer} pointerEvents="box-none">
           <SongPlayer 
             post={post} 

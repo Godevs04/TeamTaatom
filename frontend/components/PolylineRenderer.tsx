@@ -257,12 +257,7 @@ export default function PolylineRenderer({
     return null;
   }
 
-  // 1. Sort by timestamp to prevent jagged/crisscrossing paths from out-of-order data
-  if (processedCoords.some(c => c.timestamp !== undefined)) {
-    processedCoords.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-  }
-
-  // 2. Deduplicate coordinates within a strict 2-meter radius to smooth out path
+  // Keep the recorded order. Sorting by a rebuilt timestamp pulls the path apart.
   processedCoords = deduplicateCoords(processedCoords, 2);
 
   if (processedCoords.length < 2) {
@@ -278,12 +273,7 @@ export default function PolylineRenderer({
     if (currentSegment.length === 0) {
       currentSegment.push(coord);
     } else {
-      const prevCoord = currentSegment[currentSegment.length - 1];
-      const timeDiff = coord.timestamp && prevCoord.timestamp
-        ? (coord.timestamp - prevCoord.timestamp) / 1000
-        : 0;
-
-      if (coord.segmentBreak || timeDiff > 60) { // 60 seconds gap or explicit pause/resume break
+      if (coord.segmentBreak) {
         segments.push(currentSegment);
         currentSegment = [coord];
       } else {
@@ -295,8 +285,8 @@ export default function PolylineRenderer({
     segments.push(currentSegment);
   }
 
-  // 4. Compute epsilon and simplify/smooth each segment independently
-  const epsilon = getEpsilonForDelta(latitudeDelta, simplifyDistance);
+  // 4. Stay within the caller's simplify distance. Zoom must not drop travelled points.
+  const epsilon = Math.min(simplifyDistance, getEpsilonForDelta(latitudeDelta, simplifyDistance));
   const processedSegments = segments.map((segment) => {
     if (segment.length < 2) return segment;
 
@@ -381,12 +371,6 @@ export function generatePolylineJS(
 
   let processed = [...coordinates];
 
-  // Sort by timestamp
-  if (processed.some(c => c.timestamp !== undefined)) {
-    processed.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-  }
-
-  // Deduplicate
   processed = deduplicateCoords(processed, 2);
 
   if (processed.length < 2) return '';
@@ -400,12 +384,7 @@ export function generatePolylineJS(
     if (currentSegment.length === 0) {
       currentSegment.push(coord);
     } else {
-      const prevCoord = currentSegment[currentSegment.length - 1];
-      const timeDiff = coord.timestamp && prevCoord.timestamp
-        ? (coord.timestamp - prevCoord.timestamp) / 1000
-        : 0;
-
-      if (coord.segmentBreak || timeDiff > 60) {
+      if (coord.segmentBreak) {
         segments.push(currentSegment);
         currentSegment = [coord];
       } else {
@@ -417,7 +396,7 @@ export function generatePolylineJS(
     segments.push(currentSegment);
   }
 
-  const epsilon = getEpsilonForDelta(latitudeDelta, simplifyDistance);
+  const epsilon = Math.min(simplifyDistance, getEpsilonForDelta(latitudeDelta, simplifyDistance));
 
   return segments
     .map((seg, idx) => {

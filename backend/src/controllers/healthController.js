@@ -6,6 +6,7 @@
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
+const { redisClient } = require('../utils/cache');
 
 /**
  * Basic health check - quick response for load balancers
@@ -107,11 +108,39 @@ const detailedHealthCheck = async (req, res) => {
     healthStatus.status = 'unhealthy';
   }
 
-  // Redis is disabled - skip health check
-  healthStatus.services.redis = {
-    status: 'disabled',
-    message: 'Redis is not configured',
-  };
+  // Redis is required in production when REDIS_HOST or REDIS_URL is set.
+  const redisConfigured = Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
+  if (!redisConfigured) {
+    healthStatus.services.redis = {
+      status: 'disabled',
+      message: 'Redis is not configured',
+    };
+  } else {
+    const redisStarted = Date.now();
+    try {
+      if (!redisClient || redisClient.status !== 'ready') {
+        throw new Error('Redis is not connected');
+      }
+      const pong = await redisClient.ping();
+      const responseTimeMs = Date.now() - redisStarted;
+      if (pong !== 'PONG') {
+        throw new Error('Redis ping did not return PONG');
+      }
+      healthStatus.services.redis = {
+        status: 'healthy',
+        responseTimeMs,
+      };
+    } catch (error) {
+      logger.error('Redis health check failed', error);
+      healthStatus.services.redis = {
+        status: 'unhealthy',
+        error: error.message,
+        responseTimeMs: Date.now() - redisStarted,
+      };
+      overallHealthy = false;
+      healthStatus.status = 'degraded';
+    }
+  }
 
   // Check external services (if configured)
   if (process.env.CLOUDINARY_CLOUD_NAME) {
@@ -144,17 +173,27 @@ const detailedHealthCheck = async (req, res) => {
  */
 const readinessCheck = async (req, res) => {
   try {
-    // Check critical services (only database - Redis is disabled)
+    // Database must be up. Redis must be up when the server is configured to use it.
     const dbReady = mongoose.connection.readyState === 1;
+    const redisConfigured = Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
+    let redisReady = true;
+    if (redisConfigured) {
+      try {
+        redisReady = Boolean(redisClient) && redisClient.status === 'ready' && (await redisClient.ping()) === 'PONG';
+      } catch {
+        redisReady = false;
+      }
+    }
 
-    if (!dbReady) {
+    if (!dbReady || !redisReady) {
       return res.status(503).json({
         success: false,
         message: 'Service is not ready',
         data: {
           status: 'not_ready',
           timestamp: new Date().toISOString(),
-          database: 'not_ready',
+          database: dbReady ? 'ready' : 'not_ready',
+          redis: redisConfigured ? (redisReady ? 'ready' : 'not_ready') : 'disabled',
         },
       });
     }
@@ -163,6 +202,7 @@ const readinessCheck = async (req, res) => {
       status: 'ready',
       timestamp: new Date().toISOString(),
       database: 'ready',
+      redis: redisConfigured ? 'ready' : 'disabled',
     });
   } catch (error) {
     logger.error('Readiness check failed', error);

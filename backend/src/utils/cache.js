@@ -18,6 +18,8 @@ const CACHE_TTL = {
   TRENDING_CONTENT: 600, // 10 minutes
   HASHTAG: 1800, // 30 minutes
   SHORT: 60, // 1 minute
+  LOCALE: 120, // 2 minutes — signed locale images stay valid
+  SIGNED_URL: 90,
   MEDIUM: 300, // 5 minutes
   LONG: 1800, // 30 minutes
 };
@@ -25,6 +27,7 @@ const CACHE_TTL = {
 const redisUrl = process.env.REDIS_URL;
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = process.env.REDIS_PORT || 6379;
+const redisPassword = process.env.REDIS_PASSWORD || undefined;
 
 let redisClient = null;
 let isRedisConnected = false;
@@ -34,11 +37,10 @@ try {
     maxRetriesPerRequest: 1,
     connectTimeout: 5000,
     retryStrategy(times) {
-      // Limit reconnect attempts to not block application lifecycle
-      if (times > 3) {
-        return null; // Stop retrying
+      if (times > 30) {
+        return null;
       }
-      return Math.min(times * 100, 2000);
+      return Math.min(times * 200, 2000);
     }
   };
 
@@ -48,17 +50,18 @@ try {
     redisClient = new Redis({
       host: redisHost,
       port: parseInt(redisPort, 10),
+      password: redisPassword,
       ...options
     });
   }
 
   redisClient.on('connect', () => {
-    isRedisConnected = true;
-    logger.info('Redis connected successfully');
+    logger.info('Redis socket connected');
   });
 
   redisClient.on('ready', () => {
     isRedisConnected = true;
+    logger.info('Redis connected successfully');
   });
 
   redisClient.on('error', (err) => {
@@ -241,6 +244,13 @@ const CacheKeys = {
   trendingHashtags: (limit) => `trending:hashtags:limit:${limit}`,
   hashtag: (hashtagName) => `hashtag:${hashtagName}`,
   hashtagPosts: (hashtagName, page, limit) => `hashtag:${hashtagName}:posts:page:${page}:limit:${limit}`,
+  localeList: (filters) => `locales:list:${JSON.stringify(filters)}`,
+  locale: (localeId) => `locales:item:${localeId}`,
+  localeCountries: () => 'locales:countries',
+  localeStates: (countryCode) => `locales:states:${countryCode}`,
+  localeSpotTypes: () => 'locales:spot-types',
+  shortsCandidates: () => 'shorts:candidates:v1',
+  signedUrl: (mediaType, storageKey) => `signedurl:${mediaType}:${storageKey}`,
 };
 
 module.exports = {

@@ -123,6 +123,19 @@ const normalizeJourneyPolyline = (journey?: Journey | null): Coordinate[] => {
   });
 };
 
+const pathMeters = (coords: Array<{ latitude: number; longitude: number }>) => {
+  let total = 0;
+  for (let i = 1; i < coords.length; i += 1) {
+    total += calculateCoordinateDistance(
+      coords[i - 1].latitude,
+      coords[i - 1].longitude,
+      coords[i].latitude,
+      coords[i].longitude,
+    );
+  }
+  return total;
+};
+
 const BATCH_SEND_INTERVAL = 10000; // Send coordinates every 10 seconds
 const MIN_LOCATION_DISTANCE = 5; // Minimum 5 meters between tracked points (denser paths)
 const WALKING_SPEED_MPS = 2.2; // ~8 km/h
@@ -526,6 +539,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const lastCoordinateRef = useRef<Coordinate | null>(null);
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const batchSendTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inflightBatchRef = useRef<Promise<void> | null>(null);
+  const stoppingRef = useRef(false);
   const healthCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastGpsUpdateAtRef = useRef<number | null>(null);
   const appStateRef = useRef(AppState.currentState);
@@ -1528,36 +1543,38 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   // tracking becomes active and let the interval body decide whether to POST.
   useEffect(() => {
     if (!isTracking || isPaused) return;
-    batchSendTimerRef.current = setInterval(async () => {
-      if (!isMountedRef.current) return;
+    batchSendTimerRef.current = setInterval(() => {
+      if (!isMountedRef.current || stoppingRef.current) return;
       const id = journeyIdRef.current;
       if (!id) return;
       if (batchCoordinatesRef.current.length === 0) return;
-      // Take ownership of the current batch atomically; on failure we
-      // re-prepend so they ride out on the next attempt.
       const coords = batchCoordinatesRef.current.splice(0);
-      try {
-        const response = await updateJourneyLocation(id, coords);
-        logger.debug(`[Journey] Sent ${coords.length} coordinates to backend`);
-        // Persisted-batch matches the (now empty) in-memory batch.
-        clearPersistedCoords(id);
+      const task = (async () => {
+        try {
+          const response = await updateJourneyLocation(id, coords);
+          logger.debug(`[Journey] Sent ${coords.length} coordinates to backend`);
+          clearPersistedCoords(id);
+          if (stoppingRef.current) return;
 
-        if (response?.journey) {
-          setJourney(response.journey);
-          const snapped = normalizeJourneyPolyline(response.journey);
-          if (snapped.length > 0) {
-            // Merge road-snapped coordinates with any unsent coordinates in the current batch queue
-            const unsent = batchCoordinatesRef.current;
-            setPolyline([...snapped, ...unsent]);
-            setDistance(response.journey.distanceTraveled || response.journey.distance || 0);
+          if (response?.journey) {
+            setJourney(response.journey);
+            const snapped = normalizeJourneyPolyline(response.journey);
+            if (snapped.length > 0) {
+              const unsent = batchCoordinatesRef.current;
+              setPolyline([...snapped, ...unsent]);
+              setDistance(response.journey.distanceTraveled || response.journey.distance || 0);
+            }
           }
+        } catch (err) {
+          logger.error('[Journey] Failed to update location, requeuing:', err);
+          batchCoordinatesRef.current.unshift(...coords);
+          persistPendingCoords();
         }
-      } catch (err) {
-        logger.error('[Journey] Failed to update location, requeuing:', err);
-        batchCoordinatesRef.current.unshift(...coords);
-        // Re-persist so a subsequent crash still keeps the queued points.
-        persistPendingCoords();
-      }
+      })();
+      inflightBatchRef.current = task;
+      void task.finally(() => {
+        if (inflightBatchRef.current === task) inflightBatchRef.current = null;
+      });
     }, BATCH_SEND_INTERVAL);
 
     return () => {
@@ -1757,6 +1774,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         setAccuracy(location.coords.accuracy);
         setCurrentCoordinate(initialCoord);
         batchCoordinatesRef.current = [];
+        stoppingRef.current = false;
 
         // Set state
         setJourney(newJourney);
@@ -1904,6 +1922,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const stopJourneyRecording = useCallback(async (options?: { snapToRoads?: boolean }) => {
     try {
       setError(null);
+      stoppingRef.current = true;
       flushPolylineQueue();
 
       if (!journeyIdRef.current) {
@@ -1911,7 +1930,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
 
       const completingJourneyId = journeyIdRef.current;
-      const isCurrentlyPaused = isPausedRef.current;
       let explicitEndCoords: { lat: number; lng: number } | undefined = undefined;
 
       // 1. Stop location tracking immediately to release GPS hardware locks
@@ -1932,6 +1950,14 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
       if (batchSendTimerRef.current) {
         clearInterval(batchSendTimerRef.current);
+        batchSendTimerRef.current = null;
+      }
+      if (inflightBatchRef.current) {
+        try {
+          await inflightBatchRef.current;
+        } catch {
+          /* the failed batch puts its points back on the queue */
+        }
       }
 
       // 3. Stop background updates and absorb bg coordinates
@@ -1963,24 +1989,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             accuracy: accuracy,
           };
 
-          if (!isCurrentlyPaused) {
-            if (!finalCoord.accuracy || finalCoord.accuracy <= 80) { // Increased from 35 to match overall accuracy threshold
-              // Avoid duplicate points if final location is virtually identical to the last tracked point
-              const lastTracked = lastCoordinateRef.current;
-              const dist = lastTracked
-                ? calculateCoordinateDistance(
-                    lastTracked.latitude,
-                    lastTracked.longitude,
-                    finalCoord.latitude,
-                    finalCoord.longitude
-                  )
-                : Infinity;
+          if (!finalCoord.accuracy || finalCoord.accuracy <= 80) {
+            const lastTracked = lastCoordinateRef.current;
+            const dist = lastTracked
+              ? calculateCoordinateDistance(
+                  lastTracked.latitude,
+                  lastTracked.longitude,
+                  finalCoord.latitude,
+                  finalCoord.longitude
+                )
+              : Infinity;
 
-              if (dist >= 1) { // only push if at least 1 meter away or if no prior point
-                batchCoordinatesRef.current.push(finalCoord);
-                setPolyline((prev) => [...prev, finalCoord]);
-                lastCoordinateRef.current = finalCoord;
-              }
+            if (dist >= 1) {
+              batchCoordinatesRef.current.push(finalCoord);
+              setPolyline((prev) => [...prev, finalCoord]);
+              lastCoordinateRef.current = finalCoord;
             }
           }
         }
@@ -2001,8 +2024,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       bgKalmanFilters.delete(completingJourneyId);
       bgPositionHistories.delete(completingJourneyId);
 
-      // Extract coords to send before clearing refs
-      const coordsToSend = !isCurrentlyPaused ? [...batchCoordinatesRef.current] : [];
+      const travelled = polylineRef.current.slice();
+      if (lastCoordinateRef.current) {
+        const end = lastCoordinateRef.current;
+        const last = travelled[travelled.length - 1];
+        if (!last || last.latitude !== end.latitude || last.longitude !== end.longitude) {
+          travelled.push(end);
+        }
+      }
+      const coordsToSend = [...batchCoordinatesRef.current];
       batchCoordinatesRef.current = [];
 
       // 6. OPTIMISTIC LOCAL STATE CLEARING (instant UI termination)
@@ -2048,74 +2078,88 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       suppressNextSyncRef.current = true;
       broadcastJourneyStateChanged();
 
-      // 7. INITIATE NETWORK SYNC (Non-blocking background flow)
+      // 7. Flush the remaining points, then complete. A late batch must not replace this line.
       const snapToRoads = options?.snapToRoads !== false;
-      
-      (async () => {
-        try {
-          if (coordsToSend.length > 0) {
-            try {
-              await updateJourneyLocation(completingJourneyId, coordsToSend);
-              clearPersistedCoords(completingJourneyId);
-            } catch (updateErr) {
-              logger.error('[Journey] Failed to send final coordinates in background:', updateErr);
-              // Save to pending coordinates queue for retry
-              const persistedKey = PENDING_COORDS_KEY_PREFIX + completingJourneyId;
-              const existingRaw = await AsyncStorage.getItem(persistedKey);
-              let existing: Coordinate[] = [];
-              if (existingRaw) {
-                try {
-                  const parsed = JSON.parse(existingRaw);
-                  if (Array.isArray(parsed)) existing = parsed;
-                } catch {}
-              }
-              await AsyncStorage.setItem(persistedKey, JSON.stringify([...existing, ...coordsToSend])).catch(() => {});
-            }
-          } else {
-            clearPersistedCoords(completingJourneyId);
-          }
+      const keepTravelledLine = (nextJourney: Journey) => {
+        const snapped = normalizeJourneyPolyline(nextJourney);
+        if (travelled.length >= 2 && pathMeters(snapped) + 5 < pathMeters(travelled)) {
+          setPolyline(travelled);
+          return {
+            ...nextJourney,
+            polyline: travelled.map((point) => ({
+              latitude: point.latitude,
+              longitude: point.longitude,
+              timestamp: point.timestamp,
+              accuracy: point.accuracy,
+              segmentBreak: point.segmentBreak,
+            })),
+          } as Journey;
+        }
+        if (snapped.length > 0) setPolyline(snapped);
+        return nextJourney;
+      };
 
-          logger.debug(`[Journey] Sending completion request for ${completingJourneyId}`);
-          const { journey: resJourney } = await completeJourney(completingJourneyId, { 
-            snapToRoads,
-            endCoords: explicitEndCoords
-          });
-          if (resJourney) {
-            setJourney(resJourney);
+      try {
+        if (coordsToSend.length > 0) {
+          try {
+            await updateJourneyLocation(completingJourneyId, coordsToSend);
+            clearPersistedCoords(completingJourneyId);
+          } catch (updateErr) {
+            logger.error('[Journey] Failed to send final coordinates:', updateErr);
+            const persistedKey = PENDING_COORDS_KEY_PREFIX + completingJourneyId;
+            const existingRaw = await AsyncStorage.getItem(persistedKey);
+            let existing: Coordinate[] = [];
+            if (existingRaw) {
+              try {
+                const parsed = JSON.parse(existingRaw);
+                if (Array.isArray(parsed)) existing = parsed;
+              } catch {}
+            }
+            await AsyncStorage.setItem(persistedKey, JSON.stringify([...existing, ...coordsToSend])).catch(() => {});
           }
-          logger.debug(`[Journey] Successfully completed journey on server: ${completingJourneyId}`);
-        } catch (err: any) {
-          if ((err.message && err.message.includes('not active or paused')) || (err.response?.data?.message && err.response.data.message.includes('not active or paused'))) {
-            logger.warn('[Journey] Journey was already completed or cancelled on the server. Fetching completed details.');
-            try {
-              const res = await getJourneyDetail(completingJourneyId);
-              if (res && res.journey) {
-                setJourney(res.journey);
-              }
-            } catch (fetchErr) {
-              logger.error('[Journey] Failed to fetch completed journey details:', fetchErr);
+        } else {
+          clearPersistedCoords(completingJourneyId);
+        }
+
+        logger.debug(`[Journey] Sending completion request for ${completingJourneyId}`);
+        const { journey: resJourney } = await completeJourney(completingJourneyId, {
+          snapToRoads,
+          endCoords: explicitEndCoords
+        });
+        if (resJourney) {
+          setJourney(keepTravelledLine(resJourney));
+        }
+        logger.debug(`[Journey] Successfully completed journey on server: ${completingJourneyId}`);
+      } catch (err: any) {
+        if ((err.message && err.message.includes('not active or paused')) || (err.response?.data?.message && err.response.data.message.includes('not active or paused'))) {
+          logger.warn('[Journey] Journey was already completed or cancelled on the server. Fetching completed details.');
+          try {
+            const res = await getJourneyDetail(completingJourneyId);
+            if (res && res.journey) {
+              setJourney(keepTravelledLine(res.journey));
             }
-          } else {
-            logger.error(`[Journey] API completion failed/timed out, queuing retry for ${completingJourneyId}:`, err);
-            try {
-              const queueRaw = await AsyncStorage.getItem('@pending_journey_completions');
-              let queue = [];
-              if (queueRaw) {
-                const parsed = JSON.parse(queueRaw);
-                if (Array.isArray(parsed)) queue = parsed;
-              }
-              // Add if not already in queue
-              if (!queue.some((item: any) => item.journeyId === completingJourneyId)) {
-                queue.push({ journeyId: completingJourneyId, snapToRoads, endCoords: explicitEndCoords, timestamp: Date.now() });
-                await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(queue));
-                logger.debug(`[Journey] Saved completion retry to queue for journey: ${completingJourneyId}`);
-              }
-            } catch (storageErr) {
-              logger.error('[Journey] Failed to persist completion retry queue:', storageErr);
+          } catch (fetchErr) {
+            logger.error('[Journey] Failed to fetch completed journey details:', fetchErr);
+          }
+        } else {
+          logger.error(`[Journey] API completion failed/timed out, queuing retry for ${completingJourneyId}:`, err);
+          try {
+            const queueRaw = await AsyncStorage.getItem('@pending_journey_completions');
+            let queue = [];
+            if (queueRaw) {
+              const parsed = JSON.parse(queueRaw);
+              if (Array.isArray(parsed)) queue = parsed;
             }
+            if (!queue.some((item: any) => item.journeyId === completingJourneyId)) {
+              queue.push({ journeyId: completingJourneyId, snapToRoads, endCoords: explicitEndCoords, timestamp: Date.now() });
+              await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(queue));
+              logger.debug(`[Journey] Saved completion retry to queue for journey: ${completingJourneyId}`);
+            }
+          } catch (storageErr) {
+            logger.error('[Journey] Failed to persist completion retry queue:', storageErr);
           }
         }
-      })();
+      }
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to stop journey';
       setError(errorMsg);

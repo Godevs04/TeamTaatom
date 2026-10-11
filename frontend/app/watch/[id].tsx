@@ -77,6 +77,59 @@ function isLandscapeOrientation(ori: ScreenOrientation.Orientation): boolean {
   );
 }
 
+type ClockListener = (time: number) => void;
+
+function usePlaybackClock(
+  subscribe: (listener: ClockListener) => () => void,
+  scrubPreview: number | null,
+) {
+  const [time, setTime] = useState(0);
+  useEffect(() => subscribe(setTime), [subscribe]);
+  return scrubPreview != null ? scrubPreview : time;
+}
+
+function ClockTime({
+  subscribe,
+  totalDuration,
+  scrubPreview,
+}: {
+  subscribe: (listener: ClockListener) => () => void;
+  totalDuration: number;
+  scrubPreview: number | null;
+}) {
+  const display = usePlaybackClock(subscribe, scrubPreview);
+  return (
+    <Text style={styles.chromeTime}>
+      {formatDuration(Math.floor(display)) || '0:00'}
+      {formatDuration(totalDuration) ? ` / ${formatDuration(totalDuration)}` : ''}
+    </Text>
+  );
+}
+
+function ClockBar({
+  subscribe,
+  totalDuration,
+  scrubPreview,
+}: {
+  subscribe: (listener: ClockListener) => () => void;
+  totalDuration: number;
+  scrubPreview: number | null;
+}) {
+  const display = usePlaybackClock(subscribe, scrubPreview);
+  const pct = !totalDuration || display <= 0 ? 0 : Math.min(100, (display / totalDuration) * 100);
+  return (
+    <>
+      <View style={styles.chromeTrack}>
+        <View style={[styles.chromeFill, { width: `${Math.max(1.5, pct)}%` }]} />
+      </View>
+      <View
+        pointerEvents="none"
+        style={[styles.chromeThumb, { left: `${Math.max(0, Math.min(100, pct))}%` }]}
+      />
+    </>
+  );
+}
+
 export default function WatchDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -95,7 +148,6 @@ export default function WatchDetailScreen() {
   const [adBusy, setAdBusy] = useState(false);
   /** Blocks autoplay until preroll finishes (or is skipped). */
   const [prerollGateOpen, setPrerollGateOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
@@ -107,6 +159,8 @@ export default function WatchDetailScreen() {
   const firedSlotsRef = useRef<Set<number>>(new Set());
   const prerollDoneRef = useRef(false);
   const resumeAtRef = useRef(0);
+  const currentTimeRef = useRef(0);
+  const clockListenersRef = useRef(new Set<ClockListener>());
   const videoRef = useRef<any>(null);
   const fsVideoRef = useRef<any>(null);
   const chromeHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -193,6 +247,36 @@ export default function WatchDetailScreen() {
     }, 2800);
   }, [paused]);
 
+  const publishClock = useCallback((time: number) => {
+    currentTimeRef.current = time;
+    clockListenersRef.current.forEach((listener) => listener(time));
+  }, []);
+
+  const subscribeClock = useCallback((listener: ClockListener) => {
+    clockListenersRef.current.add(listener);
+    listener(currentTimeRef.current);
+    return () => {
+      clockListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  const resumePlayback = useCallback((seconds: number) => {
+    resumeAtRef.current = seconds;
+    publishClock(seconds);
+    setAdBusy(false);
+    setPrerollGateOpen(true);
+    requestAnimationFrame(() => {
+      try {
+        const target = isFullscreenRef.current ? fsVideoRef.current : videoRef.current;
+        target?.seek?.(seconds);
+      } catch {
+        /* ignore */
+      }
+      setPaused(false);
+      bumpChrome();
+    });
+  }, [publishClock, bumpChrome]);
+
   const runPreroll = useCallback(async () => {
     if (prerollDoneRef.current) return;
     const pre = schedule.find((s) => s.atSeconds === 0);
@@ -203,27 +287,17 @@ export default function WatchDetailScreen() {
       bumpChrome();
       return;
     }
+    resumeAtRef.current = 0;
+    publishClock(0);
     setAdBusy(true);
     setPaused(true);
     setPrerollGateOpen(false);
     await runAdSlot(pre);
     firedSlotsRef.current.add(0);
     prerollDoneRef.current = true;
-    // Rewind in case the player advanced while the ad UI was up.
-    try {
-      videoRef.current?.seek?.(0);
-      fsVideoRef.current?.seek?.(0);
-    } catch {
-      /* ignore */
-    }
-    resumeAtRef.current = 0;
-    setCurrentTime(0);
     endedRef.current = false;
-    setAdBusy(false);
-    setPrerollGateOpen(true);
-    setPaused(false);
-    bumpChrome();
-  }, [schedule, bumpChrome]);
+    resumePlayback(0);
+  }, [schedule, bumpChrome, publishClock, resumePlayback]);
 
   useEffect(() => {
     if (post && !prerollDoneRef.current) {
@@ -310,20 +384,12 @@ export default function WatchDetailScreen() {
           setAdBusy(true);
           setPaused(true);
           await runAdSlot(slot);
-          setAdBusy(false);
-          setPaused(false);
-          bumpChrome();
-          try {
-            const target = isFullscreen ? fsVideoRef.current : videoRef.current;
-            target?.seek?.(resumeAtRef.current);
-          } catch {
-            /* ignore */
-          }
+          resumePlayback(t);
           break;
         }
       }
     },
-    [schedule, adBusy, isFullscreen, bumpChrome]
+    [schedule, adBusy, resumePlayback]
   );
 
   const onEnd = useCallback(async () => {
@@ -343,7 +409,7 @@ export default function WatchDetailScreen() {
   const enterLandscape = useCallback(async () => {
     const uri = post?.videoUrl || post?.mediaUrl || '';
     if (adBusy || !prerollGateOpen || !uri) return;
-    resumeAtRef.current = currentTime;
+    resumeAtRef.current = currentTimeRef.current;
     enteringFsSeekDoneRef.current = false;
     isFullscreenRef.current = true;
     setIsFullscreen(true);
@@ -371,7 +437,7 @@ export default function WatchDetailScreen() {
       logger.warn('Landscape orientation lock failed — using rotate fallback', e);
       setRotateFallback(true);
     }
-  }, [adBusy, prerollGateOpen, currentTime, post?.videoUrl, post?.mediaUrl]);
+  }, [adBusy, prerollGateOpen, post?.videoUrl, post?.mediaUrl]);
 
   const exitLandscape = useCallback(async () => {
     isFullscreenRef.current = false;
@@ -387,12 +453,12 @@ export default function WatchDetailScreen() {
     setIsFullscreen(false);
     requestAnimationFrame(() => {
       try {
-        videoRef.current?.seek?.(resumeAtRef.current || currentTime);
+        videoRef.current?.seek?.(resumeAtRef.current);
       } catch {
         /* ignore */
       }
     });
-  }, [currentTime]);
+  }, []);
 
   // Seek fullscreen player ONCE when entering — never re-run on currentTime
   // (that caused the boomerang / stuck-second loop).
@@ -428,7 +494,7 @@ export default function WatchDetailScreen() {
   const seekActivePlayer = useCallback((seconds: number) => {
     const capped = Math.max(0, seconds);
     resumeAtRef.current = capped;
-    setCurrentTime(capped);
+    publishClock(capped);
     const dur = totalDurationRef.current;
     if (dur > 0 && capped < Math.max(0, dur - 0.35)) {
       endedRef.current = false;
@@ -439,7 +505,7 @@ export default function WatchDetailScreen() {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [publishClock]);
 
   const onTrackLayout = useCallback((e: LayoutChangeEvent) => {
     trackWidthRef.current = e.nativeEvent.layout.width;
@@ -558,11 +624,6 @@ export default function WatchDetailScreen() {
   const previewComments = useMemo(() => comments.slice(-3).reverse(), [comments]);
   const totalDuration = duration || Number(post?.durationSeconds) || 0;
   totalDurationRef.current = totalDuration;
-  const displayTime = scrubPreview != null ? scrubPreview : currentTime;
-  const progressPct = useMemo(() => {
-    if (!totalDuration || displayTime <= 0) return 0;
-    return Math.min(100, (displayTime / totalDuration) * 100);
-  }, [displayTime, totalDuration]);
 
   const renderPlayerChrome = (opts: { fullscreen?: boolean }) => {
     if (adBusy || !chromeVisible) return null;
@@ -589,10 +650,11 @@ export default function WatchDetailScreen() {
               />
             </Pressable>
 
-            <Text style={styles.chromeTime}>
-              {formatDuration(Math.floor(displayTime)) || '0:00'}
-              {formatDuration(totalDuration) ? ` / ${formatDuration(totalDuration)}` : ''}
-            </Text>
+            <ClockTime
+              subscribe={subscribeClock}
+              totalDuration={totalDuration}
+              scrubPreview={scrubPreview}
+            />
 
             <View
               style={styles.chromeTrackHit}
@@ -601,15 +663,10 @@ export default function WatchDetailScreen() {
               accessibilityRole="adjustable"
               accessibilityLabel="Seek video"
             >
-              <View style={styles.chromeTrack}>
-                <View style={[styles.chromeFill, { width: `${Math.max(1.5, progressPct || 0)}%` }]} />
-              </View>
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.chromeThumb,
-                  { left: `${Math.max(0, Math.min(100, progressPct || 0))}%` },
-                ]}
+              <ClockBar
+                subscribe={subscribeClock}
+                totalDuration={totalDuration}
+                scrubPreview={scrubPreview}
               />
             </View>
 
@@ -761,12 +818,7 @@ export default function WatchDetailScreen() {
                   onLoad={(meta) => {
                     if (meta?.duration) setDuration(meta.duration);
                     setPlaybackError(null);
-                    if (!prerollDoneRef.current || adBusy) {
-                      try {
-                        videoRef.current?.seek?.(0);
-                      } catch {
-                        /* ignore */
-                      }
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
                       setPaused(true);
                       return;
                     }
@@ -777,10 +829,8 @@ export default function WatchDetailScreen() {
                         /* ignore */
                       }
                     }
-                    if (prerollGateOpen && !adBusy) {
-                      setPaused(false);
-                      bumpChrome();
-                    }
+                    setPaused(false);
+                    bumpChrome();
                   }}
                   onReadyForDisplay={() => {
                     if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
@@ -792,18 +842,9 @@ export default function WatchDetailScreen() {
                   progressUpdateInterval={250}
                   onProgress={(p) => {
                     if (scrubbingRef.current) return;
-                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
-                      if (p.currentTime > 0.05) {
-                        try {
-                          videoRef.current?.seek?.(0);
-                        } catch {
-                          /* ignore */
-                        }
-                      }
-                      return;
-                    }
-                    setCurrentTime(p.currentTime);
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) return;
                     resumeAtRef.current = p.currentTime;
+                    publishClock(p.currentTime);
                     maybeFireMidroll(p.currentTime);
                   }}
                   onEnd={onEnd}
@@ -1106,40 +1147,32 @@ export default function WatchDetailScreen() {
                   paused={paused || adBusy || !prerollGateOpen || !!playbackError}
                   controls={false}
                   repeat={false}
+                  playInBackground={false}
+                  playWhenInactive={false}
                   ignoreSilentSwitch="ignore"
                   progressUpdateInterval={250}
                   onLoad={(meta) => {
                     if (meta?.duration) setDuration(meta.duration);
-                    const t =
-                      !prerollDoneRef.current || adBusy ? 0 : resumeAtRef.current || 0;
+                    setPlaybackError(null);
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
+                      setPaused(true);
+                      return;
+                    }
+                    const t = resumeAtRef.current || 0;
                     try {
                       fsVideoRef.current?.seek?.(t);
                       enteringFsSeekDoneRef.current = true;
                     } catch {
                       /* ignore */
                     }
-                    setPlaybackError(null);
-                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
-                      setPaused(true);
-                      return;
-                    }
                     setPaused(false);
                     bumpChrome();
                   }}
                   onProgress={(p) => {
                     if (scrubbingRef.current) return;
-                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) {
-                      if (p.currentTime > 0.05) {
-                        try {
-                          fsVideoRef.current?.seek?.(0);
-                        } catch {
-                          /* ignore */
-                        }
-                      }
-                      return;
-                    }
-                    setCurrentTime(p.currentTime);
+                    if (!prerollDoneRef.current || adBusy || !prerollGateOpen) return;
                     resumeAtRef.current = p.currentTime;
+                    publishClock(p.currentTime);
                     maybeFireMidroll(p.currentTime);
                   }}
                   onEnd={() => {

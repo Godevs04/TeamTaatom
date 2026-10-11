@@ -6,8 +6,13 @@ const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { escapeRegex } = require('../utils/regexEscape');
+const { getCache, setCache, deleteCacheByPattern, CacheKeys, CACHE_TTL } = require('../utils/cache');
 
 const MAX_LOCALE_IMAGES = 10;
+
+async function invalidateLocaleCaches() {
+  await deleteCacheByPattern('locales:*').catch(() => {});
+}
 
 /**
  * Collect ordered storage keys for a locale doc (gallery + legacy single key).
@@ -227,6 +232,26 @@ const getLocales = async (req, res) => {
       query.spotTypes = { $in: [new RegExp(`^${spotType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')] };
     }
 
+    const localeCacheKey = includeInactive === 'true' ? null : CacheKeys.localeList({
+      search: search || '',
+      countryCode: (countryCode && countryCode !== 'all') ? countryCode.toUpperCase() : '',
+      stateCode: queryCode,
+      stateProvince: queryProvince,
+      spotTypes: spotTypesArray.slice().sort().join(','),
+      lat: lat !== undefined && lat !== '' && !Number.isNaN(parseFloat(lat)) ? Number(parseFloat(lat).toFixed(2)) : '',
+      long: long !== undefined && long !== '' && !Number.isNaN(parseFloat(long)) ? Number(parseFloat(long).toFixed(2)) : '',
+      sort: sort || '',
+      cursor: cursor || '',
+      page: parsedPage,
+      limit: parsedLimit,
+    });
+    if (localeCacheKey) {
+      const cachedLocales = await getCache(localeCacheKey);
+      if (cachedLocales) {
+        return sendSuccess(res, 200, 'Locales fetched successfully', cachedLocales);
+      }
+    }
+
     // OPTIMIZATION: Use lean() and select only required fields to reduce payload size
     // Exclude large fields that aren't needed: description (can be long), full country name
     // Note: country field removed from select to reduce payload (countryCode is sufficient)
@@ -385,6 +410,10 @@ const getLocales = async (req, res) => {
       responseData.statistics = statistics;
     }
 
+    if (localeCacheKey) {
+      await setCache(localeCacheKey, responseData, CACHE_TTL.LOCALE);
+    }
+
     return sendSuccess(res, 200, 'Locales fetched successfully', responseData);
   } catch (error) {
     logger.error('Get locales error:', error);
@@ -397,6 +426,12 @@ const getLocales = async (req, res) => {
 // @access  Public
 const getLocaleById = async (req, res) => {
   try {
+    const cacheKey = CacheKeys.locale(req.params.id);
+    const cached = await getCache(cacheKey);
+    if (cached) {
+      return sendSuccess(res, 200, 'Locale fetched successfully', cached);
+    }
+
     const locale = await Locale.findById(req.params.id)
       .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude altitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
       .lean();
@@ -410,7 +445,9 @@ const getLocaleById = async (req, res) => {
     }
     await attachLocaleImagesToPlain(locale);
 
-    return sendSuccess(res, 200, 'Locale fetched successfully', { locale });
+    const payload = { locale };
+    await setCache(cacheKey, payload, CACHE_TTL.LOCALE);
+    return sendSuccess(res, 200, 'Locale fetched successfully', payload);
   } catch (error) {
     logger.error('Get locale by ID error:', error);
     return sendError(res, 'SRV_6001', 'Error fetching locale');
@@ -561,6 +598,7 @@ const uploadLocale = async (req, res) => {
       await attachLocaleImagesToPlain(localeResponse);
     }
 
+    await invalidateLocaleCaches();
     return sendSuccess(res, 201, 'Locale uploaded successfully', { locale: localeResponse });
   } catch (error) {
     logger.error('Upload locale error:', error);
@@ -612,6 +650,7 @@ const deleteLocaleById = async (req, res) => {
     // Delete from database
     await Locale.findByIdAndDelete(req.params.id);
 
+    await invalidateLocaleCaches();
     return sendSuccess(res, 200, 'Locale deleted successfully');
   } catch (error) {
     logger.error('Delete locale error:', error);
@@ -641,6 +680,7 @@ const toggleLocaleStatus = async (req, res) => {
 
     logger.info(`Locale ${id} status changed to ${isActive ? 'active' : 'inactive'}`);
 
+    await invalidateLocaleCaches();
     return sendSuccess(res, 200, `Locale ${isActive ? 'activated' : 'deactivated'} successfully`, {
       locale: {
         _id: locale._id,
@@ -886,6 +926,7 @@ const updateLocale = async (req, res) => {
     const updatedLean = await Locale.findById(id).lean();
     await attachLocaleImagesToPlain(updatedLean);
 
+    await invalidateLocaleCaches();
     return sendSuccess(res, 200, 'Locale updated successfully', {
       locale: {
         _id: updatedLean._id,
@@ -920,6 +961,10 @@ const updateLocale = async (req, res) => {
 // @access  Public
 const getUniqueCountries = async (req, res) => {
   try {
+    const cached = await getCache(CacheKeys.localeCountries());
+    if (cached) {
+      return sendSuccess(res, 200, 'Countries fetched successfully', cached);
+    }
     // Try aggregation first (no allowDiskUse - not supported on MongoDB Atlas M0/free tier)
     const matchStage = {
       isActive: true,
@@ -977,9 +1022,9 @@ const getUniqueCountries = async (req, res) => {
       );
     }
 
-    return sendSuccess(res, 200, 'Countries fetched successfully', {
-      countries: uniqueCountries
-    });
+    const countryPayload = { countries: uniqueCountries };
+    await setCache(CacheKeys.localeCountries(), countryPayload, CACHE_TTL.LONG);
+    return sendSuccess(res, 200, 'Countries fetched successfully', countryPayload);
   } catch (error) {
     logger.error('Get unique countries error:', error);
     return sendError(res, 'SRV_6001', 'Error fetching countries');
@@ -996,6 +1041,10 @@ const getUniqueStates = async (req, res) => {
       return sendError(res, 'VAL_4001', 'countryCode is required');
     }
     const code = countryCode.trim().toUpperCase();
+    const cached = await getCache(CacheKeys.localeStates(code));
+    if (cached) {
+      return sendSuccess(res, 200, 'States fetched successfully', cached);
+    }
     const states = await Locale.aggregate([
       { $match: { isActive: true, countryCode: code } },
       {
@@ -1014,7 +1063,9 @@ const getUniqueStates = async (req, res) => {
       },
       { $sort: { stateProvince: 1, stateCode: 1 } }
     ]).option({ maxTimeMS: 10000 });
-    return sendSuccess(res, 200, 'States fetched successfully', { states });
+    const statePayload = { states };
+    await setCache(CacheKeys.localeStates(code), statePayload, CACHE_TTL.LONG);
+    return sendSuccess(res, 200, 'States fetched successfully', statePayload);
   } catch (error) {
     logger.error('Get unique states error:', error);
     return sendError(res, 'SRV_6001', 'Error fetching states');
@@ -1026,6 +1077,10 @@ const getUniqueStates = async (req, res) => {
 // @access  Public
 const getSpotTypes = async (req, res) => {
   try {
+    const cached = await getCache(CacheKeys.localeSpotTypes());
+    if (cached) {
+      return sendSuccess(res, 200, 'Spot types fetched successfully', cached);
+    }
     const result = await Locale.aggregate([
       { $match: { isActive: true, spotTypes: { $exists: true, $ne: [] } } },
       { $unwind: '$spotTypes' },
@@ -1034,7 +1089,9 @@ const getSpotTypes = async (req, res) => {
       { $project: { _id: 0, name: '$_id' } }
     ]).option({ maxTimeMS: 10000 });
     const spotTypes = result.map((r) => r.name).filter(Boolean);
-    return sendSuccess(res, 200, 'Spot types fetched successfully', { spotTypes });
+    const spotPayload = { spotTypes };
+    await setCache(CacheKeys.localeSpotTypes(), spotPayload, CACHE_TTL.LONG);
+    return sendSuccess(res, 200, 'Spot types fetched successfully', spotPayload);
   } catch (error) {
     logger.error('Get spot types error:', error);
     return sendError(res, 'SRV_6001', 'Error fetching spot types');
