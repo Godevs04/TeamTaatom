@@ -162,31 +162,42 @@ const updateRouteQuality = (journey, stats) => {
   };
 };
 
+const polylineLengthMeters = (points) => {
+  if (!Array.isArray(points) || points.length < 2) return 0;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    const lat1 = a.lat ?? a.latitude;
+    const lng1 = a.lng ?? a.longitude;
+    const lat2 = b.lat ?? b.latitude;
+    const lng2 = b.lng ?? b.longitude;
+    if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) continue;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const h = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    total += 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+  return total;
+};
+
 const buildDisplayPolyline = (journey) => {
   const snapped = journey.snapped_polyline || [];
   const raw = journey.raw_polyline || [];
 
-  if (snapped.length > 0) {
-    return snapped.map((p, idx) => {
-      let origIdx = 0;
-      if (snapped.length > 1 && raw.length > 0) {
-        origIdx = Math.min(
-          Math.floor((idx / (snapped.length - 1)) * (raw.length - 1)),
-          raw.length - 1
-        );
-      }
-      const rawP = raw[origIdx];
-      return {
-        lat: p.lat,
-        lng: p.lng,
-        timestamp: rawP ? rawP.timestamp : new Date(),
-        accuracy: rawP ? rawP.accuracy : 0,
-        segmentBreak: rawP ? rawP.segmentBreak : false
-      };
-    });
+  if (snapped.length === 0 || (raw.length >= 2 && polylineLengthMeters(snapped) + 5 < polylineLengthMeters(raw))) {
+    return raw;
   }
 
-  return raw;
+  return snapped.map((p) => ({
+    lat: p.lat,
+    lng: p.lng,
+    timestamp: p.timestamp,
+    accuracy: p.accuracy || 0,
+    segmentBreak: !!p.segmentBreak,
+  }));
 };
 // POST /api/v1/journey/start
 const startJourney = async (req, res) => {

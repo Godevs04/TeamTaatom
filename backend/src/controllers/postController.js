@@ -17,7 +17,7 @@ const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
 const { extractMentions } = require('../utils/mentionExtractor');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
-const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern, getCache, setCache } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { startTranscodeWorker, triggerTranscode } = require('../services/videoTranscode');
@@ -3339,30 +3339,32 @@ const getShorts = async (req, res) => {
       .filter(id => mongoose.Types.ObjectId.isValid(id))
       .map(id => new mongoose.Types.ObjectId(id));
 
-    // Base conditions for active shorts
-    const baseConditions = {
-      isActive: true,
-      isArchived: { $ne: true },
-      isHidden: { $ne: true },
-      type: 'short',
-      status: 'active',
-      _id: { $nin: excludeObjIds }
-    };
-
-    if (allowedFiltered.length > 0) {
-      baseConditions.user = { $in: allowedFiltered.map(id => new mongoose.Types.ObjectId(id)) };
-    } else {
-      baseConditions.user = { $in: [new mongoose.Types.ObjectId()] };
+    // Retrieve up to 200 candidate unseen shorts. The shared list is cached;
+    // each viewer still filters out posts they have already seen.
+    let candidateShorts = await getCache(CacheKeys.shortsCandidates());
+    if (!Array.isArray(candidateShorts) || candidateShorts.length === 0) {
+      candidateShorts = await Post.find({
+        isActive: true,
+        isArchived: { $ne: true },
+        isHidden: { $ne: true },
+        type: 'short',
+        status: 'active',
+      })
+        .populate('user', 'fullName username profilePic profilePicStorageKey followersCount')
+        .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
+        .populate('song.songId')
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .lean();
+      await setCache(CacheKeys.shortsCandidates(), candidateShorts, CACHE_TTL.SHORT);
     }
-
-    // Retrieve up to 200 candidate unseen shorts sorted by date (indexed query)
-    const candidateShorts = await Post.find(baseConditions)
-      .populate('user', 'fullName username profilePic profilePicStorageKey followersCount')
-      .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
-      .populate('song.songId')
-      .sort({ createdAt: -1 })
-      .limit(200)
-      .lean();
+    const excludeIdSet = new Set(excludeObjIds.map((id) => id.toString()));
+    candidateShorts = candidateShorts.filter((short) => {
+      const authorId = short.user?._id ? short.user._id.toString() : short.user?.toString?.();
+      if (excludeIdSet.has(short._id.toString())) return false;
+      if (allowedFiltered.length === 0) return false;
+      return allowedFiltered.some((id) => id.toString() === authorId);
+    });
 
     // Scoring function in-memory
     const scoreShort = (short) => {

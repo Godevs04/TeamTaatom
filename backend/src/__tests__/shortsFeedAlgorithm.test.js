@@ -47,11 +47,24 @@ jest.mock('../models/UserInteraction', () => {
 
 jest.mock('../models/User', () => {
   return {
-    find: jest.fn().mockReturnValue({
+    find: jest.fn().mockImplementation((query = {}) => ({
       select: jest.fn().mockReturnValue({
-        lean: jest.fn().mockResolvedValue([])
-      })
-    })
+        lean: jest.fn().mockImplementation(() => {
+          if (query.blockedUsers || (query._id && query._id.$in)) {
+            return Promise.resolve([]);
+          }
+          return Promise.resolve([
+            { _id: '507f1f77bcf86cd799439012' },
+            { _id: '507f1f77bcf86cd799439013' },
+          ]);
+        }),
+      }),
+    })),
+    findById: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ blockedUsers: [] }),
+      }),
+    }),
   };
 });
 jest.mock('../models/Like', () => {
@@ -66,7 +79,10 @@ jest.mock('../models/Like', () => {
 jest.mock('../models/Follow', () => {
   return {
     find: jest.fn().mockReturnValue({
-      lean: jest.fn().mockResolvedValue([])
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+      lean: jest.fn().mockResolvedValue([]),
     }),
     exists: jest.fn().mockResolvedValue(false)
   };
@@ -82,8 +98,15 @@ jest.mock('../utils/logger', () => ({
 jest.mock('../utils/cache', () => ({
   deleteCacheByPattern: jest.fn().mockResolvedValue(true),
   deleteCache: jest.fn().mockResolvedValue(true),
+  getCache: jest.fn().mockImplementation(async (key) => (
+    typeof key === 'string' && key.startsWith('signedurl:') ? 'https://example.test/signed' : null
+  )),
+  setCache: jest.fn().mockResolvedValue(true),
+  CACHE_TTL: { SHORT: 60 },
   CacheKeys: {
-    userPosts: (userId, page, limit) => `user-posts:${userId}:${page}:${limit}`
+    userPosts: (userId, page, limit) => `user-posts:${userId}:${page}:${limit}`,
+    shortsCandidates: () => 'shorts:candidates:v1',
+    signedUrl: (mediaType, storageKey) => `signedurl:${mediaType}:${storageKey}`,
   }
 }));
 
@@ -154,7 +177,7 @@ describe('Shorts Feed Algorithm & AI Tag Extraction', () => {
       tags: ['travel', 'mountains'],
       likes: [],
       views: 10,
-      user: { _id: 'userA', fullName: 'User A', followers: [] },
+      user: { _id: '507f1f77bcf86cd799439012', fullName: 'User A', followers: [] },
       videoUrl: 'http://test.com/video1.mp4'
     };
     const mockPost2 = {
@@ -163,7 +186,7 @@ describe('Shorts Feed Algorithm & AI Tag Extraction', () => {
       tags: ['food', 'cuisine'],
       likes: ['someUser'],
       views: 5,
-      user: { _id: 'userB', fullName: 'User B', followers: [] },
+      user: { _id: '507f1f77bcf86cd799439013', fullName: 'User B', followers: [] },
       videoUrl: 'http://test.com/video2.mp4'
     };
 
@@ -171,7 +194,7 @@ describe('Shorts Feed Algorithm & AI Tag Extraction', () => {
       res = mockRes();
       req = {
         query: { limit: 10 },
-        user: { _id: 'viewerId123', interests: ['mountains', 'travel'] }
+        user: { _id: '507f1f77bcf86cd799439011', interests: ['mountains', 'travel'] }
       };
     });
 

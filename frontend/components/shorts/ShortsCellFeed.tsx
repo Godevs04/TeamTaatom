@@ -532,7 +532,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                 onLayout={handleVideoFrameLayout}
                 pointerEvents="none"
               >
-              {isActive && videoFrameSize && !videoFailed && (
+              {shouldRenderVideo && videoFrameSize && !videoFailed && (
                 <ShortsExpoPlayer
                 key={`video-${item._id}-${sourceVersion}`}
                 ref={(ref) => {

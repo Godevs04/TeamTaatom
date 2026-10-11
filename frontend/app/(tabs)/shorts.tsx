@@ -383,7 +383,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
   const [checkedVideoCacheIds, setCheckedVideoCacheIds] = useState<Set<string>>(new Set());
-  const [activeVideoPrepared, setActiveVideoPrepared] = useState(false);
   const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
   const currentVisibleIndexRef = useRef<number>(initialIndex);
   const shortsDataRef = useRef<ShortsItem[]>([]);
@@ -2137,28 +2136,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     shortsDataRef.current = shortsData;
   }, [shortsData]);
 
-  // Reset activePrepared state when visible index changes
-  useEffect(() => {
-    setActiveVideoPrepared(false);
-  }, [currentVisibleIndex]);
-
-  // Set activeVideoPrepared to true if active video is already cached
-  useEffect(() => {
-    const activeVideo = shortsData[currentVisibleIndex];
-    if (activeVideo && !isAdItem(activeVideo) && !!localVideoUris[activeVideo._id]) {
-      setActiveVideoPrepared(true);
-    }
-  }, [currentVisibleIndex, shortsData, localVideoUris]);
-
-  // Fallback: allow preloading next videos after 1.5s regardless of active video readiness
-  useEffect(() => {
-    if (activeVideoPrepared) return;
-    const timer = setTimeout(() => {
-      setActiveVideoPrepared(true);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [activeVideoPrepared, currentVisibleIndex]);
-
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
   useEffect(() => {
@@ -2181,12 +2158,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // When video is ready for display, if it didn't use a local URI, lock it to remote
     if (!localVideoUris[videoId]) {
       activeStartedWithRemoteRef.current[videoId] = true;
-    }
-    
-    // If the ready video is the active one, mark active video as prepared
-    const activeVideo = shortsDataRef.current[currentVisibleIndexRef.current];
-    if (activeVideo && !isAdItem(activeVideo) && activeVideo._id === videoId) {
-      setActiveVideoPrepared(true);
     }
   }, [localVideoUris]);
 
@@ -2227,25 +2198,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     }
 
-    // 3. Preload next videos only when active video is prepared (ready or cached)
+    // 3. Start the next short immediately. The cell mounts a paused player.
     let staggerTimeout: NodeJS.Timeout | null = null;
-    if (activeVideoPrepared) {
-      // Preload next video (index + 1)
-      const nextIndex = currentVisibleIndex + 1;
-      if (nextIndex < shortsData.length) {
-        const nextItem = shortsData[nextIndex];
-        if (nextItem && !isAdItem(nextItem)) {
-          const baseUrl = nextItem.videoUrl || nextItem.mediaUrl || nextItem.imageUrl;
-          if (baseUrl) {
-            preloadVideoAsync(nextItem._id, baseUrl);
-          }
-          prefetchThumbnail(nextItem);
+    const nextIndex = currentVisibleIndex + 1;
+    if (nextIndex < shortsData.length) {
+      const nextItem = shortsData[nextIndex];
+      if (nextItem && !isAdItem(nextItem)) {
+        const baseUrl = nextItem.videoUrl || nextItem.mediaUrl || nextItem.imageUrl;
+        if (baseUrl) {
+          preloadVideoAsync(nextItem._id, baseUrl);
         }
+        prefetchThumbnail(nextItem);
       }
+    }
 
-      // Preload second next video (index + 2) with a delay, or when next video is cached
-      const secondNextIndex = currentVisibleIndex + 2;
-      if (secondNextIndex < shortsData.length) {
+    const secondNextIndex = currentVisibleIndex + 2;
+    if (secondNextIndex < shortsData.length) {
         const secondNextItem = shortsData[secondNextIndex];
         if (secondNextItem && !isAdItem(secondNextItem)) {
           const baseUrl = secondNextItem.videoUrl || secondNextItem.mediaUrl || secondNextItem.imageUrl;
@@ -2264,7 +2232,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             }
           }
         }
-      }
     }
 
     // 4. Synchronously check cache status for the sliding window to update localVideoUris and checkedVideoCacheIds state
@@ -2319,7 +2286,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         clearTimeout(staggerTimeout);
       }
     };
-  }, [currentVisibleIndex, shortsData, activeVideoPrepared]);
+  }, [currentVisibleIndex, shortsData]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
@@ -2759,6 +2726,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         contentInset={{ top: 0, bottom: 0, left: 0, right: 0 }}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
+        drawDistance={containerHeight || 800}
       />
 
       {/* Comment Modal */}

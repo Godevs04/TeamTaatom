@@ -50,7 +50,7 @@ function LongVideoCard({ post }: LongVideoCardProps) {
       accessibilityRole="button"
       accessibilityLabel={title}
     >
-      <CloudGlassSurface borderRadius={20} style={styles.surface}>
+      <CloudGlassSurface borderRadius={20} blur={false} style={styles.surface}>
         <View style={styles.thumbWrap}>
           {thumb ? (
             <Image source={{ uri: thumb }} style={styles.thumb} resizeMode="cover" />

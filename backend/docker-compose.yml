@@ -1,7 +1,29 @@
-# Taatom backend — single-service production compose for AWS EC2.
-# MongoDB Atlas, Upstash Redis, and Sevalla storage stay external (not in this file).
+# Taatom backend — production compose for AWS EC2.
+# MongoDB Atlas and Sevalla storage stay external. Redis runs on this host.
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: taatom-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - taatom-redis-data:/data
+    networks:
+      - taatom-prod
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   backend:
     build:
       context: .
@@ -14,6 +36,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # Inside this compose network the Redis service is named "redis", not localhost.
+      REDIS_HOST: redis
+    depends_on:
+      - redis
     # Bind to localhost only — Nginx on the host reverse-proxies public traffic.
     # Change to "3000:3000" only if you need direct host access without Nginx.
     ports:
@@ -36,3 +62,6 @@ networks:
   taatom-prod:
     name: taatom-prod
     driver: bridge
+
+volumes:
+  taatom-redis-data:

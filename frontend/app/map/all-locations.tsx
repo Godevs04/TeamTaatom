@@ -21,7 +21,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
@@ -125,15 +125,10 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
     .filter((time) => Number.isFinite(time))
     .sort((a, b) => a - b);
 
-  const sortedPolyline = [...(journey.polyline || [])]
-    .filter((p) => p && (p.lat !== undefined || (p as any).latitude !== undefined))
-    .sort((a, b) => {
-      const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      return tA - tB;
-    });
+  const points = (journey.polyline || [])
+    .filter((p) => p && (p.lat !== undefined || (p as any).latitude !== undefined));
 
-  return sortedPolyline.map((point, index, points) => {
+  return points.map((point, index, path) => {
     const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
     const prevTimestamp = index > 0 && points[index - 1].timestamp
       ? new Date(points[index - 1].timestamp).getTime()
@@ -163,6 +158,7 @@ function AllLocationsMapInner() {
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys'>('posts');
   const [selectedPost, setSelectedPost] = useState<LocationPin | null>(null);
   const [selectedJourney, setSelectedJourney] = useState<JourneyPolyline | null>(null);
+  const [focusedJourneyId, setFocusedJourneyId] = useState<string | null>(null);
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
   const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
   const [disclosureVariant, setDisclosureVariant] = useState<'foreground' | 'journey'>('foreground');
@@ -207,6 +203,7 @@ function AllLocationsMapInner() {
   useEffect(() => {
     setSelectedPost(null);
     setSelectedJourney(null);
+    setFocusedJourneyId(null);
   }, [mapFilter]);
 
   const [statistics, setStatistics] = useState<{
@@ -276,7 +273,14 @@ function AllLocationsMapInner() {
     const color = isSelected 
       ? mapStyle.routeColor 
       : (isDark ? 'rgba(45, 212, 191, 0.38)' : 'rgba(59, 130, 246, 0.34)');
-    const strokeWidth = isSelected ? 4 : 2;
+    const manyJourneys = journeys.length > 10;
+    const strokeWidth = !manyJourneys
+      ? (isSelected ? 4 : 2)
+      : focusedJourneyId === j._id
+        ? 4
+        : isSelected
+          ? 2
+          : 1;
     const glowColor = isSelected ? mapStyle.routeGlowColor : undefined;
 
     return (
@@ -304,14 +308,17 @@ function AllLocationsMapInner() {
                 lineJoin="round"
                 geodesic={true}
                 tappable={true}
-                onPress={() => setSelectedJourney(j)}
+                onPress={() => {
+                  setSelectedJourney(j);
+                  setFocusedJourneyId(j._id);
+                }}
               />
             </React.Fragment>
           );
         })}
       </>
     );
-  }, [isDark, mapStyle.routeColor, mapStyle.routeGlowColor]);
+  }, [isDark, mapStyle.routeColor, mapStyle.routeGlowColor, journeys.length, focusedJourneyId]);
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
 
   const navigateToPost = (postId: string, contentType: string, targetUserId: string) => {
@@ -1203,15 +1210,17 @@ function AllLocationsMapInner() {
   }, [validLocations.length, isOwnPage]);
 
   // Load locations + journeys
-  useEffect(() => {
-    const id = userId && String(userId).trim();
-    if (id) {
-      loadAllData(id);
-    } else {
-      setError('User ID is required');
-      setLoading(false);
-    }
-  }, [userId]);
+  useFocusEffect(
+    useCallback(() => {
+      const id = userId && String(userId).trim();
+      if (id) {
+        loadAllData(id);
+      } else {
+        setError('User ID is required');
+        setLoading(false);
+      }
+    }, [userId])
+  );
 
   const loadAllData = async (id: string) => {
     try {
@@ -1455,6 +1464,7 @@ function AllLocationsMapInner() {
           }
           setSelectedPost(null);
           setSelectedJourney(null);
+          setFocusedJourneyId(null);
         }}
         // Show the OS-native current-location dot (with accuracy ring) on top
         // of the post/journey markers. Permission is already requested in the
@@ -1505,7 +1515,10 @@ function AllLocationsMapInner() {
             <SafeMarker
               key={`rep-${j._id}`}
               coordinate={{ latitude: startLat, longitude: startLng }}
-              onPress={() => setSelectedJourney(j)}
+              onPress={() => {
+                  setSelectedJourney(j);
+                  setFocusedJourneyId(j._id);
+                }}
               anchor={{ x: 0.5, y: 0.5 }}
               repaintTriggers={[isSelected, isDark]}
             >
@@ -1540,23 +1553,33 @@ function AllLocationsMapInner() {
         })}
 
         {/* Selected journey's route polyline, end marker, and waypoints */}
+        {mapFilter === 'journeys' && (journeys.length > 10 ? journeysWithOffsets : selectedJourney ? [selectedJourney] : []).map((route) => {
+          const routeWithOffset = journeysWithOffsets.find((item) => item._id === route._id) || route;
+          const isRouteSelected = selectedJourney?._id === route._id;
+          return (
+            <React.Fragment key={`route-${route._id}`}>
+              {getJourneyPolylineCoords(routeWithOffset).length >= 2 && renderJourneyPolylines(routeWithOffset, isRouteSelected || journeys.length <= 10)}
+            </React.Fragment>
+          );
+        })}
         {mapFilter === 'journeys' && selectedJourney && (() => {
           const selectedJWithOffset = journeysWithOffsets.find(j => j._id === selectedJourney._id);
           const j = selectedJWithOffset || selectedJourney;
-          const coords = getJourneyPolylineCoords(j);
           const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
           const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
           const hasEnd = isValidMapCoordinate({ latitude: endLat, longitude: endLng });
 
           return (
             <>
-              {coords.length >= 2 && renderJourneyPolylines(j, true)}
               {hasEnd && (
                 <SafeMarker
                   key={`end-${j._id}`}
                   coordinate={{ latitude: endLat, longitude: endLng }}
                   anchor={{ x: 0.5, y: 0.5 }}
-                  onPress={() => setSelectedJourney(j)}
+                  onPress={() => {
+                  setSelectedJourney(j);
+                  setFocusedJourneyId(j._id);
+                }}
                   repaintTriggers={[true]}
                 >
                   <PremiumMapMarker pointType="end" isActive={true} />

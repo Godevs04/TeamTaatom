@@ -1,5 +1,26 @@
 const mongoose = require('mongoose');
 
+const polylineLengthMeters = (points) => {
+  if (!Array.isArray(points) || points.length < 2) return 0;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  let total = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    const lat1 = a.lat ?? a.latitude;
+    const lng1 = a.lng ?? a.longitude;
+    const lat2 = b.lat ?? b.latitude;
+    const lng2 = b.lng ?? b.longitude;
+    if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) continue;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const h = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    total += 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+  return total;
+};
+
 /**
  * Journey Model - Continuous Travel Recorder
  *
@@ -122,29 +143,19 @@ const journeySchema = new mongoose.Schema({
       }
     ],
     get: function(val) {
-      if (this.snapped_polyline && this.snapped_polyline.length > 0) {
-        const raw = this.raw_polyline || [];
-        return this.snapped_polyline.map((p, idx) => {
-          let origIdx = 0;
-          if (this.snapped_polyline.length > 1 && raw.length > 0) {
-            origIdx = Math.min(
-              Math.floor((idx / (this.snapped_polyline.length - 1)) * (raw.length - 1)),
-              raw.length - 1
-            );
-          }
-          const rawP = raw[origIdx];
-          return {
-            lat: p.lat,
-            lng: p.lng,
-            timestamp: rawP ? rawP.timestamp : new Date(),
-            accuracy: rawP ? rawP.accuracy : 0,
-            segmentBreak: rawP ? rawP.segmentBreak : false,
-            speed: rawP && rawP.speed !== undefined ? rawP.speed : undefined,
-            heading: rawP && rawP.heading !== undefined ? rawP.heading : undefined
-          };
-        });
-      }
-      return val;
+      const snapped = this.snapped_polyline || [];
+      const raw = this.raw_polyline || [];
+      if (snapped.length === 0) return val;
+      if (raw.length >= 2 && polylineLengthMeters(snapped) + 5 < polylineLengthMeters(raw)) return raw;
+      return snapped.map((p) => ({
+        lat: p.lat,
+        lng: p.lng,
+        timestamp: p.timestamp,
+        accuracy: p.accuracy || 0,
+        segmentBreak: !!p.segmentBreak,
+        speed: p.speed,
+        heading: p.heading,
+      }));
     }
   },
   // Posts/shorts/videos auto-attached during journey

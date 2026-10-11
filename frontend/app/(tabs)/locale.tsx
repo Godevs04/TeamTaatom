@@ -1088,15 +1088,6 @@ export default function LocaleScreen() {
   const flatListRef = useRef<any>(null);
   const filterScrollRef = useRef<ScrollView>(null);
 
-  useEffect(() => {
-    const id = scrollY.addListener(({ value }) => {
-      savedScrollOffsetRef.current = value;
-    });
-    return () => {
-      scrollY.removeListener(id);
-    };
-  }, [scrollY]);
-
   // Pulsing animation for skeletons
   const skeletonAnim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
@@ -1125,6 +1116,7 @@ export default function LocaleScreen() {
     {
       useNativeDriver: true,
       listener: (event: any) => {
+        savedScrollOffsetRef.current = event?.nativeEvent?.contentOffset?.y ?? savedScrollOffsetRef.current;
         handleScroll(event);
       },
     }
@@ -1228,7 +1220,7 @@ export default function LocaleScreen() {
         (activeLocaleFilters.stateCode && activeLocaleFilters.stateCode !== 'all') ? activeLocaleFilters.stateCode : '',
         activeLocaleFilters.spotTypes && activeLocaleFilters.spotTypes.length > 0 ? activeLocaleFilters.spotTypes : '',
         1,
-        100,
+        20,
         false,
         activeLocaleFilters.stateProvince || '',
         undefined,
@@ -3728,16 +3720,15 @@ export default function LocaleScreen() {
   );
 
   const savedLocaleSeparator = useCallback(() => <View style={{ height: 20 }} />, []);
+  const featuredLocaleSeparator = savedLocaleSeparator;
 
   const featuredExtraData = useMemo(() => ({
-    userLocation,
     loadingLocales
-  }), [userLocation, loadingLocales]);
+  }), [loadingLocales]);
 
   const savedExtraData = useMemo(() => ({
-    userLocation,
     filteredSavedLocales
-  }), [userLocation, filteredSavedLocales]);
+  }), [filteredSavedLocales]);
 
   const renderAdminLocales = () => {
     // Always use filteredLocales when filters are active, even if empty
@@ -4006,7 +3997,7 @@ export default function LocaleScreen() {
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
-                drawDistance={screenHeight * 1.2}
+                drawDistance={400}
                 estimatedItemSize={220}
                 contentContainerStyle={{
                   paddingHorizontal: isTabletLocal ? 24 : 16,
@@ -4014,7 +4005,7 @@ export default function LocaleScreen() {
                   paddingBottom: Platform.OS === 'ios' ? 120 : 140,
                   flexGrow: 1,
                 }}
-                ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
+                ItemSeparatorComponent={featuredLocaleSeparator}
                 ListHeaderComponent={
                   <Text
                     style={[

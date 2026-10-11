@@ -19,10 +19,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
-import LoadingGlobe from '../../components/LoadingGlobe';
 import { PostSkeleton } from '../LoadingSkeleton';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
@@ -41,6 +38,8 @@ const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 export type NativeAdCardProps = {
   /** Unique key for list stability; used to avoid re-loading same slot on re-mount */
   adIndex: number;
+  /** Start the ad request only after this row is on screen. */
+  visible?: boolean;
   /** Fired exactly once when the ad finishes loading and is about to render.
    *  Used by the home-feed cap tracker to count Google ad impressions toward
    *  the 5-per-8h limit. Does NOT fire if the ad fails to load (no impression
@@ -66,13 +65,15 @@ const maskAdUnitId = (unitId?: string) => {
   return unit ? `${publisher}/${unit.slice(0, 3)}...${unit.slice(-3)}` : `${unitId.slice(0, 12)}...`;
 };
 
-function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAdCardProps) {
-  const { theme, isDark } = useTheme();
+function NativeAdCardComponent({ adIndex, visible = false, onImpression, onLoadFailed }: NativeAdCardProps) {
+  const { theme } = useTheme();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
   const [moduleError, setModuleError] = useState(false);
   const [nativeAd, setNativeAd] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [boxHeight, setBoxHeight] = useState(0);
+  const [mediaHeight, setMediaHeight] = useState(0);
   const destroyedRef = useRef(false);
   // Fire onImpression at most once per ad load. Cleared when the ad is
   // destroyed (effect cleanup) so a re-load fires it again.
@@ -104,6 +105,8 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
     }
     if (isExpoGo) {
       setLoading(false);
+      setError(true);
+      fireLoadFailed();
       return;
     }
     try {
@@ -129,11 +132,12 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
 
   // Load the native ad once the module is available. Optional: preload one ad in a ref and reuse to reduce load cycles.
   useEffect(() => {
+    if (!visible || boxHeight <= 0) return;
     if (!adsModule || !unitId || unitId.includes('XXXXXXXXXX')) {
       if (adsModule === null && !moduleError) return;
       setLoading(false);
       setError(true);
-      if (unitId && unitId.includes('XXXXXXXXXX')) fireLoadFailed();
+      fireLoadFailed();
       return;
     }
 
@@ -219,57 +223,22 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
     // ad load every time the parent re-creates the callback, leaking ad
     // requests and double-counting impressions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adsModule, unitId, adIndex]);
+  }, [adsModule, unitId, adIndex, visible, boxHeight]);
 
-  if (loading) {
+  if (isWeb || moduleError || isExpoGo || error) {
+    return null;
+  }
+
+  if (loading || !adsModule || !nativeAd) {
     return (
-      <View style={[styles.wrapper, { padding: 16 }]}>
+      <View
+        style={[styles.wrapper, { padding: 16, minHeight: 180 }]}
+        onLayout={(event) => {
+          const height = event.nativeEvent.layout.height;
+          if (height > 0 && height !== boxHeight) setBoxHeight(height);
+        }}
+      >
         <PostSkeleton />
-      </View>
-    );
-  }
-
-  if (isExpoGo && __DEV__) {
-    return (
-      <View style={[styles.wrapper, styles.expoGoPreview, { backgroundColor: theme.colors.surface }]}>
-        <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>Sponsored</Text>
-        <Text style={[styles.headline, { color: theme.colors.text, marginTop: 8 }]}>
-          Native ad slot #{adIndex + 1}
-        </Text>
-        <Text style={[styles.body, { color: theme.colors.textSecondary, marginTop: 4 }]}>
-          Expo Go cannot load AdMob. Use an EAS development build to see live or test ads.
-        </Text>
-        <Text style={[styles.cta, { color: theme.colors.primary, marginTop: 12 }]}>Learn more</Text>
-      </View>
-    );
-  }
-
-  if (isWeb || moduleError || isExpoGo || !adsModule || error || !nativeAd) {
-    return (
-      <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
-        <LinearGradient
-          colors={isDark ? ['#1A365D', '#0A2540'] : ['#EBF8FF', '#BEE3F8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.fallbackGradient}
-        >
-          <View style={styles.fallbackContent}>
-            <View style={styles.fallbackHeader}>
-              <Ionicons name="compass-outline" size={24} color={theme.colors.primary} />
-              <Text style={[styles.fallbackLabel, { color: theme.colors.primary }]}>Taatom Explorer</Text>
-            </View>
-            <Text style={[styles.fallbackHeadline, { color: theme.colors.text }]}>
-              Record Your Next Adventure
-            </Text>
-            <Text style={[styles.fallbackBody, { color: theme.colors.textSecondary }]}>
-              Track your paths, auto-pin photos as waypoints, and build your TripScore.
-            </Text>
-            <View style={styles.fallbackCtaContainer}>
-              <Text style={[styles.fallbackCta, { color: theme.colors.primary }]}>Explore Navigate</Text>
-              <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
-            </View>
-          </View>
-        </LinearGradient>
       </View>
     );
   }
@@ -321,17 +290,36 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
               </View>
             </View>
             {nativeAd.mediaContent ? (
-              <View style={styles.mediaWrapper}>
-                <MediaView style={styles.media} />
+              <View
+                style={[styles.mediaWrapper, mediaHeight > 0 ? { height: mediaHeight } : null]}
+                onLayout={(event) => {
+                  const width = event.nativeEvent.layout.width;
+                  if (width > 0) {
+                    const next = Math.round(width / 1.91);
+                    if (next !== mediaHeight) setMediaHeight(next);
+                  }
+                }}
+              >
+                <MediaView style={{ width: '100%', height: mediaHeight || 180 }} />
               </View>
+            ) : nativeAd.images?.[0]?.url ? (
+              <Asset assetType={AssetType.IMAGE}>
+                <Image
+                  source={{ uri: nativeAd.images[0].url }}
+                  style={styles.fallbackImage}
+                  resizeMode="cover"
+                />
+              </Asset>
             ) : null}
             <Asset assetType={AssetType.CALL_TO_ACTION}>
-              <Text
-                style={[styles.cta, { color: theme.colors.primary }]}
-                numberOfLines={1}
-              >
-                {nativeAd.callToAction}
-              </Text>
+              <View collapsable={false}>
+                <Text
+                  style={[styles.cta, { color: theme.colors.primary }]}
+                  numberOfLines={1}
+                >
+                  {nativeAd.callToAction}
+                </Text>
+              </View>
             </Asset>
           </View>
       </AdView>
@@ -344,7 +332,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginVertical: 8,
     borderRadius: 16,
-    overflow: 'hidden',
   },
   sponsoredRow: {
     paddingHorizontal: 12,
@@ -389,12 +376,16 @@ const styles = StyleSheet.create({
     width: '100%',
     aspectRatio: 1.91,
     borderRadius: 12,
-    overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
   media: {
     width: '100%',
     height: '100%',
+  },
+  fallbackImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
   },
   cta: {
     fontSize: 14,
