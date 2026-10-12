@@ -50,7 +50,7 @@ export default function ScrollEdgeFades({
 
   if (variant === 'horizontal') {
     return (
-      <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, style]}>
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
         <LinearGradient
           colors={[...leftRight] as [string, string, ...string[]]}
           start={{ x: 0, y: 0.5 }}
@@ -68,7 +68,7 @@ export default function ScrollEdgeFades({
   }
 
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, style]}>
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
       {!hideTop && (
         <LinearGradient
           colors={[...topBottom] as [string, string, ...string[]]}
