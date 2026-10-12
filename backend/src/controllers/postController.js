@@ -99,18 +99,35 @@ const handleHLSProxy = async (req, res) => {
       // Replace relative segments with absolute proxy endpoint URLs
       const proto = getProto(req);
       const baseUrl = `${proto}://${req.get('host')}`;
+      const playlistCacheKey = CacheKeys.shortsHlsPlaylist(String(postId));
+      const cachedPlaylist = await getCache(playlistCacheKey);
+      if (typeof cachedPlaylist === 'string' && cachedPlaylist.length > 0) {
+        res.setHeader('Content-Type', 'application/x-mpegURL');
+        res.setHeader('Cache-Control', 'public, max-age=60');
+        return res.status(200).send(cachedPlaylist);
+      }
+
       const lines = m3u8Content.split('\n');
-      const mappedLines = lines.map(line => {
+      const mappedLines = await Promise.all(lines.map(async (line) => {
         const trimmed = line.trim();
-        if (trimmed.endsWith('.ts') && !trimmed.startsWith('http')) {
-          return `${baseUrl}/api/v1/shorts?hls=segment&postId=${postId}&file=${trimmed}`;
+        if (!trimmed.endsWith('.ts') || trimmed.startsWith('http') || !/^[A-Za-z0-9._-]+\.ts$/.test(trimmed)) {
+          return line;
         }
-        return line;
-      });
+        const segmentKey = `shorts/hls/${postId}/${trimmed}`;
+        try {
+          const signed = await generateSignedUrl(segmentKey, 'VIDEO');
+          if (signed) return signed;
+        } catch (signError) {
+          logger.warn(`[HLS Proxy] Segment sign failed for ${segmentKey}:`, signError.message);
+        }
+        return `${baseUrl}/api/v1/shorts?hls=segment&postId=${postId}&file=${trimmed}`;
+      }));
+      const playlist = mappedLines.join('\n');
+      await setCache(playlistCacheKey, playlist, 60);
 
       res.setHeader('Content-Type', 'application/x-mpegURL');
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache playlist for 1 hour
-      return res.status(200).send(mappedLines.join('\n'));
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      return res.status(200).send(playlist);
     } catch (err) {
       logger.error(`[HLS Proxy] Master playlist error for post ${postId}:`, err);
       return res.status(404).json({ error: 'Master playlist not found' });
@@ -144,19 +161,31 @@ const handleHLSProxy = async (req, res) => {
  * - Anonymous: only authors with profileVisibility === 'public'
  * - Logged in: self + public authors + authors with 'followers'/'private' who have viewer in their followers
  */
+const PUBLIC_AUTHOR_QUERY = {
+  $or: [
+    { 'settings.privacy.profileVisibility': 'public' },
+    { 'settings.privacy.profileVisibility': { $exists: false } },
+    { 'settings.privacy': { $exists: false } },
+    { 'settings': { $exists: false } }
+  ]
+};
+
+async function getPublicAuthorIdStrings() {
+  const cached = await getCache(CacheKeys.shortsPublicAuthors());
+  if (Array.isArray(cached) && cached.length > 0) return cached;
+  const users = await User.find(PUBLIC_AUTHOR_QUERY).select('_id').lean();
+  const ids = users.map((user) => user._id.toString());
+  if (ids.length > 0) {
+    await setCache(CacheKeys.shortsPublicAuthors(), ids, CACHE_TTL.LOCALE);
+  }
+  return ids;
+}
+
 async function getAllowedPostAuthorIds(viewerId) {
-  const publicQuery = {
-    $or: [
-      { 'settings.privacy.profileVisibility': 'public' },
-      { 'settings.privacy.profileVisibility': { $exists: false } },
-      { 'settings.privacy': { $exists: false } },
-      { 'settings': { $exists: false } }
-    ]
-  };
+  const publicIds = await getPublicAuthorIdStrings();
 
   if (!viewerId) {
-    const users = await User.find(publicQuery).select('_id').lean();
-    return users.map(u => u._id);
+    return publicIds;
   }
   const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId) ? new mongoose.Types.ObjectId(viewerId) : null;
   if (!viewerObjId) return [];
@@ -164,11 +193,7 @@ async function getAllowedPostAuthorIds(viewerId) {
   // publicUsers and follows are independent of each other — only restrictedAuthors
   // genuinely depends on follows' result (followingIds), so only that one stays
   // after the first two.
-  const [publicUsers, follows] = await Promise.all([
-    User.find(publicQuery).select('_id').lean(),
-    Follow.find({ follower: viewerObjId }).select('following').lean()
-  ]);
-  const publicIds = publicUsers.map(u => u._id);
+  const follows = await Follow.find({ follower: viewerObjId }).select('following').lean();
   const followingIds = follows.map(f => f.following);
   const restrictedAuthors = await User.find({
     _id: { $in: followingIds },
@@ -176,7 +201,7 @@ async function getAllowedPostAuthorIds(viewerId) {
   }).select('_id').lean();
   const restrictedIds = restrictedAuthors.map(u => u._id);
 
-  const allowed = [viewerObjId, ...publicIds, ...restrictedIds];
+  const allowed = [viewerObjId.toString(), ...publicIds, ...restrictedIds.map((id) => id.toString())];
   const seen = new Set();
   return allowed.filter(id => {
     const key = id.toString();
@@ -184,6 +209,13 @@ async function getAllowedPostAuthorIds(viewerId) {
     seen.add(key);
     return true;
   });
+}
+
+// Aggregation $match does not cast strings to ObjectIds the way Model.find does.
+function toAuthorObjectIds(ids) {
+  return ids
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
 }
 
 async function getBidirectionalBlockedIds(viewerId) {
@@ -213,7 +245,7 @@ const getPosts = async (req, res) => {
     const feedMode = ['recents', 'friends', 'popular'].includes(req.query.feed) ? req.query.feed : 'recents';
 
     const viewerId = req.user?._id?.toString();
-    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon', feed: feedMode });
+    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon', feed: feedMode, authorMatch: 'oid' });
 
     const result = await cacheWrapper(cacheKey, async () => {
       let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
@@ -239,10 +271,12 @@ const getPosts = async (req, res) => {
         isArchived: { $ne: true },
         isHidden: { $ne: true },
         type: 'photo',
-        $or: [{ status: 'active' }, { status: { $exists: false } }]
+        // Keep status in $and so a cursor page cannot replace it with a date $or.
+        $and: [{ $or: [{ status: 'active' }, { status: { $exists: false } }] }]
       };
-      if (allowedFiltered.length > 0) {
-        matchQuery.user = { $in: allowedFiltered };
+      const authorIds = toAuthorObjectIds(allowedFiltered);
+      if (authorIds.length > 0) {
+        matchQuery.user = { $in: authorIds };
       } else {
         matchQuery.user = { $in: [new mongoose.Types.ObjectId()] };
       }
@@ -257,16 +291,20 @@ const getPosts = async (req, res) => {
             const cursorId = new mongoose.Types.ObjectId(parsed._id);
             if (feedMode === 'popular') {
               const cursorLikes = parseInt(parsed.likesCount) || 0;
-              matchQuery.$or = [
-                { likesCount: { $lt: cursorLikes } },
-                { likesCount: cursorLikes, createdAt: { $lt: cursorDate } },
-                { likesCount: cursorLikes, createdAt: cursorDate, _id: { $lt: cursorId } }
-              ];
+              matchQuery.$and.push({
+                $or: [
+                  { likesCount: { $lt: cursorLikes } },
+                  { likesCount: cursorLikes, createdAt: { $lt: cursorDate } },
+                  { likesCount: cursorLikes, createdAt: cursorDate, _id: { $lt: cursorId } }
+                ]
+              });
             } else {
-              matchQuery.$or = [
-                { createdAt: { $lt: cursorDate } },
-                { createdAt: cursorDate, _id: { $lt: cursorId } }
-              ];
+              matchQuery.$and.push({
+                $or: [
+                  { createdAt: { $lt: cursorDate } },
+                  { createdAt: cursorDate, _id: { $lt: cursorId } }
+                ]
+              });
             }
           }
         } catch (e) {
@@ -3295,8 +3333,25 @@ const getShorts = async (req, res) => {
     }
 
     const viewerId = req.user?._id?.toString();
-    const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
-    const blockedIds = viewerId ? await getBidirectionalBlockedIds(viewerId) : [];
+    const isFirstPage = !rawCursor;
+    const feedCacheKey = CacheKeys.shortsFeedFirst(viewerId || 'anon', safeLimit);
+    if (isFirstPage) {
+      const cachedFeed = await getCache(feedCacheKey);
+      if (cachedFeed && Array.isArray(cachedFeed.shorts) && cachedFeed.shorts.length > 0) {
+        return res.status(200).json(cachedFeed);
+      }
+    }
+
+    const [allowedAuthorIds, blockedIds, viewerInteraction] = await Promise.all([
+      getAllowedPostAuthorIds(viewerId),
+      viewerId ? getBidirectionalBlockedIds(viewerId) : Promise.resolve([]),
+      viewerId
+        ? UserInteraction.findOne({ user: req.user._id }).catch((err) => {
+            logger.error('Error fetching UserInteraction in getShorts:', err);
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
     const allowedFiltered = blockedIds.length
       ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
       : allowedAuthorIds;
@@ -3309,25 +3364,17 @@ const getShorts = async (req, res) => {
     let userTravelAffinities = new Map();
     let userCreatorAffinities = new Map();
 
-    if (viewerId) {
-      if (req.user && Array.isArray(req.user.interests)) {
-        req.user.interests.forEach(interest => {
-          if (interest) userInterests.add(interest.toLowerCase().trim());
-        });
-      }
-
-      try {
-        const ui = await UserInteraction.findOne({ user: req.user._id });
-        if (ui) {
-          viewedPostIds = (ui.viewedPosts || []).map(vp => vp.postId.toString());
-          userTagAffinities = ui.tagAffinities || new Map();
-          userSpotAffinities = ui.spotTypeAffinities || new Map();
-          userTravelAffinities = ui.travelInfoAffinities || new Map();
-          userCreatorAffinities = ui.creatorAffinities || new Map();
-        }
-      } catch (err) {
-        logger.error('Error fetching UserInteraction in getShorts:', err);
-      }
+    if (viewerId && req.user && Array.isArray(req.user.interests)) {
+      req.user.interests.forEach(interest => {
+        if (interest) userInterests.add(interest.toLowerCase().trim());
+      });
+    }
+    if (viewerInteraction) {
+      viewedPostIds = (viewerInteraction.viewedPosts || []).map(vp => vp.postId.toString());
+      userTagAffinities = viewerInteraction.tagAffinities || new Map();
+      userSpotAffinities = viewerInteraction.spotTypeAffinities || new Map();
+      userTravelAffinities = viewerInteraction.travelInfoAffinities || new Map();
+      userCreatorAffinities = viewerInteraction.creatorAffinities || new Map();
     }
 
     // Determine Cold Start status (less than 20 viewed shorts in database)
@@ -3343,7 +3390,7 @@ const getShorts = async (req, res) => {
     // each viewer still filters out posts they have already seen.
     let candidateShorts = await getCache(CacheKeys.shortsCandidates());
     if (!Array.isArray(candidateShorts) || candidateShorts.length === 0) {
-      candidateShorts = await Post.find({
+      const rows = await Post.find({
         isActive: true,
         isArchived: { $ne: true },
         isHidden: { $ne: true },
@@ -3351,11 +3398,15 @@ const getShorts = async (req, res) => {
         status: 'active',
       })
         .populate('user', 'fullName username profilePic profilePicStorageKey followersCount')
-        .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
         .populate('song.songId')
         .sort({ createdAt: -1 })
         .limit(200)
         .lean();
+      candidateShorts = rows.map((short) => {
+        const commentsCount = Array.isArray(short.comments) ? short.comments.length : (short.commentsCount || 0);
+        const { comments, likes, ...rest } = short;
+        return { ...rest, commentsCount };
+      });
       await setCache(CacheKeys.shortsCandidates(), candidateShorts, CACHE_TTL.SHORT);
     }
     const excludeIdSet = new Set(excludeObjIds.map((id) => id.toString()));
@@ -3597,24 +3648,27 @@ const getShorts = async (req, res) => {
       likedShortIdsSet = new Set(userLikes.map(l => l.post.toString()));
     }
 
+    const creatorIds = [];
+    for (const short of selectedShorts) {
+      const creatorId = short.user?._id ? short.user._id.toString() : short.user?.toString?.();
+      if (creatorId && mongoose.Types.ObjectId.isValid(creatorId)) creatorIds.push(creatorId);
+    }
+    let followingSet = new Set();
+    if (req.user && creatorIds.length > 0) {
+      const follows = await Follow.find({
+        follower: req.user._id,
+        following: { $in: creatorIds },
+      }).select('following').lean();
+      followingSet = new Set(follows.map((row) => row.following.toString()));
+    }
+
     // Generate signed URLs and resolve assets for client delivery
     const shortsWithLikeStatus = await Promise.all(selectedShorts.map(async (short) => {
-      let isFollowing = false;
-      
-      if (req.user && short.user) {
-        const creatorId = short.user._id ? short.user._id.toString() : short.user.toString();
-        isFollowing = await Follow.exists({ follower: req.user._id, following: creatorId });
-      }
+      const creatorId = short.user?._id ? short.user._id.toString() : short.user?.toString?.();
+      const isFollowing = !!(creatorId && followingSet.has(creatorId));
       
       if (short.user) {
         short.user.profilePic = await resolveProfilePic(short.user);
-      }
-      if (short.comments && short.comments.length > 0) {
-        for (const comment of short.comments) {
-          if (comment.user) {
-            comment.user.profilePic = await resolveProfilePic(comment.user);
-          }
-        }
       }
       
       if (short.song?.songId) {
@@ -3664,22 +3718,30 @@ const getShorts = async (req, res) => {
       }
       
       const mediaUrl = videoUrl || imageUrl || short.videoUrl || short.imageUrl || '';
-      
-      return {
+      const payload = {
         ...short,
         _id: short._id,
         videoUrl: videoUrl || short.videoUrl || null,
         imageUrl: imageUrl || short.imageUrl || null,
+        thumbnailUrl: imageUrl || short.thumbnailUrl || short.imageUrl || null,
         mediaUrl,
         isLiked: req.user ? likedShortIdsSet.has(short._id.toString()) : false,
         likesCount: short.likesCount || 0,
-        commentsCount: short.comments ? short.comments.length : 0,
-        viewsCount: short.viewsCount || 0,
-        user: {
+        commentsCount: short.commentsCount || (Array.isArray(short.comments) ? short.comments.length : 0),
+        viewsCount: short.viewsCount || short.views || 0,
+        user: short.user ? {
           ...short.user,
           isFollowing
-        }
+        } : short.user
       };
+      delete payload.comments;
+      delete payload.likes;
+      delete payload.freshness;
+      delete payload.interestMatch;
+      delete payload.engagementQuality;
+      delete payload.explorationBonus;
+      delete payload.finalScore;
+      return payload;
     }));
 
     const finalShorts = shortsWithLikeStatus.filter(short => short !== null);
@@ -3696,14 +3758,18 @@ const getShorts = async (req, res) => {
 
     const hasNextPage = finalShorts.length >= safeLimit;
 
-    res.status(200).json({
+    const feedPayload = {
       shorts: finalShorts,
       pagination: {
         nextCursor,
         hasNextPage,
         limit: safeLimit
       }
-    });
+    };
+    if (isFirstPage && finalShorts.length > 0) {
+      await setCache(feedCacheKey, feedPayload, 20);
+    }
+    res.status(200).json(feedPayload);
 
   } catch (error) {
     logger.error('Get shorts error:', error);

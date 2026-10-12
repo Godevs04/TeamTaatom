@@ -19,7 +19,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import Video from 'react-native-video';
+import Video from '../../components/watch/WatchVideo';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useTheme } from '../../context/ThemeContext';
 import { getLongVideo } from '../../services/longVideos';

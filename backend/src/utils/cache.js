@@ -249,7 +249,10 @@ const CacheKeys = {
   localeCountries: () => 'locales:countries',
   localeStates: (countryCode) => `locales:states:${countryCode}`,
   localeSpotTypes: () => 'locales:spot-types',
-  shortsCandidates: () => 'shorts:candidates:v1',
+  shortsCandidates: () => 'shorts:candidates:v2',
+  shortsPublicAuthors: () => 'shorts:authors:public:v1',
+  shortsFeedFirst: (viewerId, limit) => `shorts:feed:first:${viewerId}:${limit}`,
+  shortsHlsPlaylist: (postId) => `shorts:hls:playlist:${postId}`,
   signedUrl: (mediaType, storageKey) => `signedurl:${mediaType}:${storageKey}`,
 };
 

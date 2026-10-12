@@ -105,7 +105,10 @@ jest.mock('../utils/cache', () => ({
   CACHE_TTL: { SHORT: 60 },
   CacheKeys: {
     userPosts: (userId, page, limit) => `user-posts:${userId}:${page}:${limit}`,
-    shortsCandidates: () => 'shorts:candidates:v1',
+    shortsCandidates: () => 'shorts:candidates:v2',
+    shortsPublicAuthors: () => 'shorts:authors:public:v1',
+    shortsFeedFirst: (viewerId, limit) => `shorts:feed:first:${viewerId}:${limit}`,
+    shortsHlsPlaylist: (postId) => `shorts:hls:playlist:${postId}`,
     signedUrl: (mediaType, storageKey) => `signedurl:${mediaType}:${storageKey}`,
   }
 }));
