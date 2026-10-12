@@ -18,6 +18,7 @@ import {
   StyleSheet,
   Platform,
   Image,
+  useWindowDimensions,
 } from 'react-native';
 import { PostSkeleton } from '../LoadingSkeleton';
 import Constants from 'expo-constants';
@@ -59,21 +60,29 @@ type AdsModule = {
   AdEventType: { IMPRESSION: string };
 };
 
+function mediaFrame(windowWidth: number, aspectRatio?: number) {
+  const ratio = typeof aspectRatio === 'number' && aspectRatio >= 0.5 && aspectRatio <= 2.5
+    ? aspectRatio
+    : 1.91;
+  const width = Math.max(120, Math.round(windowWidth - 56));
+  const height = Math.max(80, Math.round(width / ratio));
+  return { width, height, ratio };
+}
+
 const maskAdUnitId = (unitId?: string) => {
   if (!unitId) return 'missing';
   const [publisher, unit] = unitId.split('/');
   return unit ? `${publisher}/${unit.slice(0, 3)}...${unit.slice(-3)}` : `${unitId.slice(0, 12)}...`;
 };
 
-function NativeAdCardComponent({ adIndex, visible = false, onImpression, onLoadFailed }: NativeAdCardProps) {
+function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFailed }: NativeAdCardProps) {
   const { theme } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
   const [moduleError, setModuleError] = useState(false);
   const [nativeAd, setNativeAd] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [boxHeight, setBoxHeight] = useState(0);
-  const [mediaHeight, setMediaHeight] = useState(0);
   const destroyedRef = useRef(false);
   // Fire onImpression at most once per ad load. Cleared when the ad is
   // destroyed (effect cleanup) so a re-load fires it again.
@@ -105,8 +114,6 @@ function NativeAdCardComponent({ adIndex, visible = false, onImpression, onLoadF
     }
     if (isExpoGo) {
       setLoading(false);
-      setError(true);
-      fireLoadFailed();
       return;
     }
     try {
@@ -132,7 +139,7 @@ function NativeAdCardComponent({ adIndex, visible = false, onImpression, onLoadF
 
   // Load the native ad once the module is available. Optional: preload one ad in a ref and reuse to reduce load cycles.
   useEffect(() => {
-    if (!visible || boxHeight <= 0) return;
+    if (!visible) return;
     if (!adsModule || !unitId || unitId.includes('XXXXXXXXXX')) {
       if (adsModule === null && !moduleError) return;
       setLoading(false);
@@ -223,43 +230,63 @@ function NativeAdCardComponent({ adIndex, visible = false, onImpression, onLoadF
     // ad load every time the parent re-creates the callback, leaking ad
     // requests and double-counting impressions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adsModule, unitId, adIndex, visible, boxHeight]);
+  }, [adsModule, unitId, adIndex, visible]);
 
-  if (isWeb || moduleError || isExpoGo || error) {
+  const frame = mediaFrame(windowWidth, nativeAd?.mediaContent?.aspectRatio);
+
+  if (isExpoGo) {
+    return (
+      <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.nativeAdView}>
+          <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]}>
+            <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>Sponsored</Text>
+          </View>
+          <View style={styles.content}>
+            <Text style={[styles.headline, { color: theme.colors.text }]}>Taatom</Text>
+            <Text style={[styles.body, { color: theme.colors.textSecondary }]}>
+              This slot is a preview in Expo Go. The installed app loads the Google ad here.
+            </Text>
+            <View style={[styles.mediaBox, { width: frame.width, height: frame.height, backgroundColor: theme.colors.background }]} />
+            <View style={[styles.ctaButton, { backgroundColor: theme.colors.primary }]}>
+              <Text style={styles.ctaLabel}>Learn more</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  if (isWeb || moduleError || error) {
     return null;
   }
 
   if (loading || !adsModule || !nativeAd) {
     return (
-      <View
-        style={[styles.wrapper, { padding: 16, minHeight: 180 }]}
-        onLayout={(event) => {
-          const height = event.nativeEvent.layout.height;
-          if (height > 0 && height !== boxHeight) setBoxHeight(height);
-        }}
-      >
+      <View style={[styles.wrapper, { padding: 16, minHeight: 180 }]}>
         <PostSkeleton />
       </View>
     );
   }
 
   const { NativeAdView: AdView, NativeAsset: Asset, NativeAssetType: AssetType, NativeMediaView: MediaView } = adsModule;
-  const hasMedia = !!nativeAd.mediaContent;
+  const hasVideo = !!nativeAd.mediaContent?.hasVideoContent;
+  const imageUrl = nativeAd.images?.[0]?.url as string | undefined;
+  const showMediaView = !!nativeAd.mediaContent && (hasVideo || !imageUrl);
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
+    <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]} pointerEvents="box-none">
       <AdView
         nativeAd={nativeAd}
-        style={[styles.nativeAdView, { minHeight: hasMedia ? 280 : 120 }]}
+        style={styles.nativeAdView}
       >
-          <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]}>
+          <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]} pointerEvents="none">
             <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>
               Sponsored
             </Text>
           </View>
-          <View style={styles.content}>
-            <View style={styles.topRow}>
-              {nativeAd.icon && (
+          <View style={styles.content} pointerEvents="box-none">
+            <View style={styles.topRow} pointerEvents="box-none">
+              {nativeAd.icon?.url ? (
                 <Asset assetType={AssetType.ICON}>
                   <Image
                     source={{ uri: nativeAd.icon.url }}
@@ -267,60 +294,59 @@ function NativeAdCardComponent({ adIndex, visible = false, onImpression, onLoadF
                     resizeMode="cover"
                   />
                 </Asset>
-              )}
-              <View style={styles.headlineBody}>
+              ) : null}
+              <View style={styles.headlineBody} pointerEvents="box-none">
                 <Asset assetType={AssetType.HEADLINE}>
-                  <Text
-                    style={[styles.headline, { color: theme.colors.text }]}
-                    numberOfLines={2}
-                  >
-                    {nativeAd.headline}
-                  </Text>
+                  <View collapsable={false}>
+                    <Text
+                      pointerEvents="none"
+                      style={[styles.headline, { color: theme.colors.text }]}
+                      numberOfLines={2}
+                    >
+                      {nativeAd.headline}
+                    </Text>
+                  </View>
                 </Asset>
                 {nativeAd.body ? (
                   <Asset assetType={AssetType.BODY}>
-                    <Text
-                      style={[styles.body, { color: theme.colors.textSecondary }]}
-                      numberOfLines={2}
-                    >
-                      {nativeAd.body}
-                    </Text>
+                    <View collapsable={false}>
+                      <Text
+                        pointerEvents="none"
+                        style={[styles.body, { color: theme.colors.textSecondary }]}
+                        numberOfLines={2}
+                      >
+                        {nativeAd.body}
+                      </Text>
+                    </View>
                   </Asset>
                 ) : null}
               </View>
             </View>
-            {nativeAd.mediaContent ? (
-              <View
-                style={[styles.mediaWrapper, mediaHeight > 0 ? { height: mediaHeight } : null]}
-                onLayout={(event) => {
-                  const width = event.nativeEvent.layout.width;
-                  if (width > 0) {
-                    const next = Math.round(width / 1.91);
-                    if (next !== mediaHeight) setMediaHeight(next);
-                  }
-                }}
-              >
-                <MediaView style={{ width: '100%', height: mediaHeight || 180 }} />
+            {showMediaView ? (
+              <View style={[styles.mediaBox, { width: frame.width, height: frame.height }]} pointerEvents="box-none">
+                <MediaView
+                  resizeMode="cover"
+                  style={{ width: frame.width, height: frame.height, aspectRatio: frame.ratio }}
+                />
               </View>
-            ) : nativeAd.images?.[0]?.url ? (
+            ) : imageUrl ? (
               <Asset assetType={AssetType.IMAGE}>
                 <Image
-                  source={{ uri: nativeAd.images[0].url }}
-                  style={styles.fallbackImage}
+                  source={{ uri: imageUrl }}
+                  style={{ width: frame.width, height: frame.height, borderRadius: 12 }}
                   resizeMode="cover"
                 />
               </Asset>
             ) : null}
-            <Asset assetType={AssetType.CALL_TO_ACTION}>
-              <View collapsable={false}>
-                <Text
-                  style={[styles.cta, { color: theme.colors.primary }]}
-                  numberOfLines={1}
-                >
-                  {nativeAd.callToAction}
-                </Text>
-              </View>
-            </Asset>
+            {nativeAd.callToAction ? (
+              <Asset assetType={AssetType.CALL_TO_ACTION}>
+                <View collapsable={false} style={[styles.ctaButton, { backgroundColor: theme.colors.primary }]}>
+                  <Text pointerEvents="none" style={styles.ctaLabel} numberOfLines={1}>
+                    {nativeAd.callToAction}
+                  </Text>
+                </View>
+              </Asset>
+            ) : null}
           </View>
       </AdView>
     </View>
@@ -331,7 +357,7 @@ const styles = StyleSheet.create({
   wrapper: {
     marginHorizontal: 16,
     marginVertical: 8,
-    borderRadius: 16,
+    overflow: 'visible',
   },
   sponsoredRow: {
     paddingHorizontal: 12,
@@ -345,6 +371,7 @@ const styles = StyleSheet.create({
   },
   nativeAdView: {
     padding: 12,
+    overflow: 'visible',
   },
   content: {
     gap: 12,
@@ -372,10 +399,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  mediaWrapper: {
-    width: '100%',
-    aspectRatio: 1.91,
-    borderRadius: 12,
+  mediaBox: {
+    alignSelf: 'center',
+    overflow: 'visible',
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
   media: {
@@ -387,9 +413,19 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: 12,
   },
-  cta: {
-    fontSize: 14,
-    fontWeight: '600',
+  ctaButton: {
+    minHeight: 44,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    textAlign: 'center',
+  },
+  ctaLabel: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   placeholder: {
     minHeight: 120,

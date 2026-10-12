@@ -82,6 +82,15 @@ const ShortsExpoPlayer = React.forwardRef<AvPlaybackHandle, Props>(function Shor
       created.volume = typeof props.volume === "number" ? props.volume : 1;
       created.timeUpdateEventInterval = 0.25;
       created.audioMixingMode = "doNotMix";
+      try {
+        created.bufferOptions = {
+          preferredForwardBufferDuration: 5,
+          waitsToMinimizeStalling: false,
+          minBufferForPlayback: 0.4,
+        };
+      } catch {
+        // Web playback has no native buffer control.
+      }
       if (props.shouldPlay && uri) created.play();
     }
   );

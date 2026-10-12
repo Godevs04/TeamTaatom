@@ -3,7 +3,11 @@ import { View, StyleSheet, Image, TouchableOpacity, Text } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import Video, { VideoRef } from 'react-native-video';
+import ShortsExpoPlayer from './ShortsExpoPlayer';
+
+const isExpoGo = Constants.appOwnership === 'expo';
 import { useIsFocused } from 'expo-router';
 import logger from '../../utils/logger';
 
@@ -170,24 +174,37 @@ const ShortsVideo = ({
 
       {/* Video component - only rendered when shouldRender is true and no error */}
       {shouldRender && !hasError && (
-        <Video
-          ref={setRef}
-          source={videoSource}
-          style={StyleSheet.absoluteFill}
-          resizeMode="contain"
-          repeat={true}
-          paused={isPaused}
-          muted={false}
-          volume={1.0}
-          onReadyForDisplay={handleReadyForDisplay}
-          onError={handleVideoError}
-          onProgress={handlePlaybackStatusUpdate}
-          bufferConfig={BUFFER_CONFIG}
-          ignoreSilentSwitch="obey"
-          playInBackground={false}
-          playWhenInactive={false}
-          progressUpdateInterval={500}
-        />
+        isExpoGo ? (
+          <ShortsExpoPlayer
+            source={videoSource}
+            resizeMode="contain"
+            shouldPlay={!isPaused}
+            isLooping
+            isMuted={false}
+            volume={1}
+            onReadyForDisplay={handleReadyForDisplay}
+            onError={handleVideoError}
+          />
+        ) : (
+          <Video
+            ref={setRef}
+            source={videoSource}
+            style={StyleSheet.absoluteFill}
+            resizeMode="contain"
+            repeat={true}
+            paused={isPaused}
+            muted={false}
+            volume={1.0}
+            onReadyForDisplay={handleReadyForDisplay}
+            onError={handleVideoError}
+            onProgress={handlePlaybackStatusUpdate}
+            bufferConfig={BUFFER_CONFIG}
+            ignoreSilentSwitch="obey"
+            playInBackground={false}
+            playWhenInactive={false}
+            progressUpdateInterval={500}
+          />
+        )
       )}
 
       {/* Spinner visible during the loading phase */}

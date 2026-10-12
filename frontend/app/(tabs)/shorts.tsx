@@ -2136,6 +2136,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     shortsDataRef.current = shortsData;
   }, [shortsData]);
 
+  // Fetch the next page while the viewer is still a few reels away, so the swipe never waits on the API.
+  useEffect(() => {
+    if (!shortsData.length || effectiveUserId || effectiveShortId || props.isSavedShorts) return;
+    if (shortsData.length - currentVisibleIndex > 4) return;
+    loadMoreShorts();
+  }, [currentVisibleIndex, shortsData.length, effectiveUserId, effectiveShortId, props.isSavedShorts, loadMoreShorts]);
+
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
   useEffect(() => {
@@ -2165,6 +2172,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
+    const canDiskPreload = (url?: string | null) => {
+      if (!url) return false;
+      const value = url.toLowerCase();
+      return !value.includes('m3u8') && !value.includes('hls=') && !value.includes('hls%3d');
+    };
+
     // Helper to prefetch video thumbnail using ExpoImage
     const prefetchThumbnail = (item: ShortsItem) => {
       if (!isAdItem(item)) {
@@ -2179,7 +2192,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const activeItem = shortsData[currentVisibleIndex];
     if (activeItem && !isAdItem(activeItem)) {
       const baseUrl = activeItem.videoUrl || activeItem.mediaUrl || activeItem.imageUrl;
-      if (baseUrl) {
+      if (canDiskPreload(baseUrl)) {
         preloadVideoAsync(activeItem._id, baseUrl);
       }
       prefetchThumbnail(activeItem);
@@ -2191,7 +2204,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const prevItem = shortsData[prevIndex];
       if (prevItem && !isAdItem(prevItem)) {
         const baseUrl = prevItem.videoUrl || prevItem.mediaUrl || prevItem.imageUrl;
-        if (baseUrl) {
+        if (canDiskPreload(baseUrl)) {
           preloadVideoAsync(prevItem._id, baseUrl);
         }
         prefetchThumbnail(prevItem);
@@ -2205,7 +2218,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const nextItem = shortsData[nextIndex];
       if (nextItem && !isAdItem(nextItem)) {
         const baseUrl = nextItem.videoUrl || nextItem.mediaUrl || nextItem.imageUrl;
-        if (baseUrl) {
+        if (canDiskPreload(baseUrl)) {
           preloadVideoAsync(nextItem._id, baseUrl);
         }
         prefetchThumbnail(nextItem);
@@ -2217,7 +2230,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         const secondNextItem = shortsData[secondNextIndex];
         if (secondNextItem && !isAdItem(secondNextItem)) {
           const baseUrl = secondNextItem.videoUrl || secondNextItem.mediaUrl || secondNextItem.imageUrl;
-          if (baseUrl) {
+          if (canDiskPreload(baseUrl)) {
             const nextItem = shortsData[nextIndex];
             const isNextCached = nextItem && !isAdItem(nextItem) && !!localVideoUris[nextItem._id];
             

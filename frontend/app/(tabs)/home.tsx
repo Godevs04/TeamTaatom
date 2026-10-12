@@ -257,12 +257,12 @@ function useRowPlayback(
 const FeedListItem = React.memo(
   ({ item, index, subscribeVisibility, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
     const postId = isAdItem(item) ? null : item._id;
-    const { visible, preload, near } = useRowPlayback(subscribeVisibility, postId, index);
+    const { visible, preload } = useRowPlayback(subscribeVisibility, postId, index);
     if (isAdItem(item)) {
       return (
         <NativeAdCard
           adIndex={item.adIndex}
-          visible={near}
+          visible
           onImpression={() => recordGoogleAdImpression(item.milestone)}
           onLoadFailed={() => onAdLoadFailed(item.adIndex)}
         />
@@ -1947,7 +1947,14 @@ export default function HomeScreen() {
                   <View style={styles.emptyLoadingContainer}>
                     <LoadingGlobe color={theme.colors.primary} size="large" />
                   </View>
-                ) : null
+                ) : (
+                  <FeedEmptyState
+                    icon={feedMode === 'watch' ? 'videocam-outline' : 'images-outline'}
+                    title={feedMode === 'watch' ? 'No videos yet' : 'No posts yet'}
+                    description="Pull down to refresh. If this stays empty, the feed request came back with nothing to show."
+                    onAction={handleRefresh}
+                  />
+                )
               }
               ListFooterComponent={
                 isPaginating && hasMore && posts.length > 0 ? (
@@ -1968,6 +1975,7 @@ export default function HomeScreen() {
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
               drawDistance={250}
+              removeClippedSubviews={false}
             />
           <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
         </View>
