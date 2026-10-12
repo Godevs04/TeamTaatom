@@ -44,7 +44,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "expo-server-sdk": "^6.0.0",
-    "express": "^4.22.2",
+    "express": "^5.2.1",
     "express-rate-limit": "^7.1.5",
     "rate-limit-redis": "^4.2.0",
     "express-validator": "^7.3.1",
