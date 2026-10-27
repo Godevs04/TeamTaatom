@@ -102,8 +102,11 @@ jest.mock('../utils/cache', () => ({
     typeof key === 'string' && key.startsWith('signedurl:') ? 'https://example.test/signed' : null
   )),
   setCache: jest.fn().mockResolvedValue(true),
+  cacheWrapper: jest.fn().mockImplementation(async (_key, fn) => fn()),
   CACHE_TTL: { SHORT: 60 },
   CacheKeys: {
+    blockedIds: (userId) => `blocked:${userId}`,
+    authUser: (userId) => `authuser:${userId}`,
     userPosts: (userId, page, limit) => `user-posts:${userId}:${page}:${limit}`,
     shortsCandidates: () => 'shorts:candidates:v2',
     shortsPublicAuthors: () => 'shorts:authors:public:v1',
