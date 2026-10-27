@@ -55,8 +55,8 @@ const connectDB = async () => {
     const conn = await mongoose.connect(process.env.MONGO_URL, {
       dbName: dbName,
       // Connection Pool Settings for Performance Optimization
-      maxPoolSize: parseInt(process.env.MONGO_MAX_POOL_SIZE) || 10, // Maximum number of connections in the pool
-      minPoolSize: parseInt(process.env.MONGO_MIN_POOL_SIZE) || 2, // Minimum number of connections to maintain
+      maxPoolSize: parseInt(process.env.MONGO_MAX_POOL_SIZE) || 50, // Maximum number of connections in the pool
+      minPoolSize: parseInt(process.env.MONGO_MIN_POOL_SIZE) || 5, // Minimum number of connections to maintain
       maxIdleTimeMS: parseInt(process.env.MONGO_MAX_IDLE_TIME_MS) || 30000, // Close connections after 30s of inactivity
       serverSelectionTimeoutMS: parseInt(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 5000, // Timeout for server selection
       socketTimeoutMS: parseInt(process.env.MONGO_SOCKET_TIMEOUT_MS) || 45000, // Socket timeout

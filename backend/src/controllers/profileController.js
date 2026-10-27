@@ -2886,6 +2886,8 @@ const toggleBlockUser = async (req, res) => {
       await Promise.all([
         deleteCache(CacheKeys.user(id.toString())),
         deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCache(CacheKeys.blockedIds(id.toString())),
+        deleteCache(CacheKeys.blockedIds(currentUserId.toString())),
         deleteCacheByPattern('search:*')
       ]).catch(err => logger.warn('Failed to delete unblock cache:', err));
 
@@ -2954,6 +2956,8 @@ const toggleBlockUser = async (req, res) => {
       await Promise.all([
         deleteCache(CacheKeys.user(id.toString())),
         deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCache(CacheKeys.blockedIds(id.toString())),
+        deleteCache(CacheKeys.blockedIds(currentUserId.toString())),
         deleteCacheByPattern('search:*')
       ]).catch(err => logger.warn('Failed to delete block cache:', err));
 

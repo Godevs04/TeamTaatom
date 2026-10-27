@@ -106,13 +106,16 @@ async function canChat(userId, otherId) {
   }
   
   // Check if either user has blocked the other
-  const user = await User.findById(userId);
-  const other = await User.findById(otherId);
+  const [user, other] = await Promise.all([
+    User.findById(userId).select('blockedUsers').lean(),
+    User.findById(otherId).select('blockedUsers').lean(),
+  ]);
   
-  if (user && user.blockedUsers && user.blockedUsers.includes(otherId)) {
+  const hasBlocked = (doc, id) => (doc?.blockedUsers || []).some((b) => b.toString() === id.toString());
+  if (hasBlocked(user, otherId)) {
     return false; // User has blocked the other
   }
-  if (other && other.blockedUsers && other.blockedUsers.includes(userId)) {
+  if (hasBlocked(other, userId)) {
     return false; // Other has blocked the user
   }
   
@@ -121,8 +124,6 @@ async function canChat(userId, otherId) {
 
 exports.listChats = async (req, res) => {
   try {
-  logger.debug('Request headers:', req.headers);
-  logger.debug('req.user in /chat:', req.user);
   const userId = req.user._id;
   logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
 
@@ -157,7 +158,8 @@ exports.listChats = async (req, res) => {
     let unreadCount = 0;
     if (Array.isArray(chat.messages)) {
       // Re-sign attachment URLs for the last-message preview shown in the chat list.
-      chat.messages = await Promise.all(chat.messages.map(async (msg) => {
+      const lastIndex = chat.messages.length - 1;
+      chat.messages = await Promise.all(chat.messages.map(async (msg, index) => {
         const isMsgFromOther = msg.sender && msg.sender.toString() !== userId.toString();
         if (isMsgFromOther && !msg.isDeleted) {
           if (chat.type === 'connect_page' && Array.isArray(msg.seenBy)) {
@@ -174,7 +176,7 @@ exports.listChats = async (req, res) => {
             ? 'read'
             : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
           seen: typeof msg.seen === 'boolean' ? msg.seen : false,
-          attachments: await refreshAttachmentUrls(msg.attachments),
+          attachments: index === lastIndex ? await refreshAttachmentUrls(msg.attachments) : msg.attachments,
         };
       }));
 

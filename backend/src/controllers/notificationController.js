@@ -57,10 +57,11 @@ const getNotifications = async (req, res) => {
     const notificationsWithUrls = await Promise.all(result.notifications.map(async (notification) => {
       // Generate signed URL for fromUser profile picture
       if (notification.fromUser) {
-        // Need to fetch full user data to get profilePicStorageKey
-        const fromUser = await User.findById(notification.fromUser._id || notification.fromUser)
-          .select('fullName profilePic profilePicStorageKey email')
-          .lean();
+        const fromUser = notification.fromUser._id
+          ? { ...notification.fromUser }
+          : await User.findById(notification.fromUser)
+            .select('fullName profilePic profilePicStorageKey email')
+            .lean();
         
         if (fromUser) {
           if (fromUser.profilePicStorageKey) {
@@ -89,10 +90,11 @@ const getNotifications = async (req, res) => {
 
       // Generate signed URL for post image
       if (notification.post) {
-        // Need to fetch full post data to get storage keys
-        const post = await Post.findById(notification.post._id || notification.post)
-          .select('imageUrl storageKey storageKeys thumbnailUrl type')
-          .lean();
+        const post = notification.post._id
+          ? { ...notification.post }
+          : await Post.findById(notification.post)
+            .select('imageUrl caption storageKey storageKeys thumbnailUrl type')
+            .lean();
         
         if (post) {
           // For shorts, prefer thumbnailUrl, then imageUrl

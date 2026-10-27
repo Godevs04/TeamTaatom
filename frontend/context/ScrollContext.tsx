@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 interface ScrollContextType {
   isScrollingUp: boolean;
@@ -14,8 +14,10 @@ export function ScrollProvider({ children }: { children: React.ReactNode }) {
     setIsScrollingUp(value);
   }, []);
 
+  const value = useMemo(() => ({ isScrollingUp, setScrollingUp }), [isScrollingUp, setScrollingUp]);
+
   return (
-    <ScrollContext.Provider value={{ isScrollingUp, setScrollingUp }}>
+    <ScrollContext.Provider value={value}>
       {children}
     </ScrollContext.Provider>
   );

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback, useMemo } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSettings, updateSettings, updateSettingCategory, resetSettings, UserSettings } from '../services/settings';
@@ -298,14 +298,14 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     };
   }, [loadSettings]);
 
-  const value: SettingsContextType = {
+  const value = useMemo<SettingsContextType>(() => ({
     settings,
     loading,
     updateSetting,
     updateAllSettings,
     resetAllSettings,
     refreshSettings,
-  };
+  }), [settings, loading, updateSetting, updateAllSettings, resetAllSettings, refreshSettings]);
 
   return (
     <SettingsContext.Provider value={value}>

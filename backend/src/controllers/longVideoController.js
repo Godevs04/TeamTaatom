@@ -352,8 +352,8 @@ async function createLongVideoUpload(req, res) {
     }
 
     try {
-      await deleteCacheByPattern('posts:*');
-      await deleteCacheByPattern(`user:${req.user._id}:posts:*`);
+      deleteCacheByPattern('posts:*');
+      deleteCacheByPattern(`user:${req.user._id}:posts:*`);
     } catch {
       /* ignore */
     }

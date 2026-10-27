@@ -29,7 +29,7 @@ import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
-import { JourneyProvider, useJourney, useJourneyDuration } from '../context/JourneyContext';
+import { JourneyProvider } from '../context/JourneyContext';
 import { BackgroundLocationDisclosureHost } from '../components/permissions/BackgroundLocationDisclosureHost';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
@@ -124,30 +124,6 @@ function RootLayoutInner() {
   const pendingNotificationRef = useRef<Notifications.NotificationResponse | null>(null);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
-
-  // Journey tracking — reads from the shared provider mounted in
-  // RootLayout below, so every consumer (this layout, navigate/*,
-  // map/current-location) shares one GPS watcher.
-  const {
-    isTracking,
-    isPaused,
-    distance,
-    pauseJourneyRecording,
-    resumeJourneyRecording,
-    stopJourneyRecording,
-  } = useJourney();
-  const duration = useJourneyDuration();
-
-  const handleStopJourney = useCallback(async () => {
-    try {
-      await stopJourneyRecording();
-      showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
-      router.push('/navigate/complete');
-    } catch (err: any) {
-      logger.error('[RootLayout] Failed to stop journey from status bar:', err);
-      showWarning('Error', err.message || 'Failed to end journey');
-    }
-  }, [stopJourneyRecording, showSuccess, showWarning, router]);
 
   // Apply web optimizations
   useWebOptimizations();

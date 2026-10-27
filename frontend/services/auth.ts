@@ -268,11 +268,21 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
   }
 };
 
+// Decrypting is a JS-thread XOR loop; memoize it by the raw stored string so
+// repeated reads (every feed card, polling, navigation) stay cheap and still
+// reflect any external writes/removals of 'userData'.
+let lastRawUserData: string | null = null;
+let lastDecryptedUserData: string | null = null;
+
 // Get user from storage
 export const getUserFromStorage = async (): Promise<UserType | null> => {
   try {
     const rawData = await AsyncStorage.getItem('userData');
     if (!rawData) return null;
+
+    if (rawData === lastRawUserData && lastDecryptedUserData) {
+      return JSON.parse(lastDecryptedUserData);
+    }
 
     // Try to parse directly (backward compatibility for unencrypted storage)
     try {
@@ -290,7 +300,10 @@ export const getUserFromStorage = async (): Promise<UserType | null> => {
 
     const decrypted = decryptData(rawData);
     if (!decrypted) return null;
-    return JSON.parse(decrypted);
+    const parsedUser = JSON.parse(decrypted);
+    lastRawUserData = rawData;
+    lastDecryptedUserData = decrypted;
+    return parsedUser;
   } catch (error) {
     logger.error('getUserFromStorage', error);
     return null;

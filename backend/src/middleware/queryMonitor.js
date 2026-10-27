@@ -13,6 +13,15 @@ const queryStats = {
   maxSlowQueries: 100, // Keep last 100 slow queries
 };
 
+const MAX_QUERY_TIMES = 1000;
+const recordQueryTime = (duration) => {
+  queryStats.totalQueries++;
+  queryStats.queryTimes.push(duration);
+  if (queryStats.queryTimes.length > MAX_QUERY_TIMES) {
+    queryStats.queryTimes.shift();
+  }
+};
+
 // Store original exec to avoid multiple overrides
 let originalExec = null;
 let isMonitoring = false;
@@ -44,8 +53,7 @@ const initializeQueryMonitoring = () => {
       return promise
         .then((result) => {
           const duration = Date.now() - start;
-          queryStats.totalQueries++;
-          queryStats.queryTimes.push(duration);
+          recordQueryTime(duration);
 
           // Track slow queries
           if (duration > SLOW_QUERY_THRESHOLD) {
@@ -75,10 +83,8 @@ const initializeQueryMonitoring = () => {
           return result;
         })
         .catch((error) => {
-          const duration = Date.now() - start;
-          queryStats.totalQueries++;
-          queryStats.queryTimes.push(duration);
-          
+          recordQueryTime(Date.now() - start);
+
           // Re-throw the error
           throw error;
         });

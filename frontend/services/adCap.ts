@@ -12,7 +12,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { trackPostView } from './analytics';
 import logger from '../utils/logger';
 
@@ -491,21 +491,22 @@ export function useAdCap() {
     };
   }, []);
 
-  const now = Date.now();
-  const expired = snapshot.windowStart != null && isWindowExpired(snapshot, now);
-  const currentCount = expired ? 0 : snapshot.count;
-  const isCapped = expired ? false : currentCount >= MAX_GOOGLE_ADS;
+  const expired = snapshot.windowStart != null && isWindowExpired(snapshot, Date.now());
 
-  return {
-    count: currentCount,
-    isCapped: isCapped,
-    remainingSlots: Math.max(0, MAX_GOOGLE_ADS - currentCount),
-    windowStart: expired ? null : snapshot.windowStart,
-    postDelayViews: expired ? [] : snapshot.postDelayViews,
-    ignoredIds: snapshot.ignoredIds,
-    appLaunchTimestamp: snapshot.appLaunchTimestamp,
-    shownAdMilestones: expired ? [] : snapshot.shownAdMilestones,
-  };
+  // Stable identity per snapshot so consumers' useMemo/useCallback deps don't churn every render.
+  return useMemo(() => {
+    const currentCount = expired ? 0 : snapshot.count;
+    return {
+      count: currentCount,
+      isCapped: expired ? false : currentCount >= MAX_GOOGLE_ADS,
+      remainingSlots: Math.max(0, MAX_GOOGLE_ADS - currentCount),
+      windowStart: expired ? null : snapshot.windowStart,
+      postDelayViews: expired ? [] : snapshot.postDelayViews,
+      ignoredIds: snapshot.ignoredIds,
+      appLaunchTimestamp: snapshot.appLaunchTimestamp,
+      shownAdMilestones: expired ? [] : snapshot.shownAdMilestones,
+    };
+  }, [snapshot, expired]);
 }
 
 export const AD_CAP_MAX = MAX_GOOGLE_ADS;
