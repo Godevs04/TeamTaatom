@@ -61,7 +61,7 @@ const handleHLSProxy = async (req, res) => {
 
   // Fetch the post to verify it exists and is playable.
   // Long videos share the same HLS pipeline/path as shorts after transcode.
-  const post = await Post.findById(postId).lean();
+  const post = await Post.findById(postId).select('type isActive status').lean();
   if (!post || (post.type !== 'short' && post.type !== 'long_video')) {
     return res.status(404).json({ error: 'Video not found' });
   }
@@ -81,6 +81,14 @@ const handleHLSProxy = async (req, res) => {
   if (hls === 'master') {
     const s3Key = `shorts/hls/${postId}/index.m3u8`;
     try {
+      const playlistCacheKey = CacheKeys.shortsHlsPlaylist(String(postId));
+      const cachedPlaylist = await getCache(playlistCacheKey);
+      if (typeof cachedPlaylist === 'string' && cachedPlaylist.length > 0) {
+        res.setHeader('Content-Type', 'application/x-mpegURL');
+        res.setHeader('Cache-Control', 'public, max-age=60');
+        return res.status(200).send(cachedPlaylist);
+      }
+
       const s3Response = await s3Client.send(new GetObjectCommand({
         Bucket: BUCKET_NAME,
         Key: s3Key
@@ -99,13 +107,6 @@ const handleHLSProxy = async (req, res) => {
       // Replace relative segments with absolute proxy endpoint URLs
       const proto = getProto(req);
       const baseUrl = `${proto}://${req.get('host')}`;
-      const playlistCacheKey = CacheKeys.shortsHlsPlaylist(String(postId));
-      const cachedPlaylist = await getCache(playlistCacheKey);
-      if (typeof cachedPlaylist === 'string' && cachedPlaylist.length > 0) {
-        res.setHeader('Content-Type', 'application/x-mpegURL');
-        res.setHeader('Cache-Control', 'public, max-age=60');
-        return res.status(200).send(cachedPlaylist);
-      }
 
       const lines = m3u8Content.split('\n');
       const mappedLines = await Promise.all(lines.map(async (line) => {
@@ -218,16 +219,34 @@ function toAuthorObjectIds(ids) {
     .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
 }
 
+// Resolves each distinct commenter once, in parallel, instead of one awaited call per comment.
+async function resolveCommentProfilePics(comments) {
+  if (!Array.isArray(comments) || comments.length === 0) return;
+  const byUser = new Map();
+  for (const comment of comments) {
+    if (!comment?.user) continue;
+    const key = comment.user._id ? comment.user._id.toString() : JSON.stringify(comment.user);
+    if (!byUser.has(key)) byUser.set(key, []);
+    byUser.get(key).push(comment.user);
+  }
+  await Promise.all([...byUser.values()].map(async (users) => {
+    const url = await resolveProfilePic(users[0]);
+    for (const u of users) u.profilePic = url;
+  }));
+}
+
 async function getBidirectionalBlockedIds(viewerId) {
   if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) return [];
-  const viewerObjId = new mongoose.Types.ObjectId(viewerId);
-  const [viewerDoc, whoBlockedMe] = await Promise.all([
-    User.findById(viewerObjId).select('blockedUsers').lean(),
-    User.find({ blockedUsers: viewerObjId }).select('_id').lean()
-  ]);
-  const myBlocked = (viewerDoc?.blockedUsers || []).map((b) => b.toString());
-  const blockedMe = whoBlockedMe.map((u) => u._id.toString());
-  return [...new Set([...myBlocked, ...blockedMe])];
+  return cacheWrapper(CacheKeys.blockedIds(viewerId), async () => {
+    const viewerObjId = new mongoose.Types.ObjectId(viewerId);
+    const [viewerDoc, whoBlockedMe] = await Promise.all([
+      User.findById(viewerObjId).select('blockedUsers').lean(),
+      User.find({ blockedUsers: viewerObjId }).select('_id').lean()
+    ]);
+    const myBlocked = (viewerDoc?.blockedUsers || []).map((b) => b.toString());
+    const blockedMe = whoBlockedMe.map((u) => u._id.toString());
+    return [...new Set([...myBlocked, ...blockedMe])];
+  }, CACHE_TTL.SHORT);
 }
 
 // @desc    Get all posts (only photo type)
@@ -250,8 +269,9 @@ const getPosts = async (req, res) => {
     const result = await cacheWrapper(cacheKey, async () => {
       let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
       const blockedIds = viewerId ? await getBidirectionalBlockedIds(viewerId) : [];
+      const blockedSet = new Set(blockedIds);
       let allowedFiltered = blockedIds.length
-        ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
+        ? allowedAuthorIds.filter(id => !blockedSet.has(id.toString()))
         : allowedAuthorIds;
 
       // Friends feed: only posts from users the viewer follows
@@ -477,7 +497,7 @@ const getPosts = async (req, res) => {
 
       // Use the same matchQuery so the count reflects the actual filtered feed
       // (e.g. friends-only posts, not all posts in the database)
-      const totalPosts = await Post.countDocuments(matchQuery).lean();
+      const totalPosts = useCursor ? null : await Post.countDocuments(matchQuery);
 
       // Generate signed URLs dynamically for posts and songs
       const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {
@@ -527,13 +547,7 @@ const getPosts = async (req, res) => {
         if (post.user) {
           post.user.profilePic = await resolveProfilePic(post.user);
         }
-        if (post.comments && post.comments.length > 0) {
-          for (const comment of post.comments) {
-            if (comment.user) {
-              comment.user.profilePic = await resolveProfilePic(comment.user);
-            }
-          }
-        }
+        await resolveCommentProfilePics(post.comments);
         // Generate song URL if present
         if (post.song?.songId) {
           const storageKey = post.song.songId.storageKey || post.song.songId.cloudinaryKey || post.song.songId.s3Key;
@@ -952,13 +966,7 @@ const getPostById = async (req, res) => {
     if (post.user) {
       post.user.profilePic = await resolveProfilePic(post.user);
     }
-    if (post.comments && post.comments.length > 0) {
-      for (const comment of post.comments) {
-        if (comment.user) {
-          comment.user.profilePic = await resolveProfilePic(comment.user);
-        }
-      }
-    }
+    await resolveCommentProfilePics(post.comments);
 
     // Generate song URL if present (same logic as getPosts)
     if (post.song?.songId) {
@@ -1343,8 +1351,8 @@ const createPost = async (req, res) => {
     }).catch(err => logger.error('Error creating activity:', err));
 
     // Invalidate cache for post lists
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Update hashtag counts asynchronously (don't block post creation)
     if (allHashtags.length > 0) {
@@ -1361,7 +1369,7 @@ const createPost = async (req, res) => {
             await hashtag.incrementPostCount(post._id);
             // Invalidate hashtag cache
             await deleteCache(CacheKeys.hashtag(hashtagName));
-            await deleteCacheByPattern(`hashtag:${hashtagName}:*`);
+            deleteCacheByPattern(`hashtag:${hashtagName}:*`);
           } catch (error) {
             logger.error(`Error updating hashtag ${hashtagName}:`, error);
           }
@@ -1963,13 +1971,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
         short.thumbnailUrl = null;
       }
 
-      if (short.comments && short.comments.length > 0) {
-        for (const comment of short.comments) {
-          if (comment.user) {
-            comment.user.profilePic = await resolveProfilePic(comment.user);
-          }
-        }
-      }
+      await resolveCommentProfilePics(short.comments);
 
       return short;
     }));
@@ -2350,13 +2352,7 @@ const getUserPosts = async (req, res) => {
       if (post.user) {
         post.user.profilePic = await resolveProfilePic(post.user);
       }
-      if (post.comments && post.comments.length > 0) {
-        for (const comment of post.comments) {
-          if (comment.user) {
-            comment.user.profilePic = await resolveProfilePic(comment.user);
-          }
-        }
-      }
+      await resolveCommentProfilePics(post.comments);
 
       // Generate signed URL for song if present
       if (post.song?.songId) {
@@ -2401,7 +2397,7 @@ const getUserPosts = async (req, res) => {
 // @access  Private
 const toggleLike = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).lean();
+    const post = await Post.findById(req.params.id).select('user').lean();
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
@@ -2476,7 +2472,7 @@ const toggleLike = async (req, res) => {
     if (!operationExecuted) {
       // Duplicate concurrent request, state was already updated.
       // Fetch fresh post to return accurate status to client.
-      const freshPost = await Post.findById(req.params.id).lean();
+      const freshPost = await Post.findById(req.params.id).select('likesCount').lean();
       if (!freshPost) {
         return sendError(res, 'RES_3001', 'Post does not exist');
       }
@@ -2522,8 +2518,8 @@ const toggleLike = async (req, res) => {
 
       // Invalidate cache
       await deleteCache(CacheKeys.post(req.params.id));
-      await deleteCacheByPattern('posts:*');
-      await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+      deleteCacheByPattern('posts:*');
+      deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
       // Update user's total likes if this is their post - use final verified state
       if (finalIsLiked) {
@@ -2548,7 +2544,7 @@ const toggleLike = async (req, res) => {
             logger.debug('Like notification created successfully:', notification._id);
 
             // Send push notification
-            await sendNotificationToUser({
+            sendNotificationToUser({
               userId: post.user.toString(),
               title: 'New Like',
               body: `${req.user.fullName} liked your post`,
@@ -2669,8 +2665,8 @@ const addComment = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user._id.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user._id.toString()}:posts:*`);
 
     // Create activity (respect user's privacy settings)
     const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
@@ -2832,8 +2828,8 @@ const deleteComment = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(postId));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Emit real-time post comment update to all connected users
     const ioDelete = getIO ? getIO() : global.socketIO;
@@ -2893,8 +2889,8 @@ const deletePost = async (req, res) => {
 
     // Invalidate cache after database deletion is complete to prevent concurrent reads from caching stale/deleted post
     await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${userId}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${userId}:posts:*`);
 
 
     // Emit socket events
@@ -2935,8 +2931,8 @@ const archivePost = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post archived successfully', { post });
   } catch (error) {
@@ -2964,8 +2960,8 @@ const unarchivePost = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unarchived successfully', { post });
   } catch (error) {
@@ -3018,13 +3014,7 @@ const getArchivedPosts = async (req, res) => {
       if (post.user) {
         post.user.profilePic = await resolveProfilePic(post.user);
       }
-      if (post.comments) {
-        for (const comment of post.comments) {
-          if (comment.user) {
-            comment.user.profilePic = await resolveProfilePic(comment.user);
-          }
-        }
-      }
+      await resolveCommentProfilePics(post.comments);
     }
 
     const postIds = posts.map(p => p._id);
@@ -3065,8 +3055,8 @@ const hidePost = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post hidden successfully', { post });
   } catch (error) {
@@ -3094,8 +3084,8 @@ const unhidePost = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unhidden successfully', { post });
   } catch (error) {
@@ -3146,13 +3136,7 @@ const getHiddenPosts = async (req, res) => {
       if (post.user) {
         post.user.profilePic = await resolveProfilePic(post.user);
       }
-      if (post.comments) {
-        for (const comment of post.comments) {
-          if (comment.user) {
-            comment.user.profilePic = await resolveProfilePic(comment.user);
-          }
-        }
-      }
+      await resolveCommentProfilePics(post.comments);
     }
 
     const postIds = posts.map(p => p._id);
@@ -3196,8 +3180,8 @@ const toggleComments = async (req, res) => {
     await post.save();
 
     await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, post.commentsDisabled ? 'Comments disabled' : 'Comments enabled', {
       commentsDisabled: post.commentsDisabled
@@ -3250,8 +3234,8 @@ const updatePost = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Update hashtag counts (decrement old, increment new)
     const newHashtags = extractedHashtags;
@@ -3352,8 +3336,9 @@ const getShorts = async (req, res) => {
           })
         : Promise.resolve(null),
     ]);
+    const blockedSet = new Set(blockedIds);
     const allowedFiltered = blockedIds.length
-      ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
+      ? allowedAuthorIds.filter(id => !blockedSet.has(id.toString()))
       : allowedAuthorIds;
 
     // Fetch user viewed post IDs from DB UserInteraction
@@ -3410,11 +3395,11 @@ const getShorts = async (req, res) => {
       await setCache(CacheKeys.shortsCandidates(), candidateShorts, CACHE_TTL.SHORT);
     }
     const excludeIdSet = new Set(excludeObjIds.map((id) => id.toString()));
+    const allowedAuthorSet = new Set(allowedFiltered.map((id) => id.toString()));
     candidateShorts = candidateShorts.filter((short) => {
       const authorId = short.user?._id ? short.user._id.toString() : short.user?.toString?.();
       if (excludeIdSet.has(short._id.toString())) return false;
-      if (allowedFiltered.length === 0) return false;
-      return allowedFiltered.some((id) => id.toString() === authorId);
+      return allowedAuthorSet.has(authorId);
     });
 
     // Scoring function in-memory
@@ -4008,8 +3993,8 @@ const createShort = async (req, res) => {
 
     await short.save();
 
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Create TranscodeJob
     const TranscodeJob = mongoose.model('TranscodeJob');
@@ -4185,8 +4170,8 @@ const incrementShare = async (req, res) => {
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+    deleteCacheByPattern('posts:*');
+    deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Emit real-time post share update if socket is configured
     try {

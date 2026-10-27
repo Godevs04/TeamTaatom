@@ -352,6 +352,7 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ isVerified: 1 }); // For filtering verified users
 userSchema.index({ createdAt: -1 }); // For sorting by creation date
 userSchema.index({ lastLogin: -1 }); // For sorting by last login
+userSchema.index({ blockedUsers: 1 }); // "who blocked me" lookups on feed/shorts/search/chat
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
@@ -424,5 +425,34 @@ userSchema.methods.getPublicProfile = async function() {
     profileOnboardingVersion: typeof this.profileOnboardingVersion === 'number' ? this.profileOnboardingVersion : 0
   };
 };
+
+// Keep the auth-middleware user cache coherent with writes.
+const { deleteCache, CacheKeys } = require('../utils/cache');
+
+const invalidateAuthUserCache = (ids) => {
+  for (const id of ids) {
+    if (id) deleteCache(CacheKeys.authUser(id.toString())).catch(() => {});
+  }
+};
+
+const idsFromFilter = (filter) => {
+  const idFilter = filter?._id;
+  if (!idFilter) return [];
+  if (Array.isArray(idFilter.$in)) return idFilter.$in;
+  if (typeof idFilter === 'object' && !(idFilter instanceof mongoose.Types.ObjectId) && !idFilter._bsontype) return [];
+  return [idFilter];
+};
+
+userSchema.post('save', function(doc) {
+  invalidateAuthUserCache([doc?._id]);
+});
+
+userSchema.post(['findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace'], function(doc) {
+  invalidateAuthUserCache([doc?._id, ...idsFromFilter(this.getFilter())]);
+});
+
+userSchema.post(['updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'replaceOne'], function() {
+  invalidateAuthUserCache(idsFromFilter(this.getFilter()));
+});
 
 module.exports = mongoose.model('User', userSchema);

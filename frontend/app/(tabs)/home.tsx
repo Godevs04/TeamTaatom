@@ -26,7 +26,6 @@ import { listChats } from '../../services/chat';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import LongVideoCard from '../../components/LongVideoCard';
-import { getImageAspectRatio } from '../../components/post/PostImage';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Audio } from '../../utils/expoAv';
@@ -44,7 +43,6 @@ import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
 import { isWeb, throttle } from '../../utils/webOptimizations';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
-import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
 import { savedEvents } from '../../utils/savedEvents';
@@ -327,7 +325,6 @@ const FeedListItem = React.memo(
 );
 
 export default function HomeScreen() {
-  const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
   const [headerHeight, setHeaderHeight] = useState(56 + 63 + insets.top);
   const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
@@ -1247,9 +1244,10 @@ export default function HomeScreen() {
 
       // 4. Refresh unseen count and setup periodic refresh
       fetchUnseenMessageCount();
+      // Socket events keep the badge live; polling is only a safety net.
       const interval = setInterval(() => {
         fetchUnseenMessageCount();
-      }, 10000);
+      }, 60000);
 
       return () => {
         if (refocusTimeout) clearTimeout(refocusTimeout);
@@ -1340,27 +1338,24 @@ export default function HomeScreen() {
   // Subscribe to socket events for real-time unread count updates
   useEffect(() => {
     if (!isOnline) return;
-    
-    const onMessageNew = async (payload: any) => {
-      logger.debug('Received message:new event on home page, updating unread count', payload);
-      // Refresh count after a short delay to get accurate count
-      setTimeout(() => {
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleUnreadRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
         fetchUnseenMessageCount();
-      }, 500);
+      }, 1000);
     };
-    
-    const onMessageSeen = async (payload: any) => {
-      logger.debug('Received message seen event, updating unread count', payload);
-      // Refresh count after a short delay
-      setTimeout(() => {
-        fetchUnseenMessageCount();
-      }, 500);
-    };
-    
+
+    const onMessageNew = () => scheduleUnreadRefresh();
+    const onMessageSeen = () => scheduleUnreadRefresh();
+
     socketService.subscribe('message:new', onMessageNew);
     socketService.subscribe('seen', onMessageSeen);
-    
+
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
       socketService.unsubscribe('message:new', onMessageNew);
       socketService.unsubscribe('seen', onMessageSeen);
     };
@@ -1469,7 +1464,7 @@ export default function HomeScreen() {
     [loading, hasMore, page, fetchPosts, feedMode]
   );
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: {
       flex: 1,
       ...(isWeb && {
@@ -1602,7 +1597,7 @@ export default function HomeScreen() {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
     },
-  });
+  }), [theme, isDark, insets.top]);
 
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0 || feedMode === 'watch') return posts as FeedItem[];
@@ -1631,26 +1626,6 @@ export default function HomeScreen() {
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
   // MUST be defined before conditional returns to follow Rules of Hooks
-  const overrideItemLayout = useCallback(
-    (
-      layout: { size?: number; offset?: number },
-      item: FeedItem,
-      index: number,
-      maxColumns: number,
-      extraData?: any
-    ) => {
-      if (isAdItem(item)) {
-        layout.size = 300;
-      } else {
-        const cardWidth = screenWidth - 32;
-        const aspect = getImageAspectRatio(item);
-        const imageHeight = cardWidth / aspect;
-        layout.size = imageHeight + 230; // imageHeight + header + actions + padding + margin
-      }
-    },
-    []
-  );
-
   const keyExtractor = useCallback((item: FeedItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
     return item._id?.toString() || '';
@@ -1756,17 +1731,36 @@ export default function HomeScreen() {
     minimumViewTime: 200, // Minimum time item must be visible (ms)
   }).current;
 
+  const handleRefreshRef = useRef(handleRefresh);
+  handleRefreshRef.current = handleRefresh;
+  const stableHandleRefresh = useCallback(() => handleRefreshRef.current(), []);
+
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     return (
       <FeedListItem
         item={item}
         index={index}
         subscribeVisibility={subscribeVisibility}
-        onRefresh={handleRefresh}
+        onRefresh={stableHandleRefresh}
         onAdLoadFailed={handleAdLoadFailed}
       />
     );
-  }, [handleRefresh, handleAdLoadFailed, subscribeVisibility]);
+  }, [stableHandleRefresh, handleAdLoadFailed, subscribeVisibility]);
+
+  const getItemType = useCallback((item: FeedItem) => {
+    if (isAdItem(item)) return 'ad';
+    return (item as PostType).type === 'long_video' ? 'long_video' : 'post';
+  }, []);
+
+  const saveScrollOffset = useCallback((e: any) => {
+    homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+
+  const feedContentContainerStyle = useMemo(() => ({
+    ...StyleSheet.flatten(styles.postsList),
+    paddingTop: headerHeight,
+    paddingBottom: bottomBarHeight + 20,
+  }), [styles.postsList, headerHeight, bottomBarHeight]);
 
   const screenGradientColors =
     isDark
@@ -1843,23 +1837,12 @@ export default function HomeScreen() {
               data={feedData}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
-              getItemType={(item: FeedItem) => (isAdItem(item) ? 'ad' : 'post')}
-              overrideItemLayout={overrideItemLayout}
+              getItemType={getItemType}
               style={styles.postsContainer}
-              contentContainerStyle={[
-                styles.postsList,
-                {
-                  paddingTop: headerHeight,
-                  paddingBottom: bottomBarHeight + 20,
-                }
-              ]}
+              contentContainerStyle={feedContentContainerStyle}
               showsVerticalScrollIndicator={false}
-              onScroll={(e) => {
-                if (e.target !== e.currentTarget) return;
-                homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-                handleScroll(e);
-              }}
-              scrollEventThrottle={16}
+              onMomentumScrollEnd={saveScrollOffset}
+              onScrollEndDrag={saveScrollOffset}
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
@@ -1871,7 +1854,7 @@ export default function HomeScreen() {
                 />
               }
               onEndReached={handleLoadMore}
-              onEndReachedThreshold={0.1}
+              onEndReachedThreshold={0.6}
               ListHeaderComponent={
                 <View>
                   {!isOnline && (

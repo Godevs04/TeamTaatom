@@ -46,6 +46,8 @@ import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
 import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/likePersistence';
 import CloudGlassSurface from './cloud/CloudGlassSurface';
 
+const logger = createLogger('OptimizedPhotoCard');
+
 const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
 const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
 const SAVED_POSTS_STORAGE_KEY = 'savedPosts';
@@ -180,7 +182,6 @@ function PhotoCard({
   hideShareCount = true,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
-  const logger = createLogger('OptimizedPhotoCard');
   const { theme, isDark } = useTheme();
   const { settings } = useSettings();
   const router = useRouter();
@@ -488,30 +489,7 @@ function PhotoCard({
     });
 
     return unsubscribe;
-  }, [post._id, isLiked, likesCount]);
-
-  // Animation for multiple images indicator
-  React.useEffect(() => {
-    if (post.images && post.images.length > 1) {
-      const pulseAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulseAnimation.start();
-      
-      return () => pulseAnimation.stop();
-    }
-  }, [post.images, pulseAnim]);
+  }, [post._id]);
 
   // expo-image handles caching, retries, dedup, and progressive display natively.
   // We just pass the URL straight through and track error state for the fallback UI.
@@ -544,8 +522,14 @@ function PhotoCard({
     setImageError(!post.imageUrl && (!post.images || post.images.length === 0));
   }
 
-  // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
+  // Synchronize component state when post prop fields change (fixing recycling/stale value leaks).
+  // Initial state already matches props on mount, so skip the first run to avoid a second render per card.
+  const hasSyncedPropsRef = useRef(false);
   React.useEffect(() => {
+    if (!hasSyncedPropsRef.current) {
+      hasSyncedPropsRef.current = true;
+      return;
+    }
     const localLikesState = savedEvents.getLikesState(post._id);
     if (!localLikesState && post._id) {
       savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
@@ -1265,6 +1249,7 @@ function PhotoCard({
       </CloudGlassSurface>
 
       {/* Elegant Menu Modal */}
+      {showMenu && (
       <Modal
         visible={showMenu}
         transparent
@@ -1533,8 +1518,10 @@ function PhotoCard({
           </View>
         </TouchableOpacity>
       </Modal>
+      )}
 
       {/* Edit Modal - Fixed alignment and responsiveness */}
+      {showEditModal && (
       <Modal
         visible={showEditModal}
         transparent
@@ -1612,49 +1599,57 @@ function PhotoCard({
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+      )}
 
-      {/* Comment Modal */}
-      <PostComments
-        visible={showCommentModal}
-        postId={post._id}
-        comments={comments}
-        onClose={handleCloseComments}
-        onCommentAdded={handleCommentAdded}
-        onCommentDeleted={handleCommentDeleted}
-        commentsDisabled={commentsDisabled}
-      />
+      {/* Modals are mounted only while open: each card otherwise runs their hooks/effects during scroll. */}
+      {showCommentModal && (
+        <PostComments
+          visible={showCommentModal}
+          postId={post._id}
+          comments={comments}
+          onClose={handleCloseComments}
+          onCommentAdded={handleCommentAdded}
+          onCommentDeleted={handleCommentDeleted}
+          commentsDisabled={commentsDisabled}
+        />
+      )}
 
-      {/* Custom Alert */}
-      <CustomAlert
-        visible={showCustomAlert}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        type={alertConfig.type}
-        showCancel={alertConfig.showCancel}
-        onConfirm={alertConfig.onConfirm}
-        onClose={handleCustomAlertClose}
-      />
+      {showCustomAlert && (
+        <CustomAlert
+          visible={showCustomAlert}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          type={alertConfig.type}
+          showCancel={alertConfig.showCancel}
+          onConfirm={alertConfig.onConfirm}
+          onClose={handleCustomAlertClose}
+        />
+      )}
 
-      {/* Share Modal */}
-      <ReportReasonModal
-        visible={showReportModal}
-        onClose={handleCloseReportModal}
-        title="Report Post"
-        onSelect={handleReportSelect}
-      />
-      <ShareModal
-        visible={showShareModal}
-        onClose={handleCloseShareModal}
-        post={post}
-      />
+      {showReportModal && (
+        <ReportReasonModal
+          visible={showReportModal}
+          onClose={handleCloseReportModal}
+          title="Report Post"
+          onSelect={handleReportSelect}
+        />
+      )}
+      {showShareModal && (
+        <ShareModal
+          visible={showShareModal}
+          onClose={handleCloseShareModal}
+          post={post}
+        />
+      )}
 
-      {/* Add to Collection Modal */}
-      <AddToCollectionModal
-        visible={showAddToCollectionModal}
-        postId={post._id}
-        onClose={handleCloseAddToCollectionModal}
-        onSuccess={handleAddToCollectionSuccess}
-      />
+      {showAddToCollectionModal && (
+        <AddToCollectionModal
+          visible={showAddToCollectionModal}
+          postId={post._id}
+          onClose={handleCloseAddToCollectionModal}
+          onSuccess={handleAddToCollectionSuccess}
+        />
+      )}
     </View>
   );
 }

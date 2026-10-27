@@ -582,6 +582,29 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleSongPlayingChange: null as any,
     onVideoReady: null as any,
   });
+  // Stable identity forwarding to the latest handlers so memoized ShortsCell
+  // instances don't all re-render whenever any handler is recreated.
+  const stableHandlers = useMemo(() => {
+    type HandlerName = keyof typeof handlersRef.current;
+    const forward = (name: HandlerName) => (...args: any[]) => handlersRef.current[name]?.(...args);
+    return {
+      handleTouchStart: forward('handleTouchStart'),
+      handleTouchMove: forward('handleTouchMove'),
+      handleTouchEnd: forward('handleTouchEnd'),
+      handleTouchCancel: forward('handleTouchCancel'),
+      handleDeleteShort: forward('handleDeleteShort'),
+      handleProfilePress: forward('handleProfilePress'),
+      handleLike: forward('handleLike'),
+      handleComment: forward('handleComment'),
+      handleShare: forward('handleShare'),
+      handleSave: forward('handleSave'),
+      getVideoUrl: forward('getVideoUrl'),
+      refetchShortWithFreshUrl: forward('refetchShortWithFreshUrl'),
+      removeLocalVideoUri: forward('removeLocalVideoUri'),
+      handleSongPlayingChange: forward('handleSongPlayingChange'),
+      onVideoReady: forward('onVideoReady'),
+    };
+  }, []);
   
   const { theme, mode } = useTheme();
   const router = useRouter();
@@ -2389,25 +2412,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     };
   }, [currentVisibleIndex, shortsData, getVideoUrl, currentUser?._id]);
 
-  useEffect(() => {
-    handlersRef.current = {
-      handleTouchStart,
-      handleTouchMove,
-      handleTouchEnd,
-      handleTouchCancel,
-      handleDeleteShort,
-      handleProfilePress,
-      handleLike,
-      handleComment,
-      handleShare,
-      handleSave,
-      getVideoUrl,
-      refetchShortWithFreshUrl: handleUrlRefetch,
-      removeLocalVideoUri,
-      handleSongPlayingChange,
-      onVideoReady: handleVideoReady,
-    };
-  }, [
+  handlersRef.current = {
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,
@@ -2419,11 +2424,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleShare,
     handleSave,
     getVideoUrl,
-    handleUrlRefetch,
+    refetchShortWithFreshUrl: handleUrlRefetch,
     removeLocalVideoUri,
     handleSongPlayingChange,
-    handleVideoReady,
-  ]);
+    onVideoReady: handleVideoReady,
+  };
 
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
@@ -2494,7 +2499,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isCacheChecked={checkedVideoCacheIds.has(item._id)}
         isSavedShorts={props.isSavedShorts}
         effectiveUserId={effectiveUserId}
-        handlers={handlersRef.current}
+        handlers={stableHandlers}
         videoRefs={videoRefs}
         currentPlayerRef={currentPlayerRef}
         progressCallbacks={progressCallbacks}

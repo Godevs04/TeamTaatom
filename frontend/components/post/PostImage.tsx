@@ -165,6 +165,7 @@ const CarouselItem = React.memo(({
               cachePolicy="memory-disk"
               contentFit="cover"
               transition={250}
+              recyclingKey={item}
               priority={isActive ? "high" : "normal"}
               style={styles.image}
               onLoadStart={() => setIsImageLoading(true)}
@@ -418,6 +419,7 @@ function PostImage({
     const key = getStableCacheKey(imageUri);
     return key ? (naturalAspectCache.get(key) ?? null) : null;
   });
+  const isCarouselPost = !!(post.images && post.images.length > 1);
   useEffect(() => {
     if (!shouldMeasure || !imageUri) return;
     const key = getStableCacheKey(imageUri);
@@ -426,6 +428,8 @@ function PostImage({
       if (cached !== naturalAspect) setNaturalAspect(cached);
       return;
     }
+    // Single images are measured from expo-image's onLoad (no second download).
+    if (!isCarouselPost) return;
     let cancelled = false;
     RNImage.getSize(
       imageUri,
@@ -438,7 +442,19 @@ function PostImage({
       () => { /* ignore — falls back to 1 */ },
     );
     return () => { cancelled = true; };
-  }, [post.aspectRatio, imageUri]);
+  }, [post.aspectRatio, imageUri, isCarouselPost]);
+
+  const handleSingleImageLoad = useCallback((e: any) => {
+    setIsImageLoading(false);
+    if (!shouldMeasure || !imageUri) return;
+    const w = e?.source?.width;
+    const h = e?.source?.height;
+    if (!w || !h) return;
+    const ratio = w / h;
+    const key = getStableCacheKey(imageUri);
+    if (key) naturalAspectCache.set(key, ratio);
+    setNaturalAspect((prev) => (prev === ratio ? prev : ratio));
+  }, [shouldMeasure, imageUri]);
 
   // 16:9 is portrait (1080×1920) → container aspectRatio = 9/16 (taller than wide).
   const getAspectRatio = () => {
@@ -693,10 +709,11 @@ function PostImage({
                   cachePolicy="memory-disk"
                   contentFit="cover"
                   transition={250}
-                  priority="high"
+                  recyclingKey={String(post._id)}
+                  priority={isCurrentlyVisible || shouldPreload ? 'high' : 'normal'}
                   style={styles.image}
                   onLoadStart={() => setIsImageLoading(true)}
-                  onLoad={() => setIsImageLoading(false)}
+                  onLoad={handleSingleImageLoad}
                   onError={() => {
                     setIsImageLoading(false);
                     onImageError();

@@ -2,6 +2,23 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const { getAuthToken } = require('../utils/authHelpers');
+const { getCache, setCache, CacheKeys } = require('../utils/cache');
+
+const AUTH_USER_TTL_SECONDS = 60;
+
+// Cached as a plain object and re-hydrated so handlers still get a full Mongoose document.
+const loadAuthUser = async (userId) => {
+  if (!userId) return null;
+  const key = CacheKeys.authUser(String(userId));
+  const cached = await getCache(key);
+  if (cached && cached._id) {
+    return User.hydrate(cached);
+  }
+  const user = await User.findById(userId).select('-password -otp -otpExpires').lean();
+  if (!user) return null;
+  await setCache(key, user, AUTH_USER_TTL_SECONDS);
+  return User.hydrate(user);
+};
 
 const authMiddleware = async (req, res, next) => {
   try {
@@ -55,7 +72,7 @@ const authMiddleware = async (req, res, next) => {
     }
     
     const userId = decoded.userId || decoded.id || decoded._id;
-    const user = await User.findById(userId).select('-password -otp -otpExpires');
+    const user = await loadAuthUser(userId);
     if (!user) {
       logger.warn('User not found for token:', userId);
       return res.status(401).json({ 
@@ -97,7 +114,7 @@ const optionalAuth = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.userId || decoded.id || decoded._id;
-    const user = await User.findById(userId).select('-password -otp -otpExpires');
+    const user = await loadAuthUser(userId);
     
     if (user && user.isVerified) {
       req.user = user;

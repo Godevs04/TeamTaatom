@@ -139,8 +139,10 @@ notificationSchema.statics.getUserNotifications = async function(userId, page = 
     .limit(limit)
     .lean();
 
-  const totalNotifications = await this.countDocuments({ toUser: userId });
-  const unreadCount = await this.countDocuments({ toUser: userId, isRead: false });
+  const [totalNotifications, unreadCount] = await Promise.all([
+    this.countDocuments({ toUser: userId }),
+    this.countDocuments({ toUser: userId, isRead: false }),
+  ]);
 
   return {
     notifications,

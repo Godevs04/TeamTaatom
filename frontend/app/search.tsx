@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -84,12 +84,18 @@ export default function SearchScreen() {
     loadSearchHistory();
   }, []);
 
+  const searchRequestIdRef = useRef(0);
+
   useEffect(() => {
-    if (searchQuery.trim().length >= 2) {
-      performSearch();
-    } else {
+    if (searchQuery.trim().length < 2) {
+      searchRequestIdRef.current++;
       setSearchResults({ users: [], posts: [], hashtags: [] });
+      return;
     }
+    const timer = setTimeout(() => {
+      performSearch();
+    }, 300);
+    return () => clearTimeout(timer);
   }, [searchQuery]);
 
   useEffect(() => {
@@ -183,6 +189,7 @@ export default function SearchScreen() {
   const performSearch = async () => {
     // Only search for users now (posts and hashtags tabs are commented out)
     if (searchQuery.trim().length < 2) return;
+    const requestId = ++searchRequestIdRef.current;
     
     try {
       setLoading(true);
@@ -193,6 +200,8 @@ export default function SearchScreen() {
       
       // Only search for users
       const usersResponse = await searchUsers(searchQuery, 1, 20).catch(() => ({ users: [] }));
+      // A newer keystroke superseded this request; don't overwrite its results.
+      if (requestId !== searchRequestIdRef.current) return;
       
       // Filter out current user from results (safety measure - backend should already do this)
       const filteredUsers = (usersResponse.users || []).filter(
@@ -266,7 +275,9 @@ export default function SearchScreen() {
       showError('Failed to search');
       logger.error('Search error:', error);
     } finally {
-      setLoading(false);
+      if (requestId === searchRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 

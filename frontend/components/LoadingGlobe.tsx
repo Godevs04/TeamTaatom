@@ -15,17 +15,16 @@ export default function LoadingGlobe({ size = 'large', color, speed = 2000, styl
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const startRotation = () => {
-      Animated.loop(
-        Animated.timing(rotateAnim, {
-          toValue: 1,
-          duration: speed,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      ).start();
-    };
-    startRotation();
+    const rotation = Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: speed,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    rotation.start();
+    return () => rotation.stop();
   }, [rotateAnim, speed]);
 
   const rotation = rotateAnim.interpolate({

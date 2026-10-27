@@ -2,6 +2,7 @@ const User = require('../models/User');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { sendOTPEmail } = require('../utils/sendOtp');
+const { deleteCache, CacheKeys } = require('../utils/cache');
 
 // @desc    Get user account activity
 // @route   GET /api/v1/users/me/activity
@@ -190,6 +191,10 @@ const unblockUser = async (req, res) => {
 
     user.blockedUsers.pull(blockedUserId);
     await user.save();
+    Promise.all([
+      deleteCache(CacheKeys.blockedIds(userId.toString())),
+      deleteCache(CacheKeys.blockedIds(String(blockedUserId))),
+    ]).catch(() => {});
 
     return sendSuccess(res, 200, 'User unblocked successfully', {
       unblocked: true

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { getSubscriptionStatus as fetchSubscriptionStatusApi, SubscriptionStatus } from '../services/connect';
 import logger from '../utils/logger';
 import { registerResetCallback } from '../services/auth';
@@ -59,14 +59,16 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => unregister();
   }, [clearSubscriptionCache]);
 
+  const value = useMemo(() => ({
+    subscriptionStatuses,
+    loadingStatuses,
+    refreshSubscriptionStatus,
+    updateSubscriptionStatus,
+    clearSubscriptionCache
+  }), [subscriptionStatuses, loadingStatuses, refreshSubscriptionStatus, updateSubscriptionStatus, clearSubscriptionCache]);
+
   return (
-    <SubscriptionContext.Provider value={{
-      subscriptionStatuses,
-      loadingStatuses,
-      refreshSubscriptionStatus,
-      updateSubscriptionStatus,
-      clearSubscriptionCache
-    }}>
+    <SubscriptionContext.Provider value={value}>
       {children}
     </SubscriptionContext.Provider>
   );

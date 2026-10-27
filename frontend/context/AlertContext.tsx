@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import CustomAlert from '../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../components/CustomOptions';
 import { sanitizeErrorForDisplay, sanitizeErrorMessage } from '../utils/errorSanitizer';
@@ -112,7 +112,9 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => registerGlobalAlertHandler(() => {});
   }, []);
 
-  const contextValue: AlertContextType = {
+  // Helpers only call state setters, so a single stable value is safe and keeps
+  // every useAlert() consumer from re-rendering when an alert opens/closes.
+  const contextValue = useMemo<AlertContextType>(() => ({
     showAlert: (title: string, message: string) => {
       showAlert({ title, message, type: 'info' });
     },
@@ -230,7 +232,8 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         onConfirm: () => onConfirm(defaultValue || ''),
       });
     },
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
 
   return (
     <AlertContext.Provider value={contextValue}>

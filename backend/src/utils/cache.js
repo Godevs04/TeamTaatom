@@ -31,16 +31,28 @@ const redisPassword = process.env.REDIS_PASSWORD || undefined;
 
 let redisClient = null;
 let isRedisConnected = false;
+let lastRedisErrorKey = null;
+let lastRedisErrorAt = 0;
+const REDIS_ERROR_LOG_INTERVAL_MS = 60 * 1000;
+
+// Node's dual-stack connect raises an AggregateError with an empty message,
+// so derive a readable description from its code / nested errors.
+const describeRedisError = (err) => {
+  if (!err) return 'unknown error';
+  if (err.message) return err.message;
+  if (Array.isArray(err.errors) && err.errors.length > 0) {
+    return err.errors.map((e) => e.message || e.code).filter(Boolean).join('; ');
+  }
+  return err.code || String(err);
+};
 
 try {
   const options = {
     maxRetriesPerRequest: 1,
     connectTimeout: 5000,
+    enableOfflineQueue: false,
     retryStrategy(times) {
-      if (times > 30) {
-        return null;
-      }
-      return Math.min(times * 200, 2000);
+      return Math.min(times * 500, 30000);
     }
   };
 
@@ -48,7 +60,7 @@ try {
     redisClient = new Redis(redisUrl, options);
   } else {
     redisClient = new Redis({
-      host: redisHost,
+      host: redisHost === 'localhost' ? '127.0.0.1' : redisHost,
       port: parseInt(redisPort, 10),
       password: redisPassword,
       ...options
@@ -61,12 +73,24 @@ try {
 
   redisClient.on('ready', () => {
     isRedisConnected = true;
+    lastRedisErrorKey = null;
     logger.info('Redis connected successfully');
   });
 
   redisClient.on('error', (err) => {
     isRedisConnected = false;
-    logger.warn('Redis connection error, falling back to local memory cache:', { error: err.message });
+    const errorKey = err?.code || describeRedisError(err);
+    const now = Date.now();
+    if (errorKey === lastRedisErrorKey && now - lastRedisErrorAt < REDIS_ERROR_LOG_INTERVAL_MS) {
+      return;
+    }
+    lastRedisErrorKey = errorKey;
+    lastRedisErrorAt = now;
+    logger.warn('Redis connection error, falling back to local memory cache:', {
+      error: describeRedisError(err),
+      code: err?.code,
+      target: redisUrl ? 'REDIS_URL' : `${redisHost}:${redisPort}`,
+    });
   });
 
   redisClient.on('close', () => {
@@ -180,11 +204,11 @@ const deleteCacheByPattern = async (pattern) => {
       let cursor = '0';
       let deletedCount = 0;
       do {
-        const reply = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        const reply = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 1000);
         cursor = reply[0];
         const keys = reply[1];
         if (keys.length > 0) {
-          const result = await redisClient.del(keys);
+          const result = await redisClient.unlink(keys);
           deletedCount += result;
         }
       } while (cursor !== '0');
@@ -215,16 +239,29 @@ const deleteCacheByPattern = async (pattern) => {
  * @param {number} ttl - Time to live in seconds
  * @returns {Promise<any>} - Result from function execution (or cache)
  */
+const inFlight = new Map();
+
 const cacheWrapper = async (key, fn, ttl = CACHE_TTL.POST) => {
   const cachedValue = await getCache(key);
   if (cachedValue !== null) {
     return cachedValue;
   }
-  const freshValue = await fn();
-  if (freshValue !== null && freshValue !== undefined) {
-    await setCache(key, freshValue, ttl);
+  if (inFlight.has(key)) {
+    return inFlight.get(key);
   }
-  return freshValue;
+  const pending = (async () => {
+    try {
+      const freshValue = await fn();
+      if (freshValue !== null && freshValue !== undefined) {
+        await setCache(key, freshValue, ttl);
+      }
+      return freshValue;
+    } finally {
+      inFlight.delete(key);
+    }
+  })();
+  inFlight.set(key, pending);
+  return pending;
 };
 
 /**
@@ -254,6 +291,8 @@ const CacheKeys = {
   shortsFeedFirst: (viewerId, limit) => `shorts:feed:first:${viewerId}:${limit}`,
   shortsHlsPlaylist: (postId) => `shorts:hls:playlist:${postId}`,
   signedUrl: (mediaType, storageKey) => `signedurl:${mediaType}:${storageKey}`,
+  blockedIds: (userId) => `blocked:${userId}`,
+  authUser: (userId) => `authuser:${userId}`,
 };
 
 module.exports = {
