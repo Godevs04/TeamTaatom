@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.4.23",
+    "version": "26.4.24",
     "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -20,7 +20,7 @@
       "supportsTablet": true,
       "icon": "./assets/icon-1024.png",
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "55",
+      "buildNumber": "56",
       "associatedDomains": [
         "applinks:taatom.com",
         "applinks:*.taatom.com"
@@ -71,7 +71,7 @@
     "android": {
       "icon": "./assets/icon-1024.png",
       "package": "com.taatom.app",
-      "versionCode": 55,
+      "versionCode": 56,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
