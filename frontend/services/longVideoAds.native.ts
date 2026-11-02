@@ -2,9 +2,9 @@
  * Native AdMob long-video / Watch ad slots.
  * LLD: rewarded preferred (rewarded interstitial) with interstitial fallback.
  */
-import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
-import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import { ADMOB, isAdsEnabled } from '../constants/admob';
+import { isAdsModuleLinked } from '../utils/adsModule';
 import { createLogger } from '../utils/logger';
 import type { AdSlot } from '../utils/longVideoAdSchedule';
 
@@ -23,20 +23,9 @@ function isConfiguredUnit(id?: string): id is string {
  * Show one ad slot. Prefers rewarded interstitial → rewarded → interstitial.
  * Resolves when ad closed or skipped (no fill / Expo Go / disabled).
  */
-function adsModuleIsLinked(): boolean {
-  // Expo Go has no RNGoogleMobileAdsModule. Requiring the package calls
-  // TurboModuleRegistry.getEnforcing and crashes the Watch screen before play.
-  if (Constants.appOwnership === 'expo' || Platform.OS === 'web') return false;
-  try {
-    if (TurboModuleRegistry.get?.('RNGoogleMobileAdsModule')) return true;
-  } catch {
-    return false;
-  }
-  return !!NativeModules.RNGoogleMobileAdsModule;
-}
-
 export async function showLongVideoAdSlot(slot: AdSlot): Promise<'completed' | 'skipped'> {
-  if (!isAdsEnabled() || !adsModuleIsLinked()) {
+  // Requiring the package without the native module crashes the Watch screen before play.
+  if (!isAdsEnabled() || !isAdsModuleLinked()) {
     return 'skipped';
   }
 

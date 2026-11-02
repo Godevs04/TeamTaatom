@@ -20,7 +20,6 @@ import {
   RefreshControl,
   ActivityIndicator,
   Easing,
-  InteractionManager,
 } from 'react-native';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 
@@ -57,7 +56,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
 import { realtimePostsService } from '../../services/realtimePosts';
-import Constants from 'expo-constants';
+import { isAdsModuleLinked } from '../../utils/adsModule';
 import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
@@ -94,7 +93,7 @@ const isAndroid = Platform.OS === 'android';
 // the parent slot would render a SHORTS_ITEM_HEIGHT-tall black void at
 // position 6 before onLoadFailed could propagate. Skip ad insertion entirely
 // in this environment so dev builds in Expo Go don't show the blank slot.
-const isExpoGo = (Constants as any)?.appOwnership === 'expo';
+const isExpoGo = !isAdsModuleLinked();
 const logger = createLogger('ShortsScreen');
 
 // Tab bar height from (tabs)/_layout - content must sit above it
@@ -231,16 +230,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   useEffect(() => {
     // Defer rendering of heavy components (FlatList, Video) until navigation transition completes
-    const interactionPromise = InteractionManager.runAfterInteractions(() => {
-      setIsTransitionFinished(true);
-    });
+    // InteractionManager was removed in React Native 0.88; idle callback is its replacement.
+    const g = globalThis as any;
+    const idleHandle =
+      typeof g.requestIdleCallback === 'function'
+        ? g.requestIdleCallback(() => setIsTransitionFinished(true))
+        : null;
 
     const fallbackTimer = setTimeout(() => {
       setIsTransitionFinished(true);
     }, 500);
 
     return () => {
-      interactionPromise.cancel();
+      if (idleHandle != null && typeof g.cancelIdleCallback === 'function') {
+        g.cancelIdleCallback(idleHandle);
+      }
       clearTimeout(fallbackTimer);
     };
   }, []);

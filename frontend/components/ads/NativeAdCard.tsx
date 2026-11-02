@@ -21,7 +21,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { PostSkeleton } from '../LoadingSkeleton';
-import Constants from 'expo-constants';
+import { isAdsModuleLinked } from '../../utils/adsModule';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
 import logger from '../../utils/logger';
@@ -29,7 +29,8 @@ import { initializeAds } from '../../services/admob';
 import { getAdRequestOptions } from '../../services/adRequestOptions';
 
 const isWeb = Platform.OS === 'web';
-const isExpoGo = Constants.appOwnership === 'expo';
+// True in Expo Go and in dev builds that predate the AdMob native module.
+const isExpoGo = !isAdsModuleLinked();
 const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 
 // Do NOT require('react-native-google-mobile-ads') at module load. It triggers

@@ -5,7 +5,7 @@
 
 import React, { memo, useCallback, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
+import { isAdsModuleLinked } from '../../utils/adsModule';
 import { NativeAdCard } from './NativeAdCard';
 import { TaatomPrivateAd } from './TaatomPrivateAd';
 import {
@@ -16,7 +16,8 @@ import {
 import { resolveConnectWebsiteAdKind } from '../../utils/connectWebsiteAd';
 
 const isWeb = Platform.OS === 'web';
-const isExpoGo = Constants.appOwnership === 'expo';
+// True in Expo Go and in dev builds that predate the AdMob native module.
+const isExpoGo = !isAdsModuleLinked();
 
 export type ConnectWebsiteAdProps = {
   /** Connect page _id — unique website key for cap / revisit dedup */

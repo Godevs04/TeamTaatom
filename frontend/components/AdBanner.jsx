@@ -12,6 +12,7 @@ import React, { useMemo } from 'react';
 import { Platform } from 'react-native';
 import { ADMOB } from '../constants/admob';
 import { getAdRequestOptions } from '../services/adRequestOptions';
+import { isAdsModuleLinked } from '../utils/adsModule';
 
 const isWeb = Platform.OS === 'web';
 
@@ -22,7 +23,7 @@ export function AdBanner({ size = 'BANNER' }) {
     return null;
   }, []);
 
-  if (isWeb || !unitId || unitId.includes('XXXXXXXXXX')) {
+  if (isWeb || !unitId || unitId.includes('XXXXXXXXXX') || !isAdsModuleLinked()) {
     return null;
   }
 

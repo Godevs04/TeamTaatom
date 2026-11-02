@@ -8,8 +8,8 @@
  */
 
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 import logger from '../utils/logger';
+import { isAdsModuleLinked } from '../utils/adsModule';
 import { ADMOB, isAdsEnabled } from '../constants/admob';
 import { ensureAttResolvedBeforeAds, getCanServePersonalizedAds } from './attPermission';
 
@@ -31,8 +31,8 @@ export async function initializeAds(): Promise<void> {
     logger.info('[AdMob] initializeAds: skipped on web platform');
     return;
   }
-  if (Constants.appOwnership === 'expo') {
-    logger.warn('[AdMob] initializeAds: skipped in Expo Go (native ads require a development build / custom dev client)');
+  if (!isAdsModuleLinked()) {
+    logger.warn('[AdMob] initializeAds: skipped, AdMob native module is not in this build (Expo Go or an outdated development build; rebuild the dev client to test ads)');
     return;
   }
   if (isInitialized) return;
@@ -103,11 +103,11 @@ export async function initializeAds(): Promise<void> {
 export async function showConsentForm(): Promise<boolean> {
   if (!isAdsEnabled()) return false;
   if (Platform.OS === 'web') return false;
-  // initializeAds() bails out in Expo Go because the native AdMob/UMP module
-  // isn't linked there. Without the same guard here we'd still fall through to
-  // `AdsConsent.requestInfoUpdate()` against a stub module and trigger a
-  // native-side crash that JS can't catch.
-  if (Constants.appOwnership === 'expo') return false;
+  // initializeAds() bails out when the native AdMob/UMP module isn't linked
+  // (Expo Go, outdated dev build). Without the same guard here we'd still fall
+  // through to `AdsConsent.requestInfoUpdate()` against a stub module and trigger
+  // a native-side crash that JS can't catch.
+  if (!isAdsModuleLinked()) return false;
   if (showPrivacyOptionsPromise) {
     await showPrivacyOptionsPromise;
     return true;
