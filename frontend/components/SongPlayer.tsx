@@ -142,6 +142,10 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
   // Without this guard the reload-detection branch would unload our preloaded
   // sound on the very render that flips autoPlay true, defeating the preload.
   const preloadedRef = useRef(false);
+  // Bumped on every visibility/autoPlay effect run. The async start-playback path in
+  // that effect awaits several native calls; if the user swiped away meanwhile the
+  // token no longer matches and the stale run must not start (or resume) the song.
+  const playTokenRef = useRef(0);
 
   // Get song data from post
   const song = post.song?.songId;
@@ -347,7 +351,10 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
 
       // One player per load. Re-renders do not create another.
       const newSound = await createSongSound(audioUrl, {
-        shouldPlay: shouldPlayNow,
+        // Never start inside createSongSound: playback starts below through
+        // audioManager.playSound, after the stale check, so a load the user
+        // swiped away from never becomes audible.
+        shouldPlay: false,
         isLooping: !endTime,
         isMuted: effectiveMuted,
         volume: effectiveMuted ? 0 : volume,
@@ -388,6 +395,11 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
         }
         audioManager.unfreeze();
         await audioManager.playSound(asAvSound(newSound), post._id.toString());
+        if (isStale()) {
+          // Swiped away while playSound was starting the song: do not leave it playing.
+          newSound.pauseAsync().catch(() => {});
+          return;
+        }
         onPlayingChange?.(asAvSound(newSound));
         preloadedRef.current = false;
       } else {
@@ -501,6 +513,9 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
     // For shorts and home page: sync with visibility and autoPlay prop
     const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
     const isPreloading = shouldPreload && isFocused;
+    const myPlayToken = ++playTokenRef.current;
+    const isPlayStale = () =>
+      myPlayToken !== playTokenRef.current || !isMountedRef.current || !isVisibleRef.current;
     if ((isEffectiveVisible || isPreloading) && !showPlayPause && audioUrl) {
       if (autoPlay && isEffectiveVisible) {
         // Should play - play song
@@ -515,9 +530,12 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
             try {
               const status = await soundRef.current?.getStatusAsync();
               if (!status) return; // component unmounted
+              if (isPlayStale()) return;
 
               if (!status.isLoaded) {
                 logger.debug('[SONGPLAYER] soundRef exists but is not loaded. Reloading.');
+                // Release the old player first; dropping the reference alone left it playing.
+                soundRef.current?.unloadAsync().catch(() => {});
                 soundRef.current = null;
                 setSound(null);
                 await loadAndPlaySong();
@@ -528,6 +546,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
               logger.debug('[SONGPLAYER] soundRef is loaded. Applying explicit muted state:', effectiveMuted);
               await soundRef.current?.setIsMutedAsync(effectiveMuted).catch(() => {});
               await soundRef.current?.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
+              if (isPlayStale()) return;
 
               const initialVideoPosition = getVideoPosition ? getVideoPosition() : 0;
               const offsetMs = initialVideoPosition % segmentMs;
@@ -538,15 +557,18 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
                 if (initialVideoPosition > 0) {
                   logger.debug(`[SONGPLAYER] Seeking preloaded audio to ${targetPositionMillis}`);
                   await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                  if (isPlayStale()) return;
                 }
-                await soundRef.current?.playAsync().catch(() => {});
                 audioManager.unfreeze();
+                if (isPlayStale()) return;
+                // playSound stops every other song, then starts this one.
                 if (soundRef.current) await audioManager.playSound(asAvSound(soundRef.current), post._id.toString()).catch(() => {});
               } else if (post._id && currentPostId === post._id.toString()) {
                 logger.debug('[SONGPLAYER] Resuming same post audio immediately');
                 if (initialVideoPosition > 0) {
                   logger.debug(`[SONGPLAYER] Seeking resumed audio to ${targetPositionMillis}`);
                   await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                  if (isPlayStale()) return;
                 }
                 await soundRef.current?.playAsync().catch(() => {});
               } else if (post._id) {
@@ -554,20 +576,29 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
                 if (initialVideoPosition > 0) {
                   logger.debug(`[SONGPLAYER] Seeking new audio to ${targetPositionMillis}`);
                   await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                  if (isPlayStale()) return;
                 }
                 audioManager.unfreeze();
                 if (soundRef.current) await audioManager.playSound(asAvSound(soundRef.current), post._id.toString());
               } else {
                 if (initialVideoPosition > 0) {
                   await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                  if (isPlayStale()) return;
                 }
                 await soundRef.current?.playAsync().catch(() => {});
+              }
+              if (isPlayStale()) {
+                // The user swiped to another short while audioManager.playSound was
+                // starting this song: stop it so it does not keep playing in the background.
+                soundRef.current?.pauseAsync().catch(() => {});
+                return;
               }
               setIsPlaying(true);
               onPlayingChange?.(soundRef.current ? asAvSound(soundRef.current) : null);
             } catch (err) {
               logger.error('[SONGPLAYER] Error checking sound status or playing:', err);
-              // Fallback: reload
+              // Fallback: reload (release the old player so it cannot keep playing)
+              soundRef.current?.unloadAsync().catch(() => {});
               soundRef.current = null;
               setSound(null);
               await loadAndPlaySong();

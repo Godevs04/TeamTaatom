@@ -43,6 +43,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
+import { getApiBaseUrl } from '../../utils/config';
 import { trackScreenView, trackEngagement } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
 import { GlassModal } from '../../components/ui/GlassModal';
@@ -562,6 +563,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const VIEW_DEBOUNCE_MS = SHORT_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
+  // Number of loadShorts calls currently running. The focus handler checks it so it
+  // does not start a second load while the first one is still fetching.
+  const loadInFlightRef = useRef(0);
   const currentPageRef = useRef(isGeneralFeed ? globalCachedPage : 1);
   const cursorRef = useRef<string | null>(isGeneralFeed ? globalCachedCursor : null);
   const hasMoreRef = useRef(isGeneralFeed ? globalCachedHasMore : true);
@@ -847,6 +851,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const refreshTimer = setTimeout(() => {
         if (effectiveUserId || props.isSavedShorts || effectiveShortId) return;
         if (shortsRef.current.length === 0) {
+          // The mount effect already started the first load; do not fetch the feed twice.
+          if (loadInFlightRef.current > 0) return;
           logger.debug('Shorts screen focused - loading empty feed');
           loadShortsRef.current?.();
         } else if (Date.now() - globalCachedAt > SHORTS_STALE_MS) {
@@ -1180,6 +1186,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }, [localVideoUris]);
 
   const loadShorts = useCallback(async (isSilent = false, forceRefresh = false) => {
+    loadInFlightRef.current += 1;
     try {
       if (!isSilent) {
         setLoading(true);
@@ -1458,6 +1465,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       logger.error('Error loading shorts', error);
       showError('Failed to load shorts');
     } finally {
+      loadInFlightRef.current = Math.max(0, loadInFlightRef.current - 1);
       setLoading(false);
     }
   }, [effectiveUserId, effectiveShortId, showError]);
@@ -1593,7 +1601,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       logger.debug('Feed invalidation event received, marking shorts feed stale');
       if (!effectiveUserId) globalCachedAt = 0;
     };
-    
+
+    // The backend deletes the raw upload as soon as transcoding finishes, so a short already in
+    // the list still pointing at that raw file would play a 404. Switch it to its HLS stream.
+    const handleShortTranscoded = (payload: { shortId?: string }) => {
+      const shortId = payload?.shortId;
+      if (!shortId) return;
+      const hlsUrl = `${getApiBaseUrl()}/api/v1/shorts?hls=master&postId=${shortId}&ext=.m3u8`;
+      const repoint = (list: PostType[]) =>
+        list.map((s) => (String(s._id) === shortId ? { ...s, videoUrl: hlsUrl } : s));
+      if (globalCachedShorts.some((s) => String(s._id) === shortId)) {
+        globalCachedShorts = repoint(globalCachedShorts);
+      }
+      if (shortsRef.current.some((s) => String(s._id) === shortId)) {
+        logger.debug('Short transcoded, switching it to the HLS stream:', shortId);
+        setShorts((prev) => repoint(prev));
+      }
+    };
+
     // Subscribe to socket events for real-time updates
     socketService.subscribe('short:created', handleShortCreated).catch(err => {
       logger.warn('Error subscribing to short:created event:', err);
@@ -1602,11 +1627,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     socketService.subscribe('invalidate:feed', handleInvalidateFeed).catch(err => {
       logger.warn('Error subscribing to invalidate:feed event:', err);
     });
-    
+
+    socketService.subscribe('short:transcoded', handleShortTranscoded).catch(err => {
+      logger.warn('Error subscribing to short:transcoded event:', err);
+    });
+
     // Cleanup: Unsubscribe from socket events when component unmounts or params change
     return () => {
       socketService.unsubscribe('short:created', handleShortCreated);
       socketService.unsubscribe('invalidate:feed', handleInvalidateFeed);
+      socketService.unsubscribe('short:transcoded', handleShortTranscoded);
     };
   }, [effectiveUserId]); // Only depend on scoped user, not loadShorts (use ref instead)
 
