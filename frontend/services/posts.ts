@@ -184,10 +184,12 @@ const fetchPostById = async (postId: string) => {
 export const getPosts = async (
   page: number = 1,
   limit: number = 20,
-  feed: FeedMode = 'recents'
+  feed: FeedMode = 'recents',
+  forceRefresh: boolean = false
 ): Promise<PostsResponse> => {
+  const url = `/api/v1/posts?page=${page}&limit=${limit}&feed=${feed}${forceRefresh ? '&refresh=1' : ''}`;
   try {
-    const response = await api.get(`/api/v1/posts?page=${page}&limit=${limit}&feed=${feed}`);
+    const response = await api.get(url);
     return response.data;
   } catch (error: any) {
     if (isRateLimitError(error)) {
@@ -195,7 +197,7 @@ export const getPosts = async (
       const rateLimitInfo = handleRateLimitError(error, 'getPosts');
       await sleep(500);
       try {
-        const retry = await api.get(`/api/v1/posts?page=${page}&limit=${limit}&feed=${feed}`);
+        const retry = await api.get(url);
         return retry.data;
       } catch (e: any) {
         throw new Error(rateLimitInfo.message);
@@ -614,10 +616,15 @@ export const deleteShort = async (shortId: string): Promise<{ message: string }>
 };
 
 // Get shorts
-export const getShorts = async (cursorOrPage: string | number = 1, limit: number = 20): Promise<ShortsResponse> => {
+export const getShorts = async (
+  cursorOrPage: string | number = 1,
+  limit: number = 20,
+  forceRefresh: boolean = false
+): Promise<ShortsResponse> => {
   try {
     const queryParam = typeof cursorOrPage === 'string' ? `cursor=${encodeURIComponent(cursorOrPage)}` : `page=${cursorOrPage}`;
-    const response = await api.get(`/api/v1/shorts?${queryParam}&limit=${limit}`);
+    const refreshParam = forceRefresh ? '&refresh=1' : '';
+    const response = await api.get(`/api/v1/shorts?${queryParam}&limit=${limit}${refreshParam}`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

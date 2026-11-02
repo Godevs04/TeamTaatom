@@ -61,7 +61,7 @@ import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
 import { useTabBarGeometry } from '../../utils/tabBarGeometry';
-import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
+import { removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | {
@@ -182,6 +182,10 @@ let globalCachedPage = 1;
 let globalCachedCursor: string | null = null;
 let globalCachedHasMore = true;
 let globalCachedFollowStates: Record<string, boolean> = {};
+// When the general feed was last fetched; 0 means stale (backend invalidated it).
+let globalCachedAt = 0;
+const SHORTS_STALE_MS = 5 * 60 * 1000;
+const APP_RESUME_REFRESH_MS = 2 * 60 * 1000;
 
 const getVideoSource = (uri: string | null | undefined) => {
   if (!uri) return undefined;
@@ -841,11 +845,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
 
       const refreshTimer = setTimeout(() => {
-        const shouldFilterByUser = !!effectiveUserId;
-        if (!shouldFilterByUser && shortsRef.current.length === 0) {
-          logger.debug('Shorts screen focused - refreshing feed for real-time updates');
-          const loadFn = loadShortsRef.current;
-          if (loadFn) loadFn();
+        if (effectiveUserId || props.isSavedShorts || effectiveShortId) return;
+        if (shortsRef.current.length === 0) {
+          logger.debug('Shorts screen focused - loading empty feed');
+          loadShortsRef.current?.();
+        } else if (Date.now() - globalCachedAt > SHORTS_STALE_MS) {
+          logger.debug('Shorts screen focused - feed is stale, refreshing');
+          refreshToTopRef.current?.();
         }
       }, 300);
 
@@ -855,7 +861,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           shouldClearParamsOnNextFocusRef.current = true;
         }
       };
-    }, [effectiveUserId, router, isOnTabShorts])
+    }, [effectiveUserId, effectiveShortId, props.isSavedShorts, router, isOnTabShorts])
   );
 
   useFocusEffect(
@@ -929,8 +935,23 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (Platform.OS === 'web') return; // AppState not needed on web
     
+    let backgroundedAt = 0;
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       setAppState(nextAppState);
+      if (nextAppState === 'background') {
+        backgroundedAt = Date.now();
+      } else if (nextAppState === 'active' && backgroundedAt) {
+        const awayMs = Date.now() - backgroundedAt;
+        backgroundedAt = 0;
+        const isGeneral = !effectiveUserId && !effectiveShortId && !props.isSavedShorts;
+        if (
+          isGeneral &&
+          isScreenFocusedRef.current &&
+          (awayMs >= APP_RESUME_REFRESH_MS || Date.now() - globalCachedAt > SHORTS_STALE_MS)
+        ) {
+          refreshToTopRef.current?.();
+        }
+      }
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         // App going to background - pause current video and audio
         pauseCurrentVideo();
@@ -946,7 +967,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => {
       subscription.remove();
     };
-  }, [pauseCurrentVideo]);
+  }, [pauseCurrentVideo, effectiveUserId, effectiveShortId, props.isSavedShorts]);
 
   // Handle Android hardware back button
   // Pauses video before allowing normal navigation
@@ -1047,110 +1068,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const videoId = item._id;
 
     // Play the server URL. A cached file was replacing the HLS stream and the player never drew a frame.
-    // Prioritize videoUrl for shorts, fallback to mediaUrl or imageUrl
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-    
-    // DETAILED LOGGING: Track URL resolution for first 2 shorts
-    const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) !== -1 && shorts.indexOf(item) < 2;
-    if (isFirstTwoShorts) {
-      logger.debug(`[FIRST_2_SHORTS] getVideoUrl called for short at index ${shorts.indexOf(item)}:`, {
-        videoId,
-        hasVideoUrl: !!item.videoUrl,
-        hasMediaUrl: !!item.mediaUrl,
-        hasImageUrl: !!item.imageUrl,
-        videoUrl: item.videoUrl ? item.videoUrl.substring(0, 80) : 'UNDEFINED',
-        mediaUrl: item.mediaUrl ? item.mediaUrl.substring(0, 80) : 'UNDEFINED',
-        imageUrl: item.imageUrl ? item.imageUrl.substring(0, 80) : 'UNDEFINED',
-        baseUrl: baseUrl ? baseUrl.substring(0, 80) : 'UNDEFINED',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    // Validate base URL exists
     if (!baseUrl || typeof baseUrl !== 'string' || baseUrl.trim() === '') {
-      logger.error(`Invalid video URL for item ${videoId}:`, {
-        videoUrl: item.videoUrl,
-        mediaUrl: item.mediaUrl,
-        imageUrl: item.imageUrl,
-        isFirstTwoShorts
-      });
-      if (isFirstTwoShorts) {
-        logger.error(`[FIRST_2_SHORTS] EMPTY URL DETECTED at index ${shorts.indexOf(item)}`);
-      }
+      logger.error(`Invalid video URL for item ${videoId}`);
       return '';
     }
-    
-    // CRITICAL: Signed URLs expire after 15 minutes, so cache for max 10 minutes
-    // This ensures we don't use expired URLs
-    const CACHE_MAX_AGE = 10 * 60 * 1000; // 10 minutes (signed URLs expire after 15 minutes)
-    
-    // Check cache first (but don't use if too old - signed URLs expire)
+
+    // Reuse the URL handed to the player while it is fresh, so re-renders never swap the source
+    // (that would restart playback). Signed URLs expire after 15 minutes.
+    const CACHE_MAX_AGE = 10 * 60 * 1000;
     const cached = videoCacheRef.current.get(videoId);
     if (cached) {
-      const cacheAge = Date.now() - cached.timestamp;
-      if (cacheAge < CACHE_MAX_AGE) {
-        // Verify cached URL is still the same as current base URL
-        const cachedBaseUrl = cached.url.split('?')[0]; // Remove query params for comparison
-        const currentBaseUrl = baseUrl.split('?')[0];
-        if (cachedBaseUrl === currentBaseUrl) {
-          // Check if cache is close to expiry (within 2 minutes)
-          if (cacheAge < (CACHE_MAX_AGE - 2 * 60 * 1000)) {
-            if (isFirstTwoShorts) {
-              logger.debug(`[FIRST_2_SHORTS] Cache HIT for short at index ${shorts.indexOf(item)}, age: ${Math.round(cacheAge / 1000)}s`);
-            }
-            return cached.url;
-          } else {
-            // Cache is getting old, but still valid - return it but don't update cache timestamp
-            // This will force a refresh on next call
-            logger.debug(`Video ${videoId} cache is close to expiry (${Math.round(cacheAge / 1000 / 60)} minutes old)`);
-            if (isFirstTwoShorts) {
-              logger.debug(`[FIRST_2_SHORTS] Cache NEAR_EXPIRY for short at index ${shorts.indexOf(item)}`);
-            }
-            return cached.url;
-          }
-        } else {
-          // Base URL changed, clear cache for this item
-          videoCacheRef.current.delete(videoId);
-          if (isFirstTwoShorts) {
-            logger.warn(`[FIRST_2_SHORTS] Cache INVALIDATED (URL changed) for short at index ${shorts.indexOf(item)}`);
-          }
-        }
-      } else {
-        // Cache expired, clear it
-        logger.debug(`Video ${videoId} cache expired (${Math.round(cacheAge / 1000 / 60)} minutes old), clearing`);
-        if (isFirstTwoShorts) {
-          logger.warn(`[FIRST_2_SHORTS] Cache EXPIRED for short at index ${shorts.indexOf(item)}`);
-        }
-        videoCacheRef.current.delete(videoId);
+      const isFresh = Date.now() - cached.timestamp < CACHE_MAX_AGE;
+      if (isFresh && cached.url.split('?')[0] === baseUrl.split('?')[0]) {
+        return cached.url;
       }
-    } else {
-      if (isFirstTwoShorts) {
-        logger.debug(`[FIRST_2_SHORTS] Cache MISS for short at index ${shorts.indexOf(item)}`);
-      }
+      videoCacheRef.current.delete(videoId);
     }
-    
-    // Generate URL based on quality
+
     let url = baseUrl.trim();
-    // Only add quality param if URL doesn't already have query params
-    if (!url.includes('?') && videoQuality !== 'high') {
-      url = `${baseUrl}?q=${videoQuality}`;
-    } else if (videoQuality !== 'high' && url.includes('?')) {
-      // URL already has params, append quality
-      url = `${baseUrl}&q=${videoQuality}`;
+    if (videoQuality !== 'high') {
+      url = `${url}${url.includes('?') ? '&' : '?'}q=${videoQuality}`;
     }
-    
-    // Cache the URL with current timestamp (fresh from backend)
-    videoCacheRef.current.set(videoId, {
-      url,
-      timestamp: Date.now()
-    });
-    
-    if (isFirstTwoShorts) {
-      logger.debug(`[FIRST_2_SHORTS] Generated URL for short at index ${shorts.indexOf(item)}: ${url.substring(0, 100)}...`);
-    }
-    logger.debug(`Video URL for ${videoId} (fresh):`, url.substring(0, 100) + '...');
+    videoCacheRef.current.set(videoId, { url, timestamp: Date.now() });
     return url;
-  }, [videoQuality, shorts, localVideoUris]);
+  }, [videoQuality]);
   
   // Track previous visible index to detect actual scroll changes
   const previousVisibleIndexRef = useRef<number>(-1);
@@ -1237,7 +1179,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
   }, [localVideoUris]);
 
-  const loadShorts = useCallback(async (isSilent = false) => {
+  const loadShorts = useCallback(async (isSilent = false, forceRefresh = false) => {
     try {
       if (!isSilent) {
         setLoading(true);
@@ -1394,7 +1336,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }
         // Load the full feed in background; merge so the specific short stays at position 0
         try {
-          const response = await getShorts(1, 10);
+          const response = await getShorts(1, 10, forceRefresh);
           logger.info(`[LOAD_SHORTS] Loaded full feed (${response.shorts?.length || 0} shorts)`, {
             timestamp: new Date().toISOString()
           });
@@ -1444,7 +1386,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         logger.debug(`Loading shorts for specific user: ${effectiveUserId}`);
         response = await getUserShorts(effectiveUserId, 1, 100);
       } else {
-        response = await getShorts(1, 10);
+        response = await getShorts(1, 10, forceRefresh);
       }
 
       logger.info(`[LOAD_SHORTS] Loaded shorts (${response.shorts?.length || 0} shorts)`, {
@@ -1510,6 +1452,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         globalCachedCursor = cursorRef.current;
         globalCachedHasMore = hasMoreRef.current;
         globalCachedFollowStates = followStatesMap;
+        globalCachedAt = Date.now();
       }
     } catch (error) {
       logger.error('Error loading shorts', error);
@@ -1524,37 +1467,43 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     loadShortsRef.current = loadShorts;
   }, [loadShorts]);
 
-  const onRefresh = useCallback(async () => {
+  // Fetch a fresh first page (bypassing the server feed cache) and land on the first reel.
+  const isRefreshingToTopRef = useRef(false);
+  const refreshToTop = useCallback(async () => {
+    if (isRefreshingToTopRef.current) return;
+    isRefreshingToTopRef.current = true;
+    userPausedShortIdsRef.current.clear();
     setRefreshing(true);
+    setCurrentIndex(0);
+    setCurrentVisibleIndex(0);
+    currentVisibleIndexRef.current = 0;
+    previousVisibleIndexRef.current = -1;
+    activeVideoIdRef.current = null;
+    setCheckedVideoCacheIds(new Set());
+    pauseCurrentAudio();
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     try {
-      await loadShorts(true);
+      await loadShorts(true, true);
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
     } finally {
+      isRefreshingToTopRef.current = false;
       setRefreshing(false);
     }
-  }, [loadShorts]);
+  }, [loadShorts, pauseCurrentAudio]);
+
+  const refreshToTopRef = useRef(refreshToTop);
+  refreshToTopRef.current = refreshToTop;
+
+  const onRefresh = refreshToTop;
 
   useEffect(() => {
-    return shortsEvents.addTabRefreshListener(async () => {
+    return shortsEvents.addTabRefreshListener(() => {
       if (!isOnTabShorts || effectiveUserId || props.isSavedShorts) return;
-      userPausedShortIdsRef.current.clear();
-      setRefreshing(true);
-      setCurrentIndex(0);
-      setCurrentVisibleIndex(0);
-      previousVisibleIndexRef.current = -1;
-      activeVideoIdRef.current = null;
-      setCheckedVideoCacheIds(new Set());
-      pauseCurrentAudio();
-      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-      try {
-        await loadShorts(true);
-        requestAnimationFrame(() => {
-          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-        });
-      } finally {
-        setRefreshing(false);
-      }
+      refreshToTop();
     });
-  }, [effectiveUserId, isOnTabShorts, loadShorts, pauseCurrentAudio, props.isSavedShorts]);
+  }, [effectiveUserId, isOnTabShorts, refreshToTop, props.isSavedShorts]);
 
   const loadMoreShorts = useCallback(async () => {
     if (!hasMoreRef.current || isLoadingMore || !!effectiveUserId || !!effectiveShortId || props.isSavedShorts) return;
@@ -1631,33 +1580,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => { cancelled = true; };
   }, []);
 
-  // CRITICAL: Subscribe to Socket.IO events for real-time feed updates after loadShorts is defined
-  // Listen for 'short:created' and 'invalidate:feed' events to refresh feed immediately
+  // Backend feed events fire whenever any followed user posts (several per upload). Reloading on
+  // each one blanked the screen with the loader and reset the feed mid-video, so only mark the
+  // feed stale here; the next focus or app resume fetches fresh content.
   useEffect(() => {
     const handleShortCreated = (payload: { shortId?: string }) => {
-      logger.debug('Short created event received, refreshing feed:', payload);
-      // Only refresh if we're not filtering by a specific user (general feed)
-      const shouldFilterByUser = !!effectiveUserId;
-      if (!shouldFilterByUser) {
-        // Refresh feed to show new short immediately using ref to avoid stale closure
-        const loadFn = loadShortsRef.current;
-        if (loadFn) {
-          loadFn();
-        }
-      }
+      logger.debug('Short created event received, marking shorts feed stale:', payload);
+      if (!effectiveUserId) globalCachedAt = 0;
     };
-    
+
     const handleInvalidateFeed = () => {
-      logger.debug('Feed invalidation event received, refreshing shorts feed');
-      // Only refresh if we're not filtering by a specific user (general feed)
-      const shouldFilterByUser = !!effectiveUserId;
-      if (!shouldFilterByUser) {
-        // Refresh feed to show updated content using ref to avoid stale closure
-        const loadFn = loadShortsRef.current;
-        if (loadFn) {
-          loadFn();
-        }
-      }
+      logger.debug('Feed invalidation event received, marking shorts feed stale');
+      if (!effectiveUserId) globalCachedAt = 0;
     };
     
     // Subscribe to socket events for real-time updates
@@ -2195,79 +2129,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
-    const canDiskPreload = (url?: string | null) => {
-      if (!url) return false;
-      const value = url.toLowerCase();
-      return !value.includes('m3u8') && !value.includes('hls=') && !value.includes('hls%3d');
-    };
-
-    // Helper to prefetch video thumbnail using ExpoImage
-    const prefetchThumbnail = (item: ShortsItem) => {
-      if (!isAdItem(item)) {
-        const thumbUrl = item.thumbnailUrl || item.imageUrl;
-        if (thumbUrl) {
-          ExpoImage.prefetch(thumbUrl);
-        }
+    // Only prefetch thumbnails here. Full-file video downloads used to run for up to four reels
+    // per swipe, but the player always streams the server URL, so they only stole bandwidth from
+    // the reel being watched (stalls / lag on mobile data). The next reel's player buffers itself.
+    for (const offset of [0, 1, -1, 2]) {
+      const neighbour = shortsData[currentVisibleIndex + offset];
+      if (neighbour && !isAdItem(neighbour)) {
+        const thumbUrl = neighbour.thumbnailUrl || neighbour.imageUrl;
+        if (thumbUrl) ExpoImage.prefetch(thumbUrl);
       }
-    };
-
-    // 1. Always preload active video immediately if not cached
-    const activeItem = shortsData[currentVisibleIndex];
-    if (activeItem && !isAdItem(activeItem)) {
-      const baseUrl = activeItem.videoUrl || activeItem.mediaUrl || activeItem.imageUrl;
-      if (canDiskPreload(baseUrl)) {
-        preloadVideoAsync(activeItem._id, baseUrl);
-      }
-      prefetchThumbnail(activeItem);
-    }
-
-    // 2. Preload previous video (backward scrolling support) immediately
-    const prevIndex = currentVisibleIndex - 1;
-    if (prevIndex >= 0) {
-      const prevItem = shortsData[prevIndex];
-      if (prevItem && !isAdItem(prevItem)) {
-        const baseUrl = prevItem.videoUrl || prevItem.mediaUrl || prevItem.imageUrl;
-        if (canDiskPreload(baseUrl)) {
-          preloadVideoAsync(prevItem._id, baseUrl);
-        }
-        prefetchThumbnail(prevItem);
-      }
-    }
-
-    // 3. Start the next short immediately. The cell mounts a paused player.
-    let staggerTimeout: NodeJS.Timeout | null = null;
-    const nextIndex = currentVisibleIndex + 1;
-    if (nextIndex < shortsData.length) {
-      const nextItem = shortsData[nextIndex];
-      if (nextItem && !isAdItem(nextItem)) {
-        const baseUrl = nextItem.videoUrl || nextItem.mediaUrl || nextItem.imageUrl;
-        if (canDiskPreload(baseUrl)) {
-          preloadVideoAsync(nextItem._id, baseUrl);
-        }
-        prefetchThumbnail(nextItem);
-      }
-    }
-
-    const secondNextIndex = currentVisibleIndex + 2;
-    if (secondNextIndex < shortsData.length) {
-        const secondNextItem = shortsData[secondNextIndex];
-        if (secondNextItem && !isAdItem(secondNextItem)) {
-          const baseUrl = secondNextItem.videoUrl || secondNextItem.mediaUrl || secondNextItem.imageUrl;
-          if (canDiskPreload(baseUrl)) {
-            const nextItem = shortsData[nextIndex];
-            const isNextCached = nextItem && !isAdItem(nextItem) && !!localVideoUris[nextItem._id];
-            
-            if (isNextCached) {
-              preloadVideoAsync(secondNextItem._id, baseUrl);
-              prefetchThumbnail(secondNextItem);
-            } else {
-              staggerTimeout = setTimeout(() => {
-                preloadVideoAsync(secondNextItem._id, baseUrl);
-                prefetchThumbnail(secondNextItem);
-              }, 1200);
-            }
-          }
-        }
     }
 
     // 4. Synchronously check cache status for the sliding window to update localVideoUris and checkedVideoCacheIds state
@@ -2316,12 +2186,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
       return changed ? next : prev;
     });
-
-    return () => {
-      if (staggerTimeout) {
-        clearTimeout(staggerTimeout);
-      }
-    };
   }, [currentVisibleIndex, shortsData]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
@@ -2477,7 +2341,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isLiked = item.isLiked || false;
     const isActive = index === currentVisibleIndex;
     const shouldPreload = isScreenFocused && index === currentVisibleIndex + 1;
-    const shouldRenderVideo = Math.abs(index - currentVisibleIndex) <= 1;
+    // Current reel plus the next one (pre-buffered for an instant swipe). Keeping the previous
+    // reel's player alive too meant three concurrent decoders, which dropped frames on mid-range phones.
+    const shouldRenderVideo = index === currentVisibleIndex || index === currentVisibleIndex + 1;
 
     return (
       <ShortsCell

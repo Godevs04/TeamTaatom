@@ -10,6 +10,7 @@ import {
   ScrollView,
   Platform,
   Dimensions,
+  AppState,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
@@ -94,6 +95,10 @@ const logger = createLogger('HomeScreen');
 
 const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
 const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
+const FEED_STALE_MS = 3 * 60 * 1000;
+const APP_RESUME_REFRESH_MS = 2 * 60 * 1000;
+const FEED_INVALIDATE_DEBOUNCE_MS = 1500;
+const NEAR_TOP_OFFSET = 300;
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
@@ -566,6 +571,8 @@ export default function HomeScreen() {
   }, []);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
+  const lastFeedFetchAtRef = useRef(0);
+  const isHomeFocusedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
   const errorCountRef = useRef(0);
   const isFetchingMessagesRef = useRef(false);
@@ -700,7 +707,7 @@ export default function HomeScreen() {
     });
   }, []);
 
-  const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
+  const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false, forceRefresh: boolean = false) => {
     // Capture feedMode at request time so the response can only be applied to
     // the tab that asked for it. Tab switches mid-flight produce stale responses
     // that must be discarded (otherwise friends data lands in popular cache, etc).
@@ -745,7 +752,7 @@ export default function HomeScreen() {
         paginationHasNext = response.pagination?.hasMore ?? false;
       } else {
         // Feed tab always uses photo recents
-        const response = await getPosts(pageNum, postsPerPage, 'recents' as FeedMode);
+        const response = await getPosts(pageNum, postsPerPage, 'recents' as FeedMode, forceRefresh);
         responsePosts = response.posts || [];
         paginationHasNext = response.pagination?.hasNextPage ?? false;
       }
@@ -760,7 +767,10 @@ export default function HomeScreen() {
 
       setLoadError(null);
       setIsError(false);
-      
+      if (pageNum === 1 && !shouldAppend) {
+        lastFeedFetchAtRef.current = Date.now();
+      }
+
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!responsePosts || responsePosts.length === 0) {
         if (pageNum === 1 && !shouldAppend) {
@@ -1234,10 +1244,19 @@ export default function HomeScreen() {
         logger.error('Error setting audio mode for home:', err);
       });
 
-      // 3. Background refresh data on focus - only if empty
-      if (hasInitializedRef.current && !isFetchingRef.current && postsRef.current.length === 0) {
+      isHomeFocusedRef.current = true;
+
+      // 3. Background refresh on focus: when empty, or when stale and the user is near the top
+      // (replacing the list mid-scroll would yank content out from under them).
+      const isStale = Date.now() - lastFeedFetchAtRef.current > FEED_STALE_MS;
+      const isNearTop = homeScrollOffsetRef.current < NEAR_TOP_OFFSET;
+      if (
+        hasInitializedRef.current &&
+        !isFetchingRef.current &&
+        (postsRef.current.length === 0 || (isStale && isNearTop))
+      ) {
         logger.debug('[Home] Screen focused: triggering background refresh of page 1');
-        fetchPosts(1, false).catch((err) => {
+        fetchPosts(1, false, isStale).catch((err) => {
           logger.error('[Home] Background refresh failed:', err);
         });
       }
@@ -1250,6 +1269,7 @@ export default function HomeScreen() {
       }, 60000);
 
       return () => {
+        isHomeFocusedRef.current = false;
         if (refocusTimeout) clearTimeout(refocusTimeout);
         clearInterval(interval);
         // Clear active view timer when leaving home page
@@ -1274,15 +1294,59 @@ export default function HomeScreen() {
     }, [fetchPosts, fetchUnseenMessageCount, publishVisibility])
   );
 
-  // Refresh feed when admin approves content or backend signals invalidation
+  const fetchPostsRef = useRef(fetchPosts);
+  fetchPostsRef.current = fetchPosts;
+
+  // Backend invalidation (any followed user posting) arrives in bursts and at any scroll depth.
+  // Only refetch when the user is looking at the top of the feed; otherwise mark stale so the
+  // next focus / app resume picks it up, instead of swapping the list under the user's finger.
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = savedEvents.addFeedInvalidateListener(() => {
-      if (!isFetchingRef.current) {
-        fetchPosts(1, false).catch(() => {});
-      }
+      lastFeedFetchAtRef.current = 0;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        if (
+          isHomeFocusedRef.current &&
+          !isFetchingRef.current &&
+          homeScrollOffsetRef.current < NEAR_TOP_OFFSET
+        ) {
+          fetchPostsRef.current(1, false, true).catch(() => {});
+        }
+      }, FEED_INVALIDATE_DEBOUNCE_MS);
     });
-    return unsub;
-  }, [fetchPosts]);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsub();
+    };
+  }, []);
+
+  // Re-opening the app after a while should show fresh content at the top, like a cold start.
+  useEffect(() => {
+    if (isWeb) return;
+    let backgroundedAt = 0;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'background') {
+        backgroundedAt = Date.now();
+        return;
+      }
+      if (next !== 'active' || !backgroundedAt) return;
+      const awayMs = Date.now() - backgroundedAt;
+      backgroundedAt = 0;
+      if (!isHomeFocusedRef.current || !hasInitializedRef.current) return;
+      if (awayMs < APP_RESUME_REFRESH_MS && Date.now() - lastFeedFetchAtRef.current < FEED_STALE_MS) return;
+      fetchPostsRef.current(1, false, true)
+        .then(() => {
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+            homeScrollOffsetRef.current = 0;
+          });
+        })
+        .catch(() => {});
+    });
+    return () => subscription.remove();
+  }, []);
 
   // Scroll to specific post when postId parameter is provided — only once when post first appears.
   // Prevents scroll jump when loading more (effect would re-run on append and scroll back to post).
@@ -1387,9 +1451,10 @@ export default function HomeScreen() {
     setRefreshing(true);
     try {
       await Promise.all([
-        fetchPosts(1, false),
+        fetchPosts(1, false, true),
         fetchUnseenMessageCount()
       ]);
+      homeScrollOffsetRef.current = 0;
 
       // After the new posts have been applied to state, defer a final scroll-to-top
       // to the next frame so FlashList lands at offset 0 on the fresh data instead
