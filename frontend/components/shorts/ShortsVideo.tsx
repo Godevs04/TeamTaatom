@@ -3,11 +3,11 @@ import { View, StyleSheet, Image, TouchableOpacity, Text } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import Video, { VideoRef } from 'react-native-video';
+import { useExpoVideoPlayer } from '../../utils/videoPlayerEngine';
 import ShortsExpoPlayer from './ShortsExpoPlayer';
 
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = useExpoVideoPlayer;
 import { useIsFocused } from 'expo-router';
 import logger from '../../utils/logger';
 

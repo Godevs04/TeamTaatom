@@ -1,13 +1,14 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { StyleSheet } from 'react-native';
-import Constants from 'expo-constants';
 import { useVideoPlayer, VideoView, type VideoContentFit } from 'expo-video';
+import { useExpoVideoPlayer } from '../../utils/videoPlayerEngine';
 
 /**
- * Expo Go does not ship the react-native-video native view (RCTVideo).
- * Store and dev-client builds do, so those keep the existing player.
+ * Expo Go does not ship the react-native-video native view (RCTVideo), and with
+ * expo-video 58 its media3 version clashes with react-native-video's (see
+ * utils/videoPlayerEngine.ts), so the expo-video player is used.
  */
-const isExpoGo = Constants.appOwnership === 'expo';
+const isExpoGo = useExpoVideoPlayer;
 const NativeVideo = isExpoGo ? null : require('react-native-video').default;
 
 type VideoSource = { uri?: string; type?: string } | null;
