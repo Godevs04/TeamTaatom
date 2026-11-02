@@ -118,4 +118,49 @@ describe('Views Cooldown & 2.5-Second Rule Tracking', () => {
     expect(mockAddView).not.toHaveBeenCalled();
     expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
+
+  const cooldownWindowMsFor = async (postType) => {
+    const mockPostId = '658428800000000000000001';
+    const timestamp = new Date('2026-11-02T12:00:00.000Z');
+    mockInsertMany.mockResolvedValue([]);
+    mockFindById.mockResolvedValue({ _id: mockPostId, type: postType, views: 0 });
+    mockFindOne.mockResolvedValue(null);
+
+    await trackEvents(
+      {
+        body: { events: [{ event: 'post_view', properties: { post_id: mockPostId }, timestamp }] },
+        user: { id: '658428800000000000000002' },
+      },
+      mockRes
+    );
+
+    const { timestamp: range } = mockFindOne.mock.calls[0][0];
+    return range.$lt.getTime() - range.$gte.getTime();
+  };
+
+  it('uses an 8-hour per-viewer window for long videos', async () => {
+    expect(await cooldownWindowMsFor('long_video')).toBe(8 * 60 * 60 * 1000);
+  });
+
+  it('keeps the 24-hour per-viewer window for photo posts and shorts', async () => {
+    expect(await cooldownWindowMsFor('short')).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('counts a long video view again once the 8-hour window has passed', async () => {
+    const mockPostId = '658428800000000000000001';
+    mockInsertMany.mockResolvedValue([]);
+    mockFindById.mockResolvedValue({ _id: mockPostId, type: 'long_video', views: 3 });
+    // A view 9h ago falls outside the 8h query range, so the lookup finds nothing.
+    mockFindOne.mockResolvedValue(null);
+
+    await trackEvents(
+      {
+        body: { events: [{ event: 'post_view', properties: { post_id: mockPostId }, timestamp: new Date() }] },
+        user: { id: '658428800000000000000002' },
+      },
+      mockRes
+    );
+
+    expect(mockAddView).toHaveBeenCalledWith(mockPostId);
+  });
 });
