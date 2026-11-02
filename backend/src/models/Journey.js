@@ -314,6 +314,12 @@ const journeySchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Set when GPS points arrived after newer ones and were inserted back into raw_polyline;
+  // distance and the snapped path are rebuilt from raw_polyline on completion.
+  routeNeedsRebuild: {
+    type: Boolean,
+    default: false
+  },
   // Active flag for filtering
   isActive: {
     type: Boolean,
