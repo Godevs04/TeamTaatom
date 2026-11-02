@@ -295,12 +295,20 @@ const CacheKeys = {
   authUser: (userId) => `authuser:${userId}`,
 };
 
+const invalidateShortsFeedCache = async () => {
+  await Promise.all([
+    deleteCache(CacheKeys.shortsCandidates()),
+    deleteCacheByPattern('shorts:feed:first:*'),
+  ]);
+};
+
 module.exports = {
   getCache,
   setCache,
   deleteCache,
   deleteCacheByPattern,
   cacheWrapper,
+  invalidateShortsFeedCache,
   CacheKeys,
   CACHE_TTL,
   redisClient,

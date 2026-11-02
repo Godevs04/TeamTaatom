@@ -17,7 +17,7 @@ const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
 const { extractMentions } = require('../utils/mentionExtractor');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
-const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern, getCache, setCache } = require('../utils/cache');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern, getCache, setCache, invalidateShortsFeedCache } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { startTranscodeWorker, triggerTranscode } = require('../services/videoTranscode');
@@ -265,6 +265,9 @@ const getPosts = async (req, res) => {
 
     const viewerId = req.user?._id?.toString();
     const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon', feed: feedMode, authorMatch: 'oid' });
+    if (req.query.refresh === '1') {
+      await deleteCache(cacheKey);
+    }
 
     const result = await cacheWrapper(cacheKey, async () => {
       let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
@@ -2890,6 +2893,7 @@ const deletePost = async (req, res) => {
     // Invalidate cache after database deletion is complete to prevent concurrent reads from caching stale/deleted post
     await deleteCache(CacheKeys.post(req.params.id));
     deleteCacheByPattern('posts:*');
+    invalidateShortsFeedCache().catch(() => {});
     deleteCacheByPattern(`user:${userId}:posts:*`);
 
 
@@ -2932,6 +2936,7 @@ const archivePost = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
     deleteCacheByPattern('posts:*');
+    invalidateShortsFeedCache().catch(() => {});
     deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post archived successfully', { post });
@@ -2961,6 +2966,7 @@ const unarchivePost = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
     deleteCacheByPattern('posts:*');
+    invalidateShortsFeedCache().catch(() => {});
     deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unarchived successfully', { post });
@@ -3056,6 +3062,7 @@ const hidePost = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
     deleteCacheByPattern('posts:*');
+    invalidateShortsFeedCache().catch(() => {});
     deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post hidden successfully', { post });
@@ -3085,6 +3092,7 @@ const unhidePost = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(post._id.toString()));
     deleteCacheByPattern('posts:*');
+    invalidateShortsFeedCache().catch(() => {});
     deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unhidden successfully', { post });
@@ -3319,7 +3327,7 @@ const getShorts = async (req, res) => {
     const viewerId = req.user?._id?.toString();
     const isFirstPage = !rawCursor;
     const feedCacheKey = CacheKeys.shortsFeedFirst(viewerId || 'anon', safeLimit);
-    if (isFirstPage) {
+    if (isFirstPage && req.query.refresh !== '1') {
       const cachedFeed = await getCache(feedCacheKey);
       if (cachedFeed && Array.isArray(cachedFeed.shorts) && cachedFeed.shorts.length > 0) {
         return res.status(200).json(cachedFeed);
@@ -3994,6 +4002,7 @@ const createShort = async (req, res) => {
     await short.save();
 
     deleteCacheByPattern('posts:*');
+    invalidateShortsFeedCache().catch(() => {});
     deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Create TranscodeJob

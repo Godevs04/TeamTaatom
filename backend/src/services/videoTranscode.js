@@ -267,6 +267,12 @@ function extractThumbnail(inputPath, outputPath) {
 
 async function emitTranscodeComplete(postId, userId) {
   try {
+    const { invalidateShortsFeedCache } = require('../utils/cache');
+    await invalidateShortsFeedCache();
+  } catch (err) {
+    logger.warn('[transcodeWorker] Failed to invalidate shorts feed cache:', err);
+  }
+  try {
     const { getIO } = require('../socket');
     const { getFollowers } = require('../utils/socketBus');
     const io = getIO();
