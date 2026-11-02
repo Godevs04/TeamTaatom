@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
@@ -30,7 +31,7 @@ import { Video, ResizeMode, Audio, type AVPlaybackStatus, type AvPlaybackHandle,
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../components/ui/MaskedView';
 import { useTheme } from '../../context/ThemeContext';
 import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort, deleteComment } from '../../services/posts';
 import { toggleFollow, getProfile } from '../../services/profile';
@@ -268,9 +269,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
-  const [appState, setAppState] = useState(AppState.currentState);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState as AppStateStatus);
   const [containerHeight, setContainerHeight] = useState(isGeneralFeed ? SCREEN_HEIGHT - TAB_BAR_HEIGHT : SCREEN_HEIGHT);
-  const containerViewRef = useRef<View>(null);
+  const containerViewRef = useRef<ComponentRef<typeof View>>(null);
   const [containerWindowFrame, setContainerWindowFrame] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const tabBarGeometry = useTabBarGeometry();
   const isScopedShortsView = !!(effectiveUserId || props.isSavedShorts);
@@ -2547,8 +2548,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       >
         <StatusBar 
           barStyle="light-content" 
-          backgroundColor="transparent" 
-          translucent={true}
         />
 
       {/* Premium Top Bar Overlay */}

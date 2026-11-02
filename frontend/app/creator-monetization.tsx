@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -129,7 +130,7 @@ export default function CreatorMonetizationScreen() {
   const router = useRouter();
   const { theme: themeContext, isDark } = useTheme();
   const colors = themeContext?.colors || theme.colors;
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const rulesY = useRef(0);
   const historyY = useRef(0);
   const hasLoaded = useRef(false);

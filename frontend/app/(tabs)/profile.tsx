@@ -19,7 +19,7 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { matchGradientLocations } from '../../utils/linearGradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../components/ui/MaskedView';
 import { BlurView } from 'expo-blur';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';

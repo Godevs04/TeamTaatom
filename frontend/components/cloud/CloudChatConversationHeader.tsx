@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../ui/MaskedView';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';

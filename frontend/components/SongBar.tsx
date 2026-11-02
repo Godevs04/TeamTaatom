@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from './ui/MaskedView';
 import { Audio, type AvSound } from '../utils/expoAv';
 import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';

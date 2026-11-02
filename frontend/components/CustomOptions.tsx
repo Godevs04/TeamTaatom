@@ -84,7 +84,7 @@ export default function CustomOptions({
       onRequestClose={onClose}
       animationType="none"
     >
-      <StatusBar backgroundColor="rgba(0,0,0,0.5)" barStyle="light-content" />
+      <StatusBar barStyle="light-content" />
       <View style={styles.overlay}>
         <BlurView
           intensity={isDark ? 55 : 45}

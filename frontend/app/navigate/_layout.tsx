@@ -5,7 +5,7 @@ export default function NavigateLayout() {
   const { theme } = useTheme();
 
   return (
-    <Stack
+    <Stack id={undefined}
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: theme.colors.background },

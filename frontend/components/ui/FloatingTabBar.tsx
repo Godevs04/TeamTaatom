@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React from 'react';
 import { View, StyleSheet, Pressable, Animated } from 'react-native';
 import { BottomTabBarProps } from 'expo-router/js-tabs';
@@ -31,7 +32,7 @@ export default function FloatingTabBar(props: BottomTabBarProps & TabBarEmitterP
   const router = useRouter();
   const { isTracking, isPaused } = useJourney();
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
-  const outerRef = React.useRef<View>(null);
+  const outerRef = React.useRef<ComponentRef<typeof View>>(null);
 
   React.useEffect(() => {
     let animation: Animated.CompositeAnimation | null = null;

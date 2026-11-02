@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 
 export default function ChatLayout() {
   return (
-    <Stack
+    <Stack id={undefined}
       screenOptions={{
         headerShown: false,
         gestureEnabled: true,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, ViewProps } from 'react-native';
 import { BlurView } from 'expo-blur';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from './MaskedView';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

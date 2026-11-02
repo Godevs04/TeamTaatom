@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
@@ -14,7 +15,7 @@ import {
   NativeScrollEvent,
   StatusBar,
 } from 'react-native';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../../../../components/ui/MaskedView';
 import LoadingGlobe from '../../../../../components/LoadingGlobe';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -96,7 +97,7 @@ function AdminLocaleHeroCarousel({
   width: number;
   resizeMode: 'contain' | 'cover';
 }) {
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const [index, setIndex] = useState(0);
   const key = urls.join('|');
 

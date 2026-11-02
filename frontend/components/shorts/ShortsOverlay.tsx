@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Pressable, TouchableWithoutFe
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../ui/MaskedView';
 import { PostType } from '../../types/post';
 import SongPlayer from '../SongPlayer';
 import { useTheme } from '../../context/ThemeContext';
