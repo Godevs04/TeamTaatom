@@ -32,6 +32,7 @@ import { createLogger } from '../../utils/logger';
 import { PostType } from '../../types/post';
 import { buildLongVideoAdSchedule } from '../../utils/longVideoAdSchedule';
 import { showLongVideoAdSlot } from '../../services/longVideoAds';
+import { canShowLongVideoAds, markLongVideoAdsShown } from '../../utils/longVideoAdGate';
 
 const logger = createLogger('WatchDetail');
 const { width: screenWidth } = Dimensions.get('window');
@@ -156,6 +157,8 @@ export default function WatchDetailScreen() {
   const [playerEpoch, setPlayerEpoch] = useState(0);
   const [scrubPreview, setScrubPreview] = useState<number | null>(null);
   const [windowSize, setWindowSize] = useState(() => Dimensions.get('window'));
+  const [adsAllowed, setAdsAllowed] = useState(false);
+  const adWindowMarkedRef = useRef(false);
   const firedSlotsRef = useRef<Set<number>>(new Set());
   const prerollDoneRef = useRef(false);
   const resumeAtRef = useRef(0);
@@ -182,6 +185,10 @@ export default function WatchDetailScreen() {
         setPost(null);
         return;
       }
+      // Resolve the 8h ad window before the post renders so the preroll effect sees it.
+      const allowAds = await canShowLongVideoAds(data._id);
+      if (!isRefresh) adWindowMarkedRef.current = false;
+      setAdsAllowed(allowAds);
       let next = data;
       if (!isRefresh) {
         const localLikes = savedEvents.getLikesState(data._id);
@@ -234,10 +241,24 @@ export default function WatchDetailScreen() {
   }, [fetchVideo]);
 
   const schedule = useMemo(() => {
-    const fromApi = (post as any)?.adSchedule?.slots;
+    const apiSchedule = (post as any)?.adSchedule;
+    // Server sends adsSuppressedUntil when this viewer already watched within the last 8 hours.
+    if (!adsAllowed || apiSchedule?.adsSuppressedUntil) return [];
+    const fromApi = apiSchedule?.slots;
     if (Array.isArray(fromApi) && fromApi.length) return fromApi;
     return buildLongVideoAdSchedule(post?.durationSeconds || 0).slots;
-  }, [post]);
+  }, [post, adsAllowed]);
+
+  const playAdSlot = useCallback(
+    async (slot: Parameters<typeof showLongVideoAdSlot>[0]) => {
+      if (post?._id && !adWindowMarkedRef.current) {
+        adWindowMarkedRef.current = true;
+        await markLongVideoAdsShown(post._id);
+      }
+      await runAdSlot(slot);
+    },
+    [post?._id]
+  );
 
   const bumpChrome = useCallback(() => {
     setChromeVisible(true);
@@ -292,12 +313,12 @@ export default function WatchDetailScreen() {
     setAdBusy(true);
     setPaused(true);
     setPrerollGateOpen(false);
-    await runAdSlot(pre);
+    await playAdSlot(pre);
     firedSlotsRef.current.add(0);
     prerollDoneRef.current = true;
     endedRef.current = false;
     resumePlayback(0);
-  }, [schedule, bumpChrome, publishClock, resumePlayback]);
+  }, [schedule, bumpChrome, publishClock, resumePlayback, playAdSlot]);
 
   useEffect(() => {
     if (post && !prerollDoneRef.current) {
@@ -383,13 +404,13 @@ export default function WatchDetailScreen() {
           resumeAtRef.current = t;
           setAdBusy(true);
           setPaused(true);
-          await runAdSlot(slot);
+          await playAdSlot(slot);
           resumePlayback(t);
           break;
         }
       }
     },
-    [schedule, adBusy, resumePlayback]
+    [schedule, adBusy, resumePlayback, playAdSlot]
   );
 
   const onEnd = useCallback(async () => {
@@ -398,13 +419,13 @@ export default function WatchDetailScreen() {
       firedSlotsRef.current.add(endIdx);
       setAdBusy(true);
       setPaused(true);
-      await runAdSlot(schedule[endIdx]);
+      await playAdSlot(schedule[endIdx]);
       setAdBusy(false);
     }
     endedRef.current = true;
     setPaused(true);
     setChromeVisible(true);
-  }, [schedule]);
+  }, [schedule, playAdSlot]);
 
   const enterLandscape = useCallback(async () => {
     const uri = post?.videoUrl || post?.mediaUrl || '';

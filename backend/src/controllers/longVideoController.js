@@ -16,6 +16,7 @@ const {
 } = require('../services/mediaService');
 const { triggerTranscode } = require('../services/videoTranscode');
 const { buildLongVideoAdSchedule } = require('../services/longVideoAdSchedule');
+const { findRecentView, LONG_VIDEO_VIEW_WINDOW_MS } = require('../services/viewWindow');
 const { deleteCacheByPattern } = require('../utils/cache');
 
 const LONG_VIDEO = 'long_video';
@@ -440,14 +441,30 @@ async function getLongVideo(req, res) {
       return sendError(res, 'RES_3001', 'Video not found');
     }
 
-    let liked = false;
-    if (req.user?._id) {
-      liked = !!(await Like.exists({ user: req.user._id, post: post._id }));
-    }
-
-    Post.updateOne({ _id: post._id }, { $inc: { views: 1 } }).catch(() => {});
+    // Views are counted by the watch screen's post_view event (one per viewer per 8h window), not per fetch.
+    const [likedDoc, recentView] = await Promise.all([
+      req.user?._id ? Like.exists({ user: req.user._id, post: post._id }) : null,
+      req.user?._id
+        ? findRecentView({
+            postId: String(post._id),
+            userId: req.user._id,
+            windowMs: LONG_VIDEO_VIEW_WINDOW_MS,
+          })
+        : null,
+    ]);
+    const liked = !!likedDoc;
 
     const video = await hydrateLongVideoUrls(post, { liked, req, includeComments: true });
+    // Ads play on the first watch of each 8h window only.
+    if (recentView) {
+      video.adSchedule = {
+        ...video.adSchedule,
+        slots: [],
+        adsSuppressedUntil: new Date(
+          new Date(recentView.timestamp).getTime() + LONG_VIDEO_VIEW_WINDOW_MS
+        ).toISOString(),
+      };
+    }
     return sendSuccess(res, 200, 'Video fetched', { video, post: video });
   } catch (error) {
     logger.error('getLongVideo error:', error);

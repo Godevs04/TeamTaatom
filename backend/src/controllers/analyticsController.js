@@ -1,6 +1,7 @@
 const AnalyticsEvent = require('../models/AnalyticsEvent');
 const ErrorLog = require('../models/ErrorLog');
 const logger = require('../utils/logger');
+const { viewCooldownFor, findRecentView } = require('../services/viewWindow');
 
 // @desc    Track analytics events
 // @route   POST /analytics/events
@@ -40,36 +41,22 @@ const trackEvents = async (req, res) => {
           try {
             const post = await Post.findById(postId);
             if (post) {
-              // 24-hour cooldown verification: check if this user (userId) or session (sessionId)
-              // already viewed this post/short in the last 24 hours
-              const cooldownPeriod = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-              const cutoffTime = new Date(event.timestamp.getTime() - cooldownPeriod);
-
-              const cooldownQuery = {
-                event: 'post_view',
-                timestamp: { $gte: cutoffTime, $lt: event.timestamp },
-                $or: [
-                  { 'properties.post_id': postId },
-                  { 'properties.postId': postId }
-                ]
-              };
-
-              // Identify viewer by userId if logged in, otherwise by sessionId
-              if (event.userId) {
-                cooldownQuery.userId = event.userId;
-              } else if (event.sessionId) {
-                cooldownQuery.sessionId = event.sessionId;
-              } else {
-                cooldownQuery.sessionId = event.sessionId;
-              }
-
-              const existingView = await AnalyticsEvent.findOne(cooldownQuery);
+              // Per-viewer cooldown: 8 hours for long videos, 24 hours for posts/shorts.
+              const cooldownPeriod = viewCooldownFor(post.type);
+              const existingView = await findRecentView({
+                postId,
+                userId: event.userId,
+                sessionId: event.sessionId,
+                windowMs: cooldownPeriod,
+                before: event.timestamp,
+              });
               let shouldIncrement = true;
 
               if (existingView) {
                 shouldIncrement = false;
                 const identity = event.userId ? `User ${event.userId}` : `Session ${event.sessionId}`;
-                logger.info(`[VIEW TRACKING] ${identity} already viewed post/short ${postId} within the last 24 hours (existing view at ${existingView.timestamp.toISOString()}). Cooldown active, skipping view increment.`);
+                const hours = cooldownPeriod / (60 * 60 * 1000);
+                logger.info(`[VIEW TRACKING] ${identity} already viewed post ${postId} within the last ${hours} hours (existing view at ${existingView.timestamp.toISOString()}). Cooldown active, skipping view increment.`);
               }
 
               if (shouldIncrement) {
