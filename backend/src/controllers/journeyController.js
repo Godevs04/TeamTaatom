@@ -129,6 +129,56 @@ const isNearDuplicatePoint = (candidate, existingPoint) => {
   return false;
 };
 
+const pointTime = (p) => (p && p.timestamp ? new Date(p.timestamp).getTime() : NaN);
+
+/**
+ * `sortedPoints` is oldest-first. Its leading points that are older than the newest stored raw
+ * point are inserted into raw_polyline at their position in time (skipping near-duplicates).
+ * Returns how many leading points were late; the caller processes the rest normally.
+ */
+const insertLatePoints = (journey, sortedPoints) => {
+  const raw = journey.raw_polyline;
+  if (raw.length === 0) return 0;
+  const newest = pointTime(raw[raw.length - 1]);
+  if (!Number.isFinite(newest)) return 0;
+
+  let late = 0;
+  while (late < sortedPoints.length && pointTime(sortedPoints[late]) < newest) late++;
+
+  for (let i = 0; i < late; i++) {
+    const point = sortedPoints[i];
+    const t = pointTime(point);
+    let lo = 0;
+    let hi = raw.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pointTime(raw[mid]) <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    if (isNearDuplicatePoint(point, raw[lo - 1]) || isNearDuplicatePoint(point, raw[lo])) continue;
+    raw.splice(lo, 0, point);
+  }
+  return late;
+};
+
+/** Distance over the time-ordered raw path, per session, skipping implausible (>200 km/h) jumps. */
+const distanceFromRawPolyline = (journey) => {
+  let total = 0;
+  for (const segment of splitPolylineBySessions(journey.raw_polyline, journey.sessions)) {
+    let prev = null;
+    for (const point of segment) {
+      if (prev) {
+        const meters = calculateHaversineDistance(prev.lat, prev.lng, point.lat, point.lng);
+        const seconds = (pointTime(point) - pointTime(prev)) / 1000;
+        if (seconds > 0 && (meters / 1000) / (seconds / 3600) > 200) continue;
+        total += meters;
+      }
+      prev = point;
+    }
+  }
+  return total;
+};
+
 const updateRouteQuality = (journey, stats) => {
   const current = journey.routeQuality || {};
   const previousAccepted = current.acceptedPoints || 0;
@@ -443,8 +493,15 @@ const updateLocation = async (req, res) => {
       return sendError(res, 'BIZ_7001', 'Journey is not active');
     }
 
+    // Process oldest-first; clients can deliver a batch out of order after retries.
+    const coordTime = (c) => {
+      const t = c && c.timestamp ? new Date(c.timestamp).getTime() : NaN;
+      return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+    };
+    coordinates.sort((a, b) => coordTime(a) - coordTime(b));
+
     // Filter coordinates by validity and accuracy threshold (drop > 20m)
-    const filteredCoords = [];
+    let filteredCoords = [];
     const qualityStats = {
       totalRawPoints: coordinates.length,
       acceptedPoints: 0,
@@ -500,7 +557,17 @@ const updateLocation = async (req, res) => {
         accuracyCount++;
       }
     }
-    qualityStats.acceptedPoints = filteredCoords.length;
+    // Points older than the newest stored point arrived late (slow network, retries). The
+    // speed check below would read them as impossible jumps and drop them, erasing that stretch
+    // of the route, so keep them in raw_polyline at their place in time instead.
+    const lateCount = insertLatePoints(journey, filteredCoords);
+    if (lateCount > 0) {
+      filteredCoords = filteredCoords.slice(lateCount);
+      journey.routeNeedsRebuild = true;
+      logger.info(`Journey ${journeyId} updateLocation: inserted ${lateCount} late points into raw_polyline`);
+    }
+
+    qualityStats.acceptedPoints = filteredCoords.length + lateCount;
     qualityStats.averageGpsAccuracy = accuracyCount > 0 ? accuracySum / accuracyCount : null;
 
     if (filteredCoords.length === 0) {
@@ -678,7 +745,7 @@ const updateLocation = async (req, res) => {
       };
     }
 
-    qualityStats.acceptedPoints = Math.max(0, filteredCoords.length - qualityStats.rejectedImpossibleSpeedPoints);
+    qualityStats.acceptedPoints = Math.max(0, filteredCoords.length - qualityStats.rejectedImpossibleSpeedPoints) + lateCount;
 
     if (
       qualityStats.rejectedInvalidPoints > 0 ||
@@ -771,6 +838,13 @@ const completeJourney = async (req, res) => {
     journey.status = 'completed';
     journey.completedAt = new Date();
     journey.autoEnded = false;
+
+    // Late points were inserted into raw_polyline; the live distance missed them.
+    // The background re-snap below rebuilds snapped_polyline from the same ordered raw path.
+    if (journey.routeNeedsRebuild) {
+      journey.distanceTraveled = distanceFromRawPolyline(journey);
+      journey.routeNeedsRebuild = false;
+    }
 
     // Store explicit endCoords passed from the client, or fallback to the last polyline point (Bug 013)
     if (endCoords && typeof endCoords.lat === 'number' && typeof endCoords.lng === 'number') {

@@ -137,6 +137,35 @@ const pathMeters = (coords: Array<{ latitude: number; longitude: number }>) => {
 };
 
 const BATCH_SEND_INTERVAL = 10000; // Send coordinates every 10 seconds
+const UPLOAD_CHUNK_SIZE = 200;
+
+const byTimestamp = (coords: Coordinate[]): Coordinate[] =>
+  [...coords].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+
+/** Thrown by uploadCoordinatesInOrder; `unsent` holds the points the server never received. */
+class CoordinateUploadError extends Error {
+  constructor(message: string, readonly unsent: Coordinate[], readonly journeyClosed: boolean) {
+    super(message);
+  }
+}
+
+/**
+ * Upload points oldest-first, one chunk at a time. The server drops any point older than the
+ * last one it stored, so out-of-order or concurrent uploads erase that stretch of the route.
+ */
+async function uploadCoordinatesInOrder(journeyId: string, coords: Coordinate[]) {
+  const ordered = byTimestamp(coords);
+  let response: Awaited<ReturnType<typeof updateJourneyLocation>> | null = null;
+  for (let i = 0; i < ordered.length; i += UPLOAD_CHUNK_SIZE) {
+    try {
+      response = await updateJourneyLocation(journeyId, ordered.slice(i, i + UPLOAD_CHUNK_SIZE));
+    } catch (err: any) {
+      const message = String(err?.message || 'Failed to upload coordinates');
+      throw new CoordinateUploadError(message, ordered.slice(i), /not active/i.test(message));
+    }
+  }
+  return response;
+}
 const MIN_LOCATION_DISTANCE = 5; // Minimum 5 meters between tracked points (denser paths)
 const WALKING_SPEED_MPS = 2.2; // ~8 km/h
 const DRIVING_SPEED_MPS = 8; // ~29 km/h
@@ -1044,10 +1073,19 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               );
             }
           }
-          const coordsToFlush = [...persistedCoords, ...drainedCoords];
+          const coordsToFlush = byTimestamp([...persistedCoords, ...drainedCoords]);
           if (coordsToFlush.length > 0) {
             await AsyncStorage.setItem(persistedKey, JSON.stringify(coordsToFlush)).catch(() => {});
-            await updateJourneyLocation(journeyId, coordsToFlush);
+            try {
+              await uploadCoordinatesInOrder(journeyId, coordsToFlush);
+            } catch (uploadErr) {
+              if (!(uploadErr instanceof CoordinateUploadError)) throw uploadErr;
+              if (!uploadErr.journeyClosed) {
+                await AsyncStorage.setItem(persistedKey, JSON.stringify(uploadErr.unsent)).catch(() => {});
+                throw uploadErr;
+              }
+              // Server already closed this journey; the points can no longer be added.
+            }
             await AsyncStorage.removeItem(persistedKey).catch(() => {});
           }
           await completeJourney(journeyId, { snapToRoads, endCoords });
@@ -1328,7 +1366,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
                   !isNaN(c.latitude) && !isNaN(c.longitude)
                 );
                 if (valid.length > 0) {
-                  await updateJourneyLocation(storedJourneyId, valid);
+                  await uploadCoordinatesInOrder(storedJourneyId, valid);
                 }
               }
               await AsyncStorage.removeItem(persistedKey).catch(() => {});
@@ -1341,11 +1379,14 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           if (batchCoordinatesRef.current.length > 0) {
             const recoveredBatch = batchCoordinatesRef.current.splice(0);
             try {
-              await updateJourneyLocation(storedJourneyId, recoveredBatch);
+              await uploadCoordinatesInOrder(storedJourneyId, recoveredBatch);
               clearPersistedCoords(storedJourneyId);
             } catch (e) {
               pendingCoordUploadFailed = true;
-              batchCoordinatesRef.current.unshift(...recoveredBatch);
+              batchCoordinatesRef.current = byTimestamp([
+                ...(e instanceof CoordinateUploadError ? e.unsent : recoveredBatch),
+                ...batchCoordinatesRef.current,
+              ]);
               persistPendingCoords();
               logger.warn('[Journey] Failed to upload recovered bg coords on auto-save:', e);
             }
@@ -1548,10 +1589,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const id = journeyIdRef.current;
       if (!id) return;
       if (batchCoordinatesRef.current.length === 0) return;
+      // One upload at a time: on a slow network (e.g. during a call) overlapping requests
+      // reached the server out of order and it discarded the older stretch of the route.
+      if (inflightBatchRef.current) return;
       const coords = batchCoordinatesRef.current.splice(0);
       const task = (async () => {
         try {
-          const response = await updateJourneyLocation(id, coords);
+          const response = await uploadCoordinatesInOrder(id, coords);
           logger.debug(`[Journey] Sent ${coords.length} coordinates to backend`);
           clearPersistedCoords(id);
           if (stoppingRef.current) return;
@@ -1567,7 +1611,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           }
         } catch (err) {
           logger.error('[Journey] Failed to update location, requeuing:', err);
-          batchCoordinatesRef.current.unshift(...coords);
+          const unsent = err instanceof CoordinateUploadError ? err.unsent : coords;
+          batchCoordinatesRef.current = byTimestamp([...unsent, ...batchCoordinatesRef.current]);
           persistPendingCoords();
         }
       })();
@@ -1832,11 +1877,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         clearInterval(batchSendTimerRef.current);
       }
 
+      if (inflightBatchRef.current) {
+        await inflightBatchRef.current.catch(() => {});
+      }
+
       // Send any remaining coordinates BEFORE pausing (backend rejects updates on paused journeys)
       if (batchCoordinatesRef.current.length > 0) {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
-          const response = await updateJourneyLocation(journeyIdRef.current, coords);
+          const response = await uploadCoordinatesInOrder(journeyIdRef.current, coords);
           clearPersistedCoords(journeyIdRef.current);
           if (response?.journey) {
             setJourney(response.journey);
@@ -1849,7 +1898,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         } catch (err) {
           logger.error('[Journey] Failed to send final coordinates:', err);
           // Re-queue + re-persist so resume / next foreground session can flush.
-          batchCoordinatesRef.current.unshift(...coords);
+          batchCoordinatesRef.current = byTimestamp([
+            ...(err instanceof CoordinateUploadError ? err.unsent : coords),
+            ...batchCoordinatesRef.current,
+          ]);
           persistPendingCoords();
         }
       }
@@ -2102,20 +2154,19 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       try {
         if (coordsToSend.length > 0) {
           try {
-            await updateJourneyLocation(completingJourneyId, coordsToSend);
+            await uploadCoordinatesInOrder(completingJourneyId, coordsToSend);
             clearPersistedCoords(completingJourneyId);
           } catch (updateErr) {
             logger.error('[Journey] Failed to send final coordinates:', updateErr);
+            const unsent = updateErr instanceof CoordinateUploadError ? updateErr.unsent : coordsToSend;
             const persistedKey = PENDING_COORDS_KEY_PREFIX + completingJourneyId;
-            const existingRaw = await AsyncStorage.getItem(persistedKey);
-            let existing: Coordinate[] = [];
-            if (existingRaw) {
-              try {
-                const parsed = JSON.parse(existingRaw);
-                if (Array.isArray(parsed)) existing = parsed;
-              } catch {}
+            await AsyncStorage.setItem(persistedKey, JSON.stringify(byTimestamp(unsent))).catch(() => {});
+            // Completing now would close the journey and the server would refuse these points,
+            // leaving a straight line across the gap. Queue the completion instead; the retry
+            // uploads the saved points first, then completes.
+            if (!(updateErr instanceof CoordinateUploadError && updateErr.journeyClosed)) {
+              throw updateErr;
             }
-            await AsyncStorage.setItem(persistedKey, JSON.stringify([...existing, ...coordsToSend])).catch(() => {});
           }
         } else {
           clearPersistedCoords(completingJourneyId);
