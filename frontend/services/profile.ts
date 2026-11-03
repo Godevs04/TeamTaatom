@@ -46,6 +46,14 @@ export interface UpdateProfileData {
     type: string;
     name: string;
   };
+  /** Ids of existing profile gallery images to keep, in display order */
+  profileImagesKeep?: string[];
+  /** New profile gallery images to append after the kept ones */
+  newProfileImages?: Array<{
+    uri: string;
+    type: string;
+    name: string;
+  }>;
 }
 
 export interface SearchUsersResponse {
@@ -116,11 +124,24 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       } as any);
     }
 
+    if (data.profileImagesKeep) {
+      formData.append('profileImagesKeep', JSON.stringify(data.profileImagesKeep));
+    }
+
+    data.newProfileImages?.forEach((image, index) => {
+      formData.append('profileImages', {
+        uri: image.uri,
+        type: image.type || 'image/jpeg',
+        name: image.name || `profile_image_${Date.now()}_${index}.jpg`,
+      } as any);
+    });
+
     logger.debug('Updating profile with data:', {
       userId,
       hasFullName: !!data.fullName,
       hasBio: data.bio !== undefined,
       hasProfilePic: !!data.profilePic,
+      newProfileImagesCount: data.newProfileImages?.length ?? 0,
     });
 
     const response = await api.put(`/api/v1/profile/${userId}`, formData, {

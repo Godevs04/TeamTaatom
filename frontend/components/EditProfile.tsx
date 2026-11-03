@@ -20,8 +20,16 @@ import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
 import { prepareImageForUpload } from '../services/mediaService';
+import { PROFILE_IMAGES_MAX } from '../constants/profileImages';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 import logger from '../utils/logger';
+
+/** A gallery entry in the editor: either an already-saved image (existingId) or a newly picked local file. */
+interface GalleryImage {
+  key: string;
+  uri: string;
+  existingId?: string;
+}
 
 interface EditProfileProps {
   visible: boolean;
@@ -35,6 +43,10 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
   const [fullName, setFullName] = useState(user.fullName);
   const [bio, setBio] = useState(user.bio || '');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>(
+    () => (user.profileImages || []).map((image) => ({ key: image._id, uri: image.url, existingId: image._id }))
+  );
+  const [galleryChanged, setGalleryChanged] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleBioChange = (text: string) => {
@@ -99,6 +111,46 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
     }
   };
 
+  const pickGalleryImages = async () => {
+    const remaining = PROFILE_IMAGES_MAX - galleryImages.length;
+    if (remaining <= 0) {
+      Alert.alert('Photo Limit', `You can add up to ${PROFILE_IMAGES_MAX} photos`);
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        const picked = result.assets.slice(0, remaining).map((asset, index) => ({
+          key: `new_${Date.now()}_${index}`,
+          uri: asset.uri,
+        }));
+        setGalleryImages((current) => [...current, ...picked].slice(0, PROFILE_IMAGES_MAX));
+        setGalleryChanged(true);
+      }
+    } catch (error) {
+      logger.error('Gallery image picker error:', error);
+      Alert.alert('Error', 'Failed to pick images');
+    }
+  };
+
+  const removeGalleryImage = (key: string) => {
+    setGalleryImages((current) => current.filter((image) => image.key !== key));
+    setGalleryChanged(true);
+  };
+
   const showImagePicker = () => {
     Alert.alert(
       'Select Image',
@@ -132,6 +184,17 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       if (selectedImage) {
         const prepared = await prepareImageForUpload(selectedImage, `profile_${Date.now()}.jpg`);
         updateData.profilePic = prepared;
+      }
+
+      if (galleryChanged) {
+        updateData.profileImagesKeep = galleryImages
+          .filter((image) => image.existingId)
+          .map((image) => image.existingId as string);
+        updateData.newProfileImages = await Promise.all(
+          galleryImages
+            .filter((image) => !image.existingId)
+            .map((image, index) => prepareImageForUpload(image.uri, `profile_image_${Date.now()}_${index}.jpg`))
+        );
       }
 
       const response = await updateProfile(user._id, updateData);
@@ -217,6 +280,42 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       color: theme.colors.text,
       borderWidth: 1,
       borderColor: theme.colors.border,
+    },
+    galleryHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: theme.spacing.xs,
+    },
+    galleryRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: theme.spacing.sm,
+    },
+    galleryThumb: {
+      width: 56,
+      height: 56,
+      borderRadius: theme.borderRadius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.background,
+    },
+    galleryThumbImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: theme.borderRadius.md,
+    },
+    galleryRemoveButton: {
+      position: 'absolute',
+      top: -6,
+      right: -6,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 10,
+    },
+    galleryAddTile: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderStyle: 'dashed',
     },
     bioInput: {
       height: 80,
@@ -321,6 +420,40 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
                 placeholder="Enter your full name"
                 placeholderTextColor={theme.colors.textSecondary}
               />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <View style={styles.galleryHeader}>
+                <Text style={[styles.label, { marginBottom: 0 }]}>Photos</Text>
+                <Text style={styles.characterCount}>{galleryImages.length}/{PROFILE_IMAGES_MAX}</Text>
+              </View>
+              <View style={styles.galleryRow}>
+                {galleryImages.map((image) => (
+                  <View key={image.key} style={styles.galleryThumb}>
+                    <Image source={{ uri: image.uri }} style={styles.galleryThumbImage} />
+                    <TouchableOpacity
+                      style={styles.galleryRemoveButton}
+                      onPress={() => removeGalleryImage(image.key)}
+                      disabled={loading}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityLabel="Remove photo"
+                    >
+                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {galleryImages.length < PROFILE_IMAGES_MAX ? (
+                  <TouchableOpacity
+                    style={[styles.galleryThumb, styles.galleryAddTile]}
+                    onPress={pickGalleryImages}
+                    disabled={loading}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Add photos"
+                  >
+                    <Ionicons name="add" size={24} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
 
             <View style={styles.inputContainer}>

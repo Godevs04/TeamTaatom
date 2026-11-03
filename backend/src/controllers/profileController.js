@@ -4,7 +4,7 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const { deleteImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject, objectExists } = require('../services/storage');
-const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
+const { generateSignedUrl, resolveProfilePic, resolveProfileImages } = require('../services/mediaService');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
@@ -23,6 +23,7 @@ const {
   ONBOARDING_MIN_LANGUAGES,
   ONBOARDING_MAX_LANGUAGES,
 } = require('../constants/profileOnboarding');
+const { PROFILE_IMAGES_MAX } = require('../constants/profileImages');
 
 /**
  * Check if viewer is allowed to access a target user's private content.
@@ -52,6 +53,37 @@ async function checkProfilePrivacy(targetUserId, viewerId) {
     return { allowed: false, reason: 'This content is not available' };
   }
   return { allowed: true, showLocation: targetUser.settings?.privacy?.showLocation !== false };
+}
+
+/**
+ * Upload profile gallery files to object storage, verifying each one landed.
+ * On failure, any objects already uploaded in this batch are removed again.
+ * @returns {Promise<string[]>} storage keys in upload order
+ */
+async function uploadProfileImageFiles(files, userId) {
+  const uploadedKeys = [];
+  try {
+    for (const file of files) {
+      const storageKey = buildMediaKey({
+        type: 'profile',
+        userId,
+        filename: file.originalname,
+        extension: file.originalname.split('.').pop() || 'jpg'
+      });
+      await uploadObject(file.buffer, storageKey, file.mimetype);
+      const exists = await objectExists(storageKey);
+      if (!exists) {
+        throw new Error(`Upload verification failed — object not found in bucket: ${storageKey}`);
+      }
+      uploadedKeys.push(storageKey);
+    }
+    return uploadedKeys;
+  } catch (error) {
+    await Promise.all(uploadedKeys.map(key => deleteObject(key).catch(err =>
+      logger.warn('Failed to roll back profile image upload:', err)
+    )));
+    throw error;
+  }
 }
 
 // @desc    Get user profile
@@ -340,7 +372,9 @@ const getProfile = async (req, res) => {
       // Only include email if user has enabled showEmail setting
       email: user.settings?.privacy?.showEmail ? user.email : undefined,
       // Include bio for all users
-      bio: user.bio || ''
+      bio: user.bio || '',
+      // Profile gallery thumbnails (signed URLs, never raw storage keys)
+      profileImages: await resolveProfileImages(user)
     };
 
     // Enforce location privacy
@@ -388,9 +422,35 @@ const updateProfile = async (req, res) => {
 
     const { fullName, bio } = req.body;
     let profilePicStorageKey = user.profilePicStorageKey; // Track storage key separately
+    const profilePicFile = req.files?.profilePic?.[0];
+    const newProfileImageFiles = req.files?.profileImages || [];
+
+    // Resolve which existing profile gallery images to keep (client sends ids in display order).
+    // Validated up front so nothing is uploaded when the request is invalid.
+    const existingProfileImages = user.profileImages || [];
+    const isUpdatingProfileImages = req.body.profileImagesKeep !== undefined || newProfileImageFiles.length > 0;
+    let keptProfileImages = existingProfileImages;
+    if (req.body.profileImagesKeep !== undefined) {
+      let keepIds;
+      try {
+        keepIds = JSON.parse(req.body.profileImagesKeep);
+      } catch (err) {
+        logger.debug('profileImagesKeep JSON parse failed:', err?.message || err);
+      }
+      if (!Array.isArray(keepIds)) {
+        return sendError(res, 'VAL_2001', 'profileImagesKeep must be a JSON array of image ids');
+      }
+      const uniqueKeepIds = [...new Set(keepIds.map(String))];
+      keptProfileImages = uniqueKeepIds
+        .map(keepId => existingProfileImages.find(image => image._id.toString() === keepId))
+        .filter(Boolean);
+    }
+    if (keptProfileImages.length + newProfileImageFiles.length > PROFILE_IMAGES_MAX) {
+      return sendError(res, 'VAL_2001', `You can add up to ${PROFILE_IMAGES_MAX} profile images`);
+    }
 
     // Handle profile picture upload
-    if (req.file) {
+    if (profilePicFile) {
       try {
         // Delete old profile picture if it exists (try storage key first, then legacy Cloudinary)
         if (user.profilePic) {
@@ -408,15 +468,15 @@ const updateProfile = async (req, res) => {
         }
 
         // Upload new profile picture to Sevalla Object Storage
-        const extension = req.file.originalname.split('.').pop() || 'jpg';
+        const extension = profilePicFile.originalname.split('.').pop() || 'jpg';
         profilePicStorageKey = buildMediaKey({
           type: 'profile',
           userId: user._id.toString(),
-          filename: req.file.originalname,
+          filename: profilePicFile.originalname,
           extension
         });
 
-        await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
+        await uploadObject(profilePicFile.buffer, profilePicStorageKey, profilePicFile.mimetype);
 
         // Defensive: confirm the object actually landed in the bucket before we
         // persist the key. Prevents silent upload failures from poisoning the DB
@@ -435,6 +495,18 @@ const updateProfile = async (req, res) => {
           stack: uploadError.stack
         });
         return sendError(res, 'FILE_4004', uploadError.message || 'Error uploading profile picture');
+      }
+    }
+
+    // Handle profile gallery image uploads
+    let uploadedProfileImageKeys = [];
+    if (newProfileImageFiles.length > 0) {
+      try {
+        uploadedProfileImageKeys = await uploadProfileImageFiles(newProfileImageFiles, user._id.toString());
+        logger.debug('Profile images uploaded and verified:', { count: uploadedProfileImageKeys.length });
+      } catch (uploadError) {
+        logger.error('Profile images upload error:', uploadError);
+        return sendError(res, 'FILE_4004', uploadError.message || 'Error uploading profile images');
       }
     }
 
@@ -468,7 +540,14 @@ const updateProfile = async (req, res) => {
       ...(req.body.currentCountry !== undefined && { currentCountry: req.body.currentCountry }),
     };
 
-    if (req.file) {
+    if (isUpdatingProfileImages) {
+      updateData.profileImages = [
+        ...keptProfileImages.map(image => ({ _id: image._id, storageKey: image.storageKey })),
+        ...uploadedProfileImageKeys.map(storageKey => ({ storageKey }))
+      ];
+    }
+
+    if (profilePicFile) {
       // New upload: persist storage key, clear any stale URL in profilePic
       updateData.profilePicStorageKey = profilePicStorageKey;
       updateData.profilePic = '';
@@ -479,6 +558,23 @@ const updateProfile = async (req, res) => {
       updateData,
       { new: true, runValidators: true }
     ).select('-password -otp -otpExpires').lean();
+
+    // Remove gallery images the user dropped (non-blocking - DB is already the source of truth)
+    if (isUpdatingProfileImages) {
+      const keptIds = new Set(keptProfileImages.map(image => image._id.toString()));
+      existingProfileImages
+        .filter(image => !keptIds.has(image._id.toString()))
+        .forEach(image => {
+          deleteObject(image.storageKey).catch(err =>
+            logger.warn('Failed to delete removed profile image:', err)
+          );
+        });
+    }
+
+    // Never expose raw storage keys — return signed URLs like getProfile does
+    if (updatedUser) {
+      updatedUser.profileImages = await resolveProfileImages(updatedUser);
+    }
 
     // Invalidate cache (non-blocking - don't fail if cache fails)
     try {
@@ -522,7 +618,7 @@ const updateProfile = async (req, res) => {
       stack: error.stack,
       userId: req.params.id,
       bodyKeys: req.body ? Object.keys(req.body) : [],
-      hasFile: !!req.file
+      hasFile: !!(req.files && Object.keys(req.files).length > 0)
     });
     
     // Provide more specific error messages
