@@ -14,6 +14,7 @@ const { generateSignedUrl, generateSignedUrls, resolveProfilePic, resolveSong, e
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
+const { getRequestHost } = require('../utils/requestHost');
 const { extractHashtags } = require('../utils/hashtagExtractor');
 const { extractMentions } = require('../utils/mentionExtractor');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
@@ -40,7 +41,7 @@ const getProto = (req) => {
 const getVideoUrlForShort = (short, req) => {
   if (short && short.storageKey && short.storageKey.endsWith('index.m3u8')) {
     const proto = getProto(req);
-    const baseUrl = `${proto}://${req.get('host')}`;
+    const baseUrl = `${proto}://${getRequestHost(req)}`;
     return `${baseUrl}/api/v1/shorts?hls=master&postId=${short._id}&ext=.m3u8`;
   }
   return null;
@@ -106,7 +107,7 @@ const handleHLSProxy = async (req, res) => {
       
       // Replace relative segments with absolute proxy endpoint URLs
       const proto = getProto(req);
-      const baseUrl = `${proto}://${req.get('host')}`;
+      const baseUrl = `${proto}://${getRequestHost(req)}`;
 
       const lines = m3u8Content.split('\n');
       const mappedLines = await Promise.all(lines.map(async (line) => {

@@ -6,6 +6,12 @@ export type TripScore = {
   areas?: Array<{ name?: string; country?: string; continent?: string; count?: number }>;
 };
 
+/** Profile gallery photo (shown inline next to the name). `url` is a short-lived signed URL. */
+export type ProfileImage = {
+  _id: string;
+  url: string;
+};
+
 export type User = {
   _id: string;
   username?: string;
@@ -13,6 +19,8 @@ export type User = {
   email?: string;
   bio?: string;
   profilePic?: string;
+  /** Up to PROFILE_IMAGES_MAX photos shown inline to the right of the full name */
+  profileImages?: ProfileImage[];
   isVerified?: boolean;
   followersCount?: number;
   followingCount?: number;
@@ -36,6 +44,8 @@ export type User = {
   /** Viewer's access when routeVisibility is approved_only */
   routeAccessStatus?: "none" | "pending" | "approved";
   canViewPosts?: boolean;
+  isOwnProfile?: boolean;
+  profileVisibility?: "public" | "followers" | "private";
 };
 
 export type FollowRequest = {

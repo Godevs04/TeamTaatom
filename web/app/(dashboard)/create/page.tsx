@@ -259,6 +259,10 @@ export default function CreateTripPage() {
       if (typeof draft.copyrightAccepted === "boolean") setCopyrightAccepted(draft.copyrightAccepted);
     } catch {
       // Ignore corrupted local draft and continue.
+    } finally {
+      // ?mode=short|post (e.g. Photo / Video buttons on an active journey) wins over the draft.
+      const requestedMode = new URLSearchParams(window.location.search).get("mode");
+      if (requestedMode === "post" || requestedMode === "short") setMode(requestedMode);
     }
   }, []);
 

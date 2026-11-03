@@ -130,3 +130,11 @@ Follow requests: `getFollowRequests`, `approveFollowRequest`, `rejectFollowReque
 ---
 
 *Notifications for follow requests: [06-NOTIFICATIONS-MODULE.md](./06-NOTIFICATIONS-MODULE.md). Settings: [07-SETTINGS-MODULE.md](./07-SETTINGS-MODULE.md).*
+
+## 13. Web parity (profile photos + mobile layout)
+
+- **Profile photos**: up to `PROFILE_IMAGES_MAX = 2` (backend `src/constants/profileImages.js`, frontend `constants/profileImages.ts`, web `lib/profile-images.ts` — keep in sync). Stored as `User.profileImages[{ _id, storageKey }]`; APIs return `profileImages: [{ _id, url }]` with signed URLs (`getProfile`, `updateProfile`, `GET /auth/me`).
+- **Update**: `PUT /profile/:id` multipart also accepts `profileImages` (files, appended) and `profileImagesKeep` (JSON array of existing ids to keep, in order). Omit both to leave photos untouched. Removed photos are deleted from storage.
+- **Web files**: `app/(dashboard)/profile/[id]/page.tsx` (server) → `components/profile/profile-header-card.tsx` (avatar ring, stats, name + flag + `profile-images-inline.tsx`, bio, TRIP SCORE strip, follow/message), `rotating-globe.tsx`, `profile-content-tabs.tsx` (Posts / Shorts / Saved, square grid, locked state), `profile-actions.tsx` (`ProfileFollowButtons`, `ProfileMenu`). Edit form: `components/profile/edit-profile-form.tsx` (Photos section before Bio; bio max 5 lines).
+- `/profile/[id]/shorts` redirects to `/profile/[id]?tab=shorts`; short tiles open `/shorts?userId=&postId=`.
+- Own-profile menu → `/upload-long-video` (web upload page, creator access required).

@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { attachVideoSource, type AttachedVideoSource } from "../../lib/hls-attach";
+import { toSameOriginApiUrl } from "../../lib/post-utils";
 import { Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { AdSenseUnit } from "../ads/adsense-unit";
 import {
@@ -29,13 +31,6 @@ type WatchPlayerProps = {
   onRetry?: () => void;
 };
 
-type HlsLike = {
-  destroy: () => void;
-  loadSource: (url: string) => void;
-  attachMedia: (media: HTMLMediaElement) => void;
-  on: (event: string, cb: (event: unknown, data: { fatal?: boolean }) => void) => void;
-};
-
 function formatDuration(seconds?: number | null): string {
   if (seconds == null || Number.isNaN(Number(seconds))) return "0:00";
   const s = Math.max(0, Math.floor(Number(seconds)));
@@ -46,9 +41,6 @@ function formatDuration(seconds?: number | null): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-function isHlsUrl(url: string): boolean {
-  return /hls=master|\.m3u8|ext=\.m3u8/i.test(url);
-}
 
 export function WatchPlayer({
   videoUrl,
@@ -60,7 +52,7 @@ export function WatchPlayer({
 }: WatchPlayerProps) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
-  const hlsRef = React.useRef<HlsLike | null>(null);
+  const sourceRef = React.useRef<AttachedVideoSource | null>(null);
   const firedSlotsRef = React.useRef<Set<number>>(new Set());
   const prerollDoneRef = React.useRef(false);
   const resumeAtRef = React.useRef(0);
@@ -223,62 +215,35 @@ export function WatchPlayer({
     firedSlotsRef.current = new Set();
     endedRef.current = false;
 
-    const cleanupHls = () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
+    const cleanupSource = () => {
+      sourceRef.current?.destroy();
+      sourceRef.current = null;
     };
 
-    cleanupHls();
+    cleanupSource();
 
     const setup = async () => {
-      if (isHlsUrl(videoUrl)) {
-        if (el.canPlayType("application/vnd.apple.mpegurl")) {
-          el.src = videoUrl;
-        } else {
-          try {
-            const mod = await import("hls.js");
-            if (cancelled) return;
-            const HlsCtor = (mod.default || mod) as {
-              isSupported: () => boolean;
-              Events: { ERROR: string };
-              new (config?: { enableWorker?: boolean }): HlsLike;
-            };
-            if (!HlsCtor.isSupported()) {
-              setPlaybackError("HLS is not supported in this browser.");
-              return;
-            }
-            const hls = new HlsCtor({ enableWorker: true });
-            hlsRef.current = hls;
-            hls.loadSource(videoUrl);
-            hls.attachMedia(el);
-            hls.on(HlsCtor.Events.ERROR, (_e, data) => {
-              if (data?.fatal) {
-                setPlaybackError("Couldn’t load this stream. Tap retry.");
-                setPaused(true);
-              }
-            });
-          } catch {
-            if (!cancelled) {
-              setPlaybackError("Couldn’t load this stream. Tap retry.");
-              setPaused(true);
-            }
-            return;
-          }
-        }
-      } else {
-        el.src = videoUrl;
+      const attached = await attachVideoSource(el, toSameOriginApiUrl(videoUrl), {
+        onFatal: () => {
+          setPlaybackError("Couldn’t load this stream. Tap retry.");
+          setPaused(true);
+        },
+        isCancelled: () => cancelled,
+      });
+      if (!attached) return;
+      if (cancelled) {
+        attached.destroy();
+        return;
       }
-
-      if (!cancelled) void runPreroll();
+      sourceRef.current = attached;
+      void runPreroll();
     };
 
     void setup();
 
     return () => {
       cancelled = true;
-      cleanupHls();
+      cleanupSource();
       el.removeAttribute("src");
       el.load();
     };

@@ -39,9 +39,14 @@ export function LocaleNavigateMap({
   const routeKey = userPosition
     ? `${userPosition.lat},${userPosition.lng};${destination.lat},${destination.lng}`
     : null;
+  // Latest coordinates for the fetch; the effect is keyed on `routeKey` so a
+  // parent re-render passing new-but-equal objects doesn't refetch routes.
+  const endpointsRef = React.useRef({ userPosition, destination });
+  endpointsRef.current = { userPosition, destination };
 
   React.useEffect(() => {
-    if (!userPosition || !routeKey) {
+    const { userPosition: from, destination: to } = endpointsRef.current;
+    if (!from || !routeKey) {
       setOptions([]);
       setSelectedId("");
       return;
@@ -50,7 +55,7 @@ export function LocaleNavigateMap({
     let cancelled = false;
     setLoadingRoutes(true);
 
-    fetchNavigationOptions(userPosition, destination)
+    fetchNavigationOptions(from, to)
       .then((fetched) => {
         if (cancelled) return;
         setOptions(fetched);
@@ -69,7 +74,7 @@ export function LocaleNavigateMap({
     return () => {
       cancelled = true;
     };
-  }, [userPosition, routeKey, destination]);
+  }, [routeKey]);
 
   const selected = options.find((o) => o.id === selectedId) ?? options[0];
   const fastestId = fastestOptionId(options);

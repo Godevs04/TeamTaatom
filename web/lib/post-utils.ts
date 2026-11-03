@@ -18,6 +18,30 @@ export function getPostDisplayLocation(post: Post | null | undefined): string {
 }
 
 /**
+ * Rewrites an absolute backend API URL (e.g. the HLS playlist proxy
+ * `https://<backend>/api/v1/shorts?hls=master...`) to a same-origin path so the
+ * browser goes through the Next.js `/api/v1/*` rewrite. Fetching the backend
+ * host directly from the page fails on CORS / mixed content. Anything that is
+ * not under `/api/v1/` (signed storage URLs, CDNs) is returned unchanged.
+ */
+export function toSameOriginApiUrl(raw: string): string {
+  if (!raw || !/^https?:\/\//i.test(raw)) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.pathname.startsWith("/api/v1/")) return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    // not a parseable URL — leave as-is
+  }
+  return raw;
+}
+
+/** Playable video URL for a short / long video, routed through the web proxy when it points at our API. */
+export function getPlayableVideoUrl(post: Pick<Post, "mediaUrl" | "videoUrl"> | null | undefined): string {
+  const raw = post?.mediaUrl || post?.videoUrl || "";
+  return typeof raw === "string" ? toSameOriginApiUrl(raw) : "";
+}
+
+/**
  * Returns latitude/longitude for a post (for map display).
  * Prefers location.coordinates, then detectedPlace, then top-level latitude/longitude.
  */

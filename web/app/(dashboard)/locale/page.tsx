@@ -1,442 +1,363 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import {
-  getLocales,
-  getLocaleCountries,
-  getLocaleStates,
-  getLocaleSpotTypes,
-  type Locale,
-} from "../../../lib/api";
-import { STORAGE_KEYS } from "../../../lib/constants";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Bookmark, Loader2, LocateFixed, MapPin, Search, SlidersHorizontal } from "lucide-react";
+import { getLocaleById, getLocales, type Locale } from "../../../lib/api";
 import { Skeleton } from "../../../components/ui/skeleton";
-import { MapPin, Bookmark, BookmarkCheck, MapPinned } from "lucide-react";
+import { Button } from "../../../components/ui/button";
+import { LocaleCard } from "../../../components/locale/locale-card";
+import {
+  countActiveFilters,
+  EMPTY_LOCALE_FILTERS,
+  LocaleFilterModal,
+  type LocaleFilters,
+} from "../../../components/locale/locale-filter-modal";
+import { useUserLocation, type UserCoords } from "../../../hooks/use-user-location";
+import { useDrivingDistances } from "../../../hooks/use-driving-distances";
+import {
+  getSavedLocales,
+  isUsableDistance,
+  setSavedLocales,
+  straightLineKm,
+  toStoredLocale,
+} from "../../../lib/locale-utils";
+import { cn } from "../../../lib/utils";
 
-function haversineKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+/** Mobile locale.tsx pages 20 at a time with a "Load More Places" button. */
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
+
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [delayMs, value]);
+  return debounced;
 }
 
-function getSavedLocales(): Locale[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.savedLocaleIds);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+/** Locale matches the client-side parts of the filters (Saved tab filters everything locally). */
+function matchesLocalFilters(locale: Locale, search: string, filters: LocaleFilters): boolean {
+  const q = search.trim().toLowerCase();
+  if (q) {
+    const haystack = [locale.name, locale.city, locale.stateProvince, locale.countryCode, locale.description]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!haystack.includes(q)) return false;
   }
+  if (filters.countryCode && locale.countryCode?.toUpperCase() !== filters.countryCode.toUpperCase()) return false;
+  const stateKey = (filters.stateCode || filters.stateProvince).trim().toLowerCase();
+  if (stateKey) {
+    const candidates = [locale.stateCode, locale.stateProvince].map((v) => (v || "").trim().toLowerCase());
+    if (!candidates.includes(stateKey)) return false;
+  }
+  if (filters.spotTypes.length) {
+    const spots = (locale.spotTypes || []).map((s) => s.toLowerCase());
+    if (!filters.spotTypes.some((s) => spots.includes(s.toLowerCase()))) return false;
+  }
+  return true;
 }
 
-function setSavedLocales(list: Locale[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEYS.savedLocaleIds, JSON.stringify(list));
-  } catch {
-    // ignore
-  }
+function parseRadius(raw: string): number | null {
+  const km = parseFloat(raw.trim());
+  return Number.isFinite(km) && km > 0 ? km : null;
 }
 
 export default function LocalePage() {
-  const [countryCode, setCountryCode] = React.useState("");
-  const [stateCode, setStateCode] = React.useState("");
-  const [search, setSearch] = React.useState("");
-  const [spotTypes, setSpotTypes] = React.useState<string[]>([]);
-  const [activeTab, setActiveTab] = React.useState<"discover" | "saved">("discover");
-  const [userCoords, setUserCoords] = React.useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
-  const [sortByNearby, setSortByNearby] = React.useState(true);
+  const [activeTab, setActiveTab] = React.useState<"locale" | "saved">("locale");
+  const [searchInput, setSearchInput] = React.useState("");
+  const [filters, setFilters] = React.useState<LocaleFilters>(EMPTY_LOCALE_FILTERS);
+  const [savedSearch, setSavedSearch] = React.useState("");
+  const [savedFilters, setSavedFilters] = React.useState<LocaleFilters>(EMPTY_LOCALE_FILTERS);
+  const [filterOpen, setFilterOpen] = React.useState(false);
   const [savedList, setSavedList] = React.useState<Locale[]>([]);
+  const [refreshingSaved, setRefreshingSaved] = React.useState(false);
+  const search = useDebounced(searchInput, SEARCH_DEBOUNCE_MS);
+  const { coords, permission, locating, request: requestLocation } = useUserLocation();
 
-  const loadSaved = React.useCallback(() => {
+  // Round to ~1 km so small GPS jitter doesn't create new queries.
+  const queryCoords = React.useMemo<UserCoords | null>(
+    () => (coords ? { latitude: Number(coords.latitude.toFixed(2)), longitude: Number(coords.longitude.toFixed(2)) } : null),
+    [coords]
+  );
+
+  React.useEffect(() => {
     setSavedList(getSavedLocales());
   }, []);
 
-  React.useEffect(() => {
-    loadSaved();
-  }, [loadSaved]);
-
-  const toggleSpotType = (type: string) => {
-    setSpotTypes((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
-    );
-  };
-
-  const { data: countriesData } = useQuery({
-    queryKey: ["locale-countries"],
-    queryFn: getLocaleCountries,
-  });
-  const countries = countriesData?.countries ?? [];
-
-  const { data: spotTypesData } = useQuery({
-    queryKey: ["locale-spot-types"],
-    queryFn: getLocaleSpotTypes,
-  });
-  const spotTypeOptions = spotTypesData?.spotTypes ?? [];
-
-  const { data: statesData } = useQuery({
-    queryKey: ["locale-states", countryCode],
-    // Be defensive: only call API when we have a non-empty countryCode.
-    // If the backend still returns 400 (e.g. race conditions), swallow it and fall back to manual text input.
-    queryFn: async () => {
-      if (!countryCode || !countryCode.trim()) {
-        return { states: [] };
-      }
-      try {
-        return await getLocaleStates(countryCode);
-      } catch {
-        return { states: [] };
-      }
-    },
-    enabled: Boolean(countryCode?.trim()),
-  });
-  const stateOptions = statesData?.states ?? [];
-
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["locales", search, countryCode, stateCode, spotTypes],
-    queryFn: () =>
+  const localesQ = useInfiniteQuery({
+    queryKey: [
+      "locales",
+      search.trim(),
+      filters.countryCode,
+      filters.stateCode,
+      filters.stateProvince,
+      filters.spotTypes.slice().sort().join(","),
+      queryCoords?.latitude ?? null,
+      queryCoords?.longitude ?? null,
+    ],
+    queryFn: ({ pageParam }) =>
       getLocales({
-        search: search || undefined,
-        countryCode: countryCode || undefined,
-        stateCode: stateCode || undefined,
-        spotTypes: spotTypes.length ? spotTypes : undefined,
-        page: 1,
-        limit: 50,
+        search: search.trim() || undefined,
+        countryCode: filters.countryCode || undefined,
+        stateCode: filters.stateCode || undefined,
+        stateProvince: filters.stateProvince || undefined,
+        spotTypes: filters.spotTypes.length ? filters.spotTypes : undefined,
+        ...(queryCoords ? { lat: queryCoords.latitude, long: queryCoords.longitude, sort: "nearest" as const } : {}),
+        cursor: pageParam,
+        limit: PAGE_SIZE,
       }),
-    enabled: activeTab === "discover",
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => (last.pagination?.hasMore && last.pagination.nextCursor ? last.pagination.nextCursor : undefined),
+    enabled: activeTab === "locale",
+    placeholderData: keepPreviousData,
   });
 
-  const locales = React.useMemo(() => {
-    const raw = data?.locales ?? [];
-    if (activeTab === "saved") return savedList;
-    if (!userCoords || !sortByNearby) return raw;
-    const withDistance = raw
-      .filter(
-        (l) =>
-          typeof l.latitude === "number" &&
-          typeof l.longitude === "number" &&
-          l.latitude !== 0 &&
-          l.longitude !== 0
-      )
-      .map((l) => ({
-        ...l,
-        distanceKm: haversineKm(
-          userCoords.latitude,
-          userCoords.longitude,
-          l.latitude!,
-          l.longitude!
-        ),
-      }))
-      .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
-    const withoutCoords = raw.filter(
-      (l) =>
-        !l.latitude ||
-        !l.longitude ||
-        l.latitude === 0 ||
-        l.longitude === 0
-    );
-    return [...withDistance, ...withoutCoords];
-  }, [activeTab, savedList, data?.locales, userCoords, sortByNearby]);
+  const locales = React.useMemo(() => localesQ.data?.pages.flatMap((p) => p.locales ?? []) ?? [], [localesQ.data]);
 
-  const hasActiveFilters =
-    Boolean(search.trim()) ||
-    Boolean(countryCode.trim()) ||
-    Boolean(stateCode.trim()) ||
-    spotTypes.length > 0;
-
+  // Saved tab: show stored copies immediately, then refresh each from the API so
+  // signed image URLs (5 min TTL) are fresh — mirrors mobile locale.tsx.
   React.useEffect(() => {
-    if (activeTab !== "discover" || userCoords) return;
+    if (activeTab !== "saved") return;
+    const stored = getSavedLocales();
+    setSavedList(stored);
+    if (stored.length === 0) return;
     let cancelled = false;
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (!cancelled)
-          setUserCoords({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-          });
-      },
-      () => {},
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
-    );
+    setRefreshingSaved(true);
+    void Promise.allSettled(stored.map((l) => getLocaleById(l._id))).then((results) => {
+      if (cancelled) return;
+      const fresh = stored.map((old, i) => {
+        const r = results[i];
+        return r.status === "fulfilled" && r.value?.locale ? toStoredLocale(r.value.locale) : old;
+      });
+      setSavedLocales(fresh);
+      setSavedList(fresh);
+      setRefreshingSaved(false);
+    });
     return () => {
       cancelled = true;
     };
-  }, [activeTab, userCoords]);
+  }, [activeTab]);
 
-  const toggleBookmark = React.useCallback(
-    (e: React.MouseEvent, locale: Locale) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const list = getSavedLocales();
-      const idx = list.findIndex((l) => l._id === locale._id);
-      if (idx >= 0) {
-        list.splice(idx, 1);
-      } else {
-        list.push(locale);
-      }
-      setSavedLocales(list);
-      setSavedList(list);
+  const visibleSource = activeTab === "locale" ? locales : savedList;
+  const { distances: driving, pending: drivingPending } = useDrivingDistances(coords, visibleSource);
+
+  const distanceFor = React.useCallback(
+    (locale: Locale): number | null => {
+      const road = driving[locale._id];
+      if (isUsableDistance(road)) return road;
+      if (isUsableDistance(locale.distanceKm)) return locale.distanceKm;
+      return straightLineKm(coords, locale);
     },
-    []
+    [coords, driving]
   );
 
-  const isSaved = React.useCallback(
-    (id: string) => savedList.some((l) => l._id === id),
-    [savedList]
+  const activeFilters = activeTab === "locale" ? filters : savedFilters;
+  const radiusKm = parseRadius(activeFilters.searchRadius);
+  const radiusNeedsLocation = radiusKm != null && !coords;
+
+  const applyRadius = React.useCallback(
+    (list: Locale[]) => {
+      if (radiusKm == null) return list;
+      if (!coords) return [];
+      return list.filter((l) => {
+        const d = distanceFor(l);
+        return d != null && d <= radiusKm;
+      });
+    },
+    [coords, distanceFor, radiusKm]
   );
+
+  const visibleLocales = React.useMemo(() => applyRadius(locales), [applyRadius, locales]);
+
+  const visibleSaved = React.useMemo(() => {
+    const filtered = applyRadius(savedList.filter((l) => matchesLocalFilters(l, savedSearch, savedFilters)));
+    if (!coords) return filtered;
+    return filtered
+      .map((l) => ({ l, d: distanceFor(l) }))
+      .sort((a, b) => (a.d ?? Number.POSITIVE_INFINITY) - (b.d ?? Number.POSITIVE_INFINITY))
+      .map(({ l }) => l);
+  }, [applyRadius, coords, distanceFor, savedFilters, savedList, savedSearch]);
+
+  // With a radius and nearest-first paging, stop offering more once the last loaded locale is outside it.
+  const lastLoaded = locales[locales.length - 1];
+  const lastDistance = lastLoaded ? distanceFor(lastLoaded) : null;
+  const canLoadMore =
+    !!localesQ.hasNextPage && !(radiusKm != null && coords && lastDistance != null && lastDistance > radiusKm);
+
+  const unsave = (locale: Locale) => {
+    const next = getSavedLocales().filter((l) => l._id !== locale._id);
+    setSavedLocales(next);
+    setSavedList(next);
+    toast.success(`${locale.name} removed from saved`);
+  };
+
+  const enableLocation = () =>
+    requestLocation(() => toast.error("Location permission denied. Enable it in your browser settings to sort by distance."));
+
+  const filterCount = countActiveFilters(activeFilters);
+  const currentSearch = activeTab === "locale" ? searchInput : savedSearch;
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-soft dark:border-zinc-800 dark:bg-zinc-900/95">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Locales
-            </h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Discover places and destinations.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab("discover")}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === "discover"
-                  ? "border-primary bg-primary text-on-primary"
-                  : "border-slate-200 bg-slate-50/50 text-slate-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-slate-300"
-              }`}
-            >
-              Discover
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("saved")}
-              className={`rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === "saved"
-                  ? "border-primary bg-primary text-on-primary"
-                  : "border-slate-200 bg-slate-50/50 text-slate-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-slate-300"
-              }`}
-            >
-              Saved ({savedList.length})
-            </button>
-          </div>
-        </div>
-
-        {activeTab === "discover" && (
-          <>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <input
-                type="text"
-                placeholder="Search places…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800/50"
-              />
-              <select
-                value={countryCode}
-                onChange={(e) => {
-                  setCountryCode(e.target.value);
-                  setStateCode("");
-                }}
-                className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800/50"
-              >
-                <option value="">All countries</option>
-                {countries.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name ?? c.code} {c.localeCount != null ? `(${c.localeCount})` : ""}
-                  </option>
-                ))}
-              </select>
-              {stateOptions.length > 0 ? (
-                <select
-                  value={stateCode}
-                  onChange={(e) => setStateCode(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800/50"
-                >
-                  <option value="">All states</option>
-                  {stateOptions.map((s) => (
-                    <option
-                      key={s.stateCode || s.stateProvince}
-                      value={s.stateCode ?? s.stateProvince ?? ""}
-                    >
-                      {s.stateProvince || s.stateCode || "—"}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  placeholder="State (e.g. KA)"
-                  value={stateCode}
-                  onChange={(e) => setStateCode(e.target.value)}
-                  className="w-28 rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800/50"
-                />
-              )}
-            </div>
-            {spotTypeOptions.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Spot types:
-                </span>
-                {spotTypeOptions.map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => toggleSpotType(type)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                      spotTypes.includes(type)
-                        ? "border-primary bg-primary text-on-primary"
-                        : "border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-slate-300 dark:hover:bg-zinc-700"
-                    }`}
-                  >
-                    {type}
-                  </button>
-                ))}
-              </div>
+    <div className="mx-auto w-full max-w-3xl space-y-5">
+      <div className="flex gap-2" role="tablist">
+        {(["locale", "saved"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "flex-1 rounded-full py-2.5 text-sm font-semibold transition-colors",
+              activeTab === tab
+                ? "bg-gradient-to-r from-taatom-ocean to-taatom-emerald text-white"
+                : "border border-slate-200 bg-white/70 text-slate-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300"
             )}
-            {userCoords && (
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSortByNearby((v) => !v)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                    sortByNearby
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-slate-200 text-slate-600 dark:border-zinc-700 dark:text-slate-400"
-                  }`}
-                >
-                  <MapPinned className="h-3.5 w-3.5" />
-                  {sortByNearby ? "Nearest first" : "Default order"}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+          >
+            {tab === "locale" ? "Locale" : `Saved${savedList.length ? ` (${savedList.length})` : ""}`}
+          </button>
+        ))}
       </div>
 
-      {activeTab === "saved" && !savedList.length && (
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+          <input
+            type="search"
+            value={currentSearch}
+            onChange={(e) => (activeTab === "locale" ? setSearchInput(e.target.value) : setSavedSearch(e.target.value))}
+            placeholder="Search destinations"
+            aria-label="Search destinations"
+            className="w-full rounded-full border border-slate-200 bg-white/90 py-2.5 pl-10 pr-4 text-sm shadow-sm outline-none focus:ring-2 focus:ring-primary/40 dark:border-zinc-700 dark:bg-zinc-900/80"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="relative rounded-full px-4"
+          onClick={() => setFilterOpen(true)}
+          aria-label={`Filters${filterCount ? ` (${filterCount} active)` : ""}`}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          {filterCount ? (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-bold text-white">
+              {filterCount}
+            </span>
+          ) : null}
+        </Button>
+      </div>
+
+      {!coords && permission !== "unsupported" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <p className="text-sm text-slate-600 dark:text-zinc-300">
+            {permission === "denied"
+              ? "Location is blocked. Allow it in your browser settings to see distances."
+              : "We use your location only to show how far each place is and sort nearest first."}
+          </p>
+          {permission !== "denied" ? (
+            <Button size="sm" className="gap-1.5 rounded-full" onClick={enableLocation} disabled={locating}>
+              {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+              Sort by Distance (Enable Location)
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <h2 className="text-lg font-bold text-slate-900 dark:text-zinc-50">
+        {activeTab === "locale" ? "Featured Locales" : "Saved Locales 🔖"}
+        {activeTab === "saved" && refreshingSaved ? <Loader2 className="ml-2 inline h-4 w-4 animate-spin text-slate-400" /> : null}
+      </h2>
+
+      {radiusNeedsLocation ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          Enable location to use the search radius filter.
+        </div>
+      ) : activeTab === "locale" ? (
+        localesQ.isPending ? (
+          <div className="space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="aspect-[16/10] w-full rounded-2xl" />
+            ))}
+          </div>
+        ) : localesQ.isError ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900/95">
+            <p className="text-sm text-red-600 dark:text-red-400">Failed to load locales.</p>
+            <Button variant="outline" className="mt-3 rounded-xl" onClick={() => void localesQ.refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : visibleLocales.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-12 text-center dark:border-zinc-800 dark:bg-zinc-900/95">
+            <MapPin className="mx-auto h-12 w-12 text-slate-400" />
+            <p className="mt-3 font-semibold text-slate-700 dark:text-zinc-200">No Locales Found</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Try adjusting your filters or search radius.</p>
+          </div>
+        ) : (
+          <div className={cn("space-y-4 transition-opacity", localesQ.isPlaceholderData && "opacity-60")}>
+            {visibleLocales.map((locale) => (
+              <LocaleCard
+                key={locale._id}
+                locale={locale}
+                distanceKm={distanceFor(locale)}
+                distanceLoading={drivingPending.has(locale._id) && !isUsableDistance(locale.distanceKm)}
+              />
+            ))}
+            {canLoadMore ? (
+              <div className="flex justify-center pt-2">
+                <Button
+                  variant="outline"
+                  className="gap-2 rounded-full"
+                  onClick={() => void localesQ.fetchNextPage()}
+                  disabled={localesQ.isFetchingNextPage}
+                >
+                  {localesQ.isFetchingNextPage ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Load More Places
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        )
+      ) : savedList.length === 0 ? (
         <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-12 text-center dark:border-zinc-800 dark:bg-zinc-900/95">
           <Bookmark className="mx-auto h-12 w-12 text-slate-400" />
-          <p className="mt-3 text-slate-500 dark:text-slate-400">
-            No saved places. Discover locales and bookmark them.
-          </p>
+          <p className="mt-3 text-slate-500 dark:text-zinc-400">No saved places yet. Open a locale and bookmark it.</p>
         </div>
-      )}
-
-      {activeTab === "discover" && isLoading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-[4/3] rounded-2xl" />
+      ) : visibleSaved.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-12 text-center dark:border-zinc-800 dark:bg-zinc-900/95">
+          <MapPin className="mx-auto h-12 w-12 text-slate-400" />
+          <p className="mt-3 font-semibold text-slate-700 dark:text-zinc-200">No Locales Found</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">Try adjusting your filters or search radius.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {visibleSaved.map((locale) => (
+            <LocaleCard
+              key={locale._id}
+              locale={locale}
+              distanceKm={distanceFor(locale)}
+              distanceLoading={drivingPending.has(locale._id)}
+              showDescription
+              onUnsave={() => unsave(locale)}
+            />
           ))}
         </div>
       )}
 
-      {activeTab === "discover" && !isLoading && isError && (
-        <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900/95">
-          <p className="text-sm text-red-600 dark:text-red-400">
-            Failed to load locales.
-          </p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="mt-3 text-sm font-semibold text-primary hover:underline"
-          >
-            Try again
-          </button>
-        </div>
-      )}
-
-      {activeTab === "discover" &&
-        !isLoading &&
-        !isError &&
-        locales.length === 0 && (
-          <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-12 text-center dark:border-zinc-800 dark:bg-zinc-900/95">
-            <MapPin className="mx-auto h-12 w-12 text-slate-400" />
-            <p className="mt-3 text-slate-500 dark:text-slate-400">
-              {hasActiveFilters
-                ? "Try adjusting your search or filters"
-                : "No locales found."}
-            </p>
-          </div>
-        )}
-
-      {((activeTab === "saved" && savedList.length > 0) ||
-        (activeTab === "discover" && !isLoading && !isError && locales.length > 0)) && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {locales.map((locale) => {
-            const distanceKm = "distanceKm" in locale ? (locale as Locale & { distanceKm?: number }).distanceKm : undefined;
-            return (
-              <Link
-                key={locale._id}
-                href={`/locale/${locale._id}`}
-                className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-soft transition-shadow hover:shadow-card dark:border-zinc-800 dark:bg-zinc-900/95"
-              >
-                <button
-                  type="button"
-                  onClick={(e) => toggleBookmark(e, locale)}
-                  className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-2 shadow-sm transition hover:bg-white dark:bg-zinc-800/90 dark:hover:bg-zinc-800"
-                  aria-label={isSaved(locale._id) ? "Remove from saved" : "Save locale"}
-                >
-                  {isSaved(locale._id) ? (
-                    <BookmarkCheck className="h-5 w-5 text-primary" />
-                  ) : (
-                    <Bookmark className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-                  )}
-                </button>
-                <div className="aspect-[4/3] w-full bg-slate-100 dark:bg-zinc-800">
-                  {locale.imageUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={locale.imageUrl}
-                      alt={locale.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <MapPin className="h-12 w-12 text-slate-400" />
-                    </div>
-                  )}
-                </div>
-                <div className="p-4">
-                  <h3 className="font-semibold text-slate-900 dark:text-white">
-                    {locale.name}
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {[locale.stateProvince, locale.stateCode, locale.countryCode]
-                      .filter(Boolean)
-                      .join(" · ") || locale.countryCode}
-                    {distanceKm != null && (
-                      <span className="ml-1 text-primary">
-                        · {distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`}
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+      <LocaleFilterModal
+        open={filterOpen}
+        initial={activeFilters}
+        hasLocation={!!coords}
+        onClose={() => setFilterOpen(false)}
+        onApply={(next) => {
+          if (activeTab === "locale") setFilters(next);
+          else setSavedFilters(next);
+          setFilterOpen(false);
+        }}
+      />
     </div>
   );
 }

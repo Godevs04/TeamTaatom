@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Navigation, Trash2 } from "lucide-react";
+import { Camera, Flag, Loader2, Navigation, Trash2, Video } from "lucide-react";
 import {
   journeyGetActive,
   journeyStart,
@@ -21,9 +21,35 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
 import { useConfirm } from "@/context/confirm-context";
 import { JourneyRouteMap } from "@/components/maps/journey-route-map";
+import { LocaleNavigateMap } from "@/components/maps/locale-navigate-map";
 
 export default function NavigatePage() {
+  return (
+    <React.Suspense fallback={null}>
+      <NavigateContent />
+    </React.Suspense>
+  );
+}
+
+function parseCoord(raw: string | null): number | null {
+  const n = raw == null ? NaN : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function NavigateContent() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  // Destination handed over from a locale (mobile map/current-location.tsx flow).
+  const destLat = parseCoord(searchParams.get("destLat"));
+  const destLng = parseCoord(searchParams.get("destLng"));
+  const destName = searchParams.get("destName") || "Destination";
+  const destination = React.useMemo(
+    () => (destLat != null && destLng != null ? { lat: destLat, lng: destLng, label: destName } : null),
+    [destLat, destLng, destName]
+  );
+  /** Origin for the destination route — fixed once so live GPS ticks don't refetch routes. */
+  const [routeOrigin, setRouteOrigin] = React.useState<{ lat: number; lng: number } | null>(null);
+  const [navigationOnly, setNavigationOnly] = React.useState(false);
   const confirm = useConfirm();
   const qc = useQueryClient();
   const router = useRouter();
@@ -140,6 +166,21 @@ export default function NavigatePage() {
     };
   }, [flushBuffer]);
 
+  const onNavigateOnly = () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported in this browser.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setRouteOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNavigationOnly(true);
+      },
+      () => toast.error("Allow location access to navigate."),
+      { enableHighAccuracy: true, timeout: 20000 }
+    );
+  };
+
   const onStart = () => {
     if (!user) {
       toast.error("Sign in to start a journey.");
@@ -153,9 +194,12 @@ export default function NavigatePage() {
     // time -- toLocaleDateString()'s output can differ between the server's
     // and browser's locale/formatting, which caused a hydration mismatch
     // when this was hoisted into a render-time constant used as a prop.
-    const title = titleInput.trim() || `Trip ${new Date().toLocaleDateString()}`;
+    const title =
+      titleInput.trim() || (destination ? `Trip to ${destination.label}` : `Trip ${new Date().toLocaleDateString()}`);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        setRouteOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNavigationOnly(false);
         try {
           await journeyStart({
             startCoords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
@@ -240,6 +284,7 @@ export default function NavigatePage() {
   };
 
   const showLiveMap = journey && (journey.status === "active" || journey.status === "paused");
+  const destinationOrigin = routeOrigin ?? journey?.startCoords ?? currentPosition;
 
   return (
     <div className="mx-auto max-w-lg space-y-6 pb-28 lg:pb-10">
@@ -265,6 +310,28 @@ export default function NavigatePage() {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         )}
+
+        {!activeQ.isLoading && !journey && destination && (
+          <div className="mt-6 rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <p className="font-semibold text-slate-900 dark:text-white">Record Journey?</p>
+            <p className="mt-1 text-sm text-slate-600 dark:text-zinc-300">
+              Heading to {destination.label}. Record your route as a journey, or just navigate.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={onNavigateOnly}>
+                Navigation Only
+              </Button>
+              <Button onClick={onStart}>Record &amp; Navigate</Button>
+            </div>
+          </div>
+        )}
+
+        {destination && destinationOrigin && (navigationOnly || journey) ? (
+          <div className="mt-6 space-y-2">
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Route to {destination.label}</p>
+            <LocaleNavigateMap destination={destination} userPosition={destinationOrigin} className="h-72 w-full" />
+          </div>
+        ) : null}
 
         {!activeQ.isLoading && !journey && (
           <div className="mt-8 space-y-3">
@@ -302,6 +369,26 @@ export default function NavigatePage() {
               />
             )}
 
+            {journey.status === "active" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href="/create?mode=post">
+                    <Camera className="h-4 w-4" />
+                    Photo
+                  </Link>
+                </Button>
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href="/create?mode=short">
+                    <Video className="h-4 w-4" />
+                    Video
+                  </Link>
+                </Button>
+                <p className="col-span-2 text-xs text-slate-500 dark:text-zinc-400">
+                  Posts you share while this journey is active are added to it automatically.
+                </p>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2">
               {journey.status === "active" && (
                 <Button variant="outline" onClick={onPause}>
@@ -313,8 +400,9 @@ export default function NavigatePage() {
                   Resume
                 </Button>
               )}
-              <Button variant="destructive" className={journey.status === "paused" ? "col-span-2" : ""} onClick={onComplete}>
-                Complete journey
+              <Button className={journey.status === "paused" ? "col-span-2 gap-2" : "gap-2"} onClick={onComplete}>
+                <Flag className="h-4 w-4" />
+                Finish journey
               </Button>
               <Button
                 variant="outline"

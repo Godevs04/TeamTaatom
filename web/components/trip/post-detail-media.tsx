@@ -3,6 +3,8 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { toSameOriginApiUrl } from "../../lib/post-utils";
+import { HlsVideo } from "../media/hls-video";
 
 export function PostDetailMedia({
   images,
@@ -19,6 +21,7 @@ export function PostDetailMedia({
   posterUrl?: string;
   isLongVideo?: boolean;
 }) {
+  const playableUrl = videoUrl ? toSameOriginApiUrl(videoUrl) : "";
   const [index, setIndex] = React.useState(0);
   const [lightbox, setLightbox] = React.useState(false);
   const current = images[Math.min(index, Math.max(images.length - 1, 0))] || "";
@@ -42,11 +45,11 @@ export function PostDetailMedia({
     return () => window.removeEventListener("keydown", onKey);
   }, [lightbox, go]);
 
-  if (isShort && videoUrl) {
+  if (isShort && playableUrl) {
     return (
       <div className="relative flex min-h-[280px] w-full items-center justify-center overflow-hidden rounded-2xl bg-black">
-        <video
-          src={videoUrl}
+        <HlsVideo
+          src={playableUrl}
           poster={posterUrl}
           controls
           playsInline
@@ -57,11 +60,11 @@ export function PostDetailMedia({
     );
   }
 
-  if (isLongVideo && videoUrl) {
+  if (isLongVideo && playableUrl) {
     return (
       <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black">
-        <video
-          src={videoUrl}
+        <HlsVideo
+          src={playableUrl}
           poster={posterUrl}
           controls
           playsInline

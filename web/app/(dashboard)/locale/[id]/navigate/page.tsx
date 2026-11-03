@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, MapPin, Navigation } from "lucide-react";
 import { toast } from "sonner";
@@ -13,8 +13,25 @@ import { LocaleNavigateMap } from "@/components/maps/locale-navigate-map";
 import { hasValidCoords } from "@/lib/map-utils";
 
 export default function LocaleNavigatePage() {
+  return (
+    <React.Suspense fallback={null}>
+      <LocaleNavigateContent />
+    </React.Suspense>
+  );
+}
+
+function parseCoord(raw: string | null): number | null {
+  const n = raw == null ? NaN : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function LocaleNavigateContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params.id as string;
+  // Geocoded fallback from the detail page when the locale has no stored coordinates.
+  const fallbackLat = parseCoord(searchParams.get("lat"));
+  const fallbackLng = parseCoord(searchParams.get("lng"));
   const [userPosition, setUserPosition] = React.useState<{
     lat: number;
     lng: number;
@@ -28,6 +45,14 @@ export default function LocaleNavigatePage() {
   });
 
   const locale = data?.locale;
+  const destLat = hasValidCoords(locale?.latitude, locale?.longitude) ? (locale?.latitude as number) : fallbackLat;
+  const destLng = hasValidCoords(locale?.latitude, locale?.longitude) ? (locale?.longitude as number) : fallbackLng;
+  const destName = locale?.name ?? "";
+  // Stable object: LocaleNavigateMap refetches routes when `destination` changes identity.
+  const destination = React.useMemo(
+    () => (destLat != null && destLng != null ? { lat: destLat, lng: destLng, label: destName } : null),
+    [destLat, destLng, destName]
+  );
 
   React.useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -70,7 +95,7 @@ export default function LocaleNavigatePage() {
     );
   }
 
-  if (!hasValidCoords(locale.latitude, locale.longitude)) {
+  if (!destination) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -88,9 +113,6 @@ export default function LocaleNavigatePage() {
       </div>
     );
   }
-
-  const destLat = locale.latitude as number;
-  const destLng = locale.longitude as number;
 
   return (
     <div className="space-y-4 pb-28 lg:pb-6">
@@ -116,7 +138,7 @@ export default function LocaleNavigatePage() {
         </div>
       ) : (
         <LocaleNavigateMap
-          destination={{ lat: destLat, lng: destLng, label: locale.name }}
+          destination={destination}
           userPosition={userPosition}
         />
       )}
@@ -124,13 +146,16 @@ export default function LocaleNavigatePage() {
       <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600 dark:text-zinc-300">
         <span className="inline-flex items-center gap-1.5">
           <MapPin className="h-4 w-4 text-primary" />
-          {destLat.toFixed(5)}, {destLng.toFixed(5)}
+          {destination.lat.toFixed(5)}, {destination.lng.toFixed(5)}
         </span>
       </div>
 
       <div className="flex flex-wrap gap-3">
         <Button className="rounded-xl" asChild>
-          <Link href="/navigate" className="inline-flex items-center gap-2">
+          <Link
+            href={`/navigate?destLat=${destination.lat}&destLng=${destination.lng}&destName=${encodeURIComponent(locale.name)}`}
+            className="inline-flex items-center gap-2"
+          >
             <Navigation className="h-4 w-4" />
             Start journey tracking
           </Link>
