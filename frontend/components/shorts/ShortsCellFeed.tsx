@@ -35,6 +35,7 @@ import { PostType } from '../../types/post';
 import { useAlert } from '../../context/AlertContext';
 import PostComments from '../post/PostComments';
 import { createLogger } from '../../utils/logger';
+import { isNetworkFailure } from '../../utils/networkErrors';
 import SongPlayer from '../SongPlayer';
 import { GlassModal } from '../ui/GlassModal';
 import { theme } from '../../constants/theme';
@@ -567,7 +568,6 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   }
                 }}
                 onError={(error) => {
-                  logger.error(`Video ${item._id} failed to load:`, error);
                   videoCacheRef.current.delete(item._id);
                   if (localVideoUri) {
                     handlers.removeLocalVideoUri(item._id);
@@ -580,11 +580,17 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   const errorCode = (error as any)?.code;
                   const errorDomain = (error as any)?.domain;
                   const isTimeoutError =
-                    errorCode === -1001 ||
-                    errorCode === '-1001' ||
+                    isNetworkFailure(error) ||
                     errorDomain === 'NSURLErrorDomain' ||
-                    /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
+                    /(-1001|NSURLErrorDomain)/.test(errorMessage);
                   const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
+
+                  if (isTimeoutError) {
+                    // Network drop, not a broken video: the fresh-URL retry below handles it
+                    logger.warn(`Video ${item._id} failed to load (network error): ${errorMessage}`);
+                  } else {
+                    logger.error(`Video ${item._id} failed to load:`, error);
+                  }
 
                   // At most one fresh-URL attempt per activation; after that keep the thumbnail and show the fallback.
                   if ((isExpiredUrl || isTimeoutError) && !urlRefetchAttemptedRef.current) {

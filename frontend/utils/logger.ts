@@ -4,6 +4,8 @@
  * Supports structured logging for better debugging and monitoring
  */
 
+import { isNetworkFailure } from './networkErrors';
+
 const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV === 'development';
 const LOG_LEVEL = (process.env.EXPO_PUBLIC_LOG_LEVEL || (isDev ? 'debug' : 'info')) as 'debug' | 'info' | 'warn' | 'error';
 
@@ -289,16 +291,7 @@ const trackError = (context: string, error: any, args?: any[]) => {
   }
 
   // 1. Filter out network connection drops and timeouts (both Axios and native)
-  const isNetworkError = 
-    errorCode === 'ERR_NETWORK' ||
-    errorCode === -1009 || // iOS offline
-    errorCode === -1005 || // iOS connection lost
-    errorMessage.includes('Network Error') ||
-    errorMessage.includes('timeout') ||
-    errorMessage.includes('Unable to connect to the server') ||
-    errorMessage.includes('network error occurred');
-
-  if (isNetworkError) {
+  if (isNetworkFailure(error)) {
     if (isDev) {
       console.debug('Logger: Ignoring connectivity warning/error:', error);
     }
