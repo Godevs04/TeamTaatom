@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import api from './api';
 import { getUserFromStorage } from './auth';
 import logger from '../utils/logger';
+import { isNetworkFailure } from '../utils/networkErrors';
 
 interface AnalyticsEvent {
   event: string;
@@ -116,7 +117,12 @@ class AnalyticsService {
       // Re-queue events on failure
       this.eventQueue = [...eventsToSend, ...this.eventQueue];
       await this.saveQueuedEvents();
-      logger.error('Error flushing analytics events:', error);
+      if (isNetworkFailure(error)) {
+        // Events stay queued and go out with the next flush
+        logger.warn(`Analytics flush failed (network error), events re-queued: ${(error as any)?.message || error}`);
+      } else {
+        logger.error('Error flushing analytics events:', error);
+      }
     }
   }
 

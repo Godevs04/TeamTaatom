@@ -43,6 +43,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
+import { isNetworkFailure } from '../../utils/networkErrors';
 import { getApiBaseUrl } from '../../utils/config';
 import { trackScreenView, trackEngagement } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
@@ -1559,7 +1560,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         return updatedFollows;
       });
     } catch (error) {
-      logger.error('Error loading more shorts', error);
+      if (isNetworkFailure(error)) {
+        // The next scroll to the end retries
+        logger.warn(`Loading more shorts failed (network error): ${(error as any)?.message || error}`);
+      } else {
+        logger.error('Error loading more shorts', error);
+      }
     } finally {
       setIsLoadingMore(false);
     }
