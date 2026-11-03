@@ -36,6 +36,61 @@ export const CyclingMetadata = React.memo(({ song, location, onLocationPress }: 
   const songArtist = songIdObj?.artist;
   const hasSong = !!(songTitle || songArtist);
   const hasLocation = !!location?.address;
+  const shouldCycle = hasSong && hasLocation;
+
+  // Hooks run on every render, before any early return: the shorts feed recycles cells, so the same
+  // instance can switch between song-only, location-only and both, and skipped hooks corrupt React state.
+  const [showLocation, setShowLocation] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const translateAnim = useRef(new Animated.Value(0)).current;
+
+  // Both song and location are present -> cycle every 2 seconds
+  useEffect(() => {
+    if (!shouldCycle) return;
+
+    const interval = setInterval(() => {
+      // Step 1: Fade out & Slide up
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateAnim, {
+          toValue: -10,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Step 2: Toggle content and position text below
+        setShowLocation(prev => !prev);
+        translateAnim.setValue(10);
+
+        // Step 3: Fade in & Slide back to center
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    }, 2000); // 2 seconds delay
+
+    return () => {
+      clearInterval(interval);
+      fadeAnim.stopAnimation();
+      translateAnim.stopAnimation();
+      fadeAnim.setValue(1);
+      translateAnim.setValue(0);
+      setShowLocation(false);
+    };
+  }, [shouldCycle, fadeAnim, translateAnim]);
 
   // If neither is present, show nothing
   if (!hasSong && !hasLocation) return null;
@@ -67,49 +122,6 @@ export const CyclingMetadata = React.memo(({ song, location, onLocationPress }: 
       </TouchableOpacity>
     );
   }
-
-  // Both song and location are present -> cycle every 2 seconds
-  const [showLocation, setShowLocation] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const translateAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Step 1: Fade out & Slide up
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateAnim, {
-          toValue: -10,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        // Step 2: Toggle content and position text below
-        setShowLocation(prev => !prev);
-        translateAnim.setValue(10);
-        
-        // Step 3: Fade in & Slide back to center
-        Animated.parallel([
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateAnim, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      });
-    }, 2000); // 2 seconds delay
-
-    return () => clearInterval(interval);
-  }, [fadeAnim, translateAnim]);
 
   const songText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
 
