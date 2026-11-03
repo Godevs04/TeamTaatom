@@ -1920,6 +1920,7 @@ export default function ProfileScreen() {
                 fullName={profileData.fullName}
                 username={profileData.username}
                 bio={profileData.bio}
+                profileImages={profileData.profileImages}
                 createdAt={profileData.createdAt}
                 tripScore={profileData.tripScore?.totalScore ?? 0}
                 postCount={profileData.postsCount || 0}
@@ -2070,6 +2071,7 @@ export default function ProfileScreen() {
                   fullName: profileData?.fullName ?? user.fullName,
                   bio: profileData?.bio ?? user.bio,
                   profilePic: profileData?.profilePic ?? user.profilePic,
+                  profileImages: profileData?.profileImages ?? user.profileImages,
                 }}
                 onClose={() => setShowEditProfile(false)}
                 onSuccess={handleProfileUpdate}

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Loader2, User2 } from "lucide-react";
+import { Camera, Loader2, Plus, User2, X } from "lucide-react";
 import { toast } from "sonner";
 import { updateProfile } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
@@ -12,7 +12,17 @@ import { Input } from "../ui/input";
 import { ImageCropModal } from "../create/image-crop-modal";
 import { LanguagePicker } from "./language-picker";
 import { NationalityPicker } from "./nationality-picker";
-import type { User } from "../../types/user";
+import type { ProfileImage, User } from "../../types/user";
+import { PROFILE_IMAGES_MAX } from "../../lib/profile-images";
+
+/** Gallery entry: an already-saved photo (existingId) or a newly picked local file. */
+type GalleryItem = { key: string; url: string; existingId?: string; file?: File };
+
+const BIO_MAX_LINES = 5;
+
+function toGallery(images?: ProfileImage[]): GalleryItem[] {
+  return (images ?? []).map((image) => ({ key: image._id, url: image.url, existingId: image._id }));
+}
 
 type EditProfileFormProps = {
   user: User;
@@ -32,6 +42,12 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
   const [cropOpen, setCropOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement>(null);
+  const [gallery, setGallery] = React.useState<GalleryItem[]>(() => toGallery(user.profileImages));
+  const [galleryChanged, setGalleryChanged] = React.useState(false);
+  const galleryRef = React.useRef(gallery);
+  galleryRef.current = gallery;
+  const profileImagesKey = (user.profileImages ?? []).map((image) => image._id).join(",");
 
   React.useEffect(() => {
     setFullName(user.fullName ?? "");
@@ -47,13 +63,57 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
     };
   }, [previewUrl]);
 
+  // Sync saved photos from the server (e.g. after save + refresh) while there are no local edits.
+  React.useEffect(() => {
+    if (galleryChanged) return;
+    setGallery(toGallery(user.profileImages));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the image ids
+  }, [profileImagesKey, galleryChanged]);
+
+  // Revoke object URLs for picked files on unmount.
+  React.useEffect(() => {
+    return () => {
+      galleryRef.current.forEach((item) => {
+        if (item.file) URL.revokeObjectURL(item.url);
+      });
+    };
+  }, []);
+
+  const handleGalleryPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+    e.target.value = "";
+    if (files.length === 0) return;
+    const remaining = PROFILE_IMAGES_MAX - gallery.length;
+    if (remaining <= 0) {
+      toast.error(`You can add up to ${PROFILE_IMAGES_MAX} photos`);
+      return;
+    }
+    if (files.length > remaining) toast.error(`Only ${remaining} more photo${remaining === 1 ? "" : "s"} can be added`);
+    const picked = files.slice(0, remaining).map((file, index) => ({
+      key: `new_${Date.now()}_${index}`,
+      url: URL.createObjectURL(file),
+      file,
+    }));
+    setGallery((current) => [...current, ...picked]);
+    setGalleryChanged(true);
+  };
+
+  const removeGalleryItem = (key: string) => {
+    setGallery((current) => {
+      const target = current.find((item) => item.key === key);
+      if (target?.file) URL.revokeObjectURL(target.url);
+      return current.filter((item) => item.key !== key);
+    });
+    setGalleryChanged(true);
+  };
+
   const handleBioChange = (text: string) => {
     const lines = text.split("\n");
-    if (lines.length <= 3) {
+    if (lines.length <= BIO_MAX_LINES) {
       setBio(text);
     } else {
-      setBio(lines.slice(0, 3).join("\n"));
-      toast.error("Bio can only have 3 lines maximum");
+      setBio(lines.slice(0, BIO_MAX_LINES).join("\n"));
+      toast.error(`Bio can only have ${BIO_MAX_LINES} lines maximum`);
     }
   };
 
@@ -95,8 +155,19 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
       fd.append("currentLocation", currentLocation.trim());
       fd.append("languagesKnown", JSON.stringify(languagesKnown));
       if (pendingFile) fd.append("profilePic", pendingFile);
+      if (galleryChanged) {
+        // Kept photo ids in display order, then new files appended (backend profileController.updateProfile).
+        fd.append(
+          "profileImagesKeep",
+          JSON.stringify(gallery.flatMap((item) => (item.existingId ? [item.existingId] : [])))
+        );
+        gallery.forEach((item) => {
+          if (item.file) fd.append("profileImages", item.file, item.file.name);
+        });
+      }
 
       const res = await updateProfile(user._id, fd);
+      setGalleryChanged(false);
       await refresh();
       router.refresh();
       toast.success(res.message ?? "Profile updated");
@@ -152,6 +223,55 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
               />
             </div>
             <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground">Photos</p>
+                <p className="text-xs text-muted-foreground">
+                  {gallery.length}/{PROFILE_IMAGES_MAX}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {gallery.map((item) => (
+                  <div key={item.key} className="relative h-14 w-14">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.url}
+                      alt=""
+                      className="h-full w-full rounded-xl border border-input object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeGalleryItem(item.key)}
+                      disabled={saving}
+                      className="absolute -right-1.5 -top-1.5 rounded-full bg-background text-muted-foreground shadow hover:text-foreground"
+                      aria-label="Remove photo"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                {gallery.length < PROFILE_IMAGES_MAX ? (
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    disabled={saving}
+                    className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-input text-muted-foreground hover:bg-muted"
+                    aria-label="Add photos"
+                  >
+                    <Plus className="h-6 w-6" />
+                  </button>
+                ) : null}
+              </div>
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleGalleryPick}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Shown next to your name on your profile.</p>
+            </div>
+            <div>
               <label htmlFor="bio" className="mb-1.5 block text-sm font-medium text-foreground">
                 Bio
               </label>
@@ -160,11 +280,11 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
                 value={bio}
                 onChange={(e) => handleBioChange(e.target.value)}
                 placeholder="Tell travelers about yourself…"
-                rows={3}
+                rows={BIO_MAX_LINES}
                 maxLength={300}
                 className="w-full resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <p className="mt-1 text-xs text-muted-foreground">{bio.length}/300 · max 3 lines</p>
+              <p className="mt-1 text-xs text-muted-foreground">{bio.length}/300 · max {BIO_MAX_LINES} lines</p>
             </div>
           </div>
         </div>

@@ -2,19 +2,7 @@
 
 import * as React from "react";
 import type { Post } from "../../types/post";
-
-type HlsLike = {
-  destroy: () => void;
-  loadSource: (url: string) => void;
-  attachMedia: (el: HTMLMediaElement) => void;
-  stopLoad: () => void;
-  startLoad: (startPosition?: number) => void;
-  on: (event: string, cb: (event: string, data: { fatal?: boolean }) => void) => void;
-};
-
-function isHlsUrl(url: string): boolean {
-  return /hls=master|\.m3u8|ext=\.m3u8/i.test(url);
-}
+import { attachVideoSource, type AttachedVideoSource } from "../../lib/hls-attach";
 
 export function shortHasLibrarySong(short: Post): boolean {
   const songId = short.song?.songId;
@@ -49,6 +37,7 @@ export function ShortsSlideMedia({
   muted,
   onError,
   onMediaTime,
+  videoElRef,
 }: {
   url: string;
   poster: string;
@@ -57,9 +46,11 @@ export function ShortsSlideMedia({
   muted: boolean;
   onError: () => void;
   onMediaTime?: (currentTime: number) => void;
+  /** Receives the underlying `<video>` element (progress bar / seeking). */
+  videoElRef?: React.MutableRefObject<HTMLVideoElement | null>;
 }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
-  const hlsRef = React.useRef<HlsLike | null>(null);
+  const sourceRef = React.useRef<AttachedVideoSource | null>(null);
   const boundUrlRef = React.useRef<string | null>(null);
   const onErrorRef = React.useRef(onError);
   const shouldPlayRef = React.useRef(shouldPlay);
@@ -79,12 +70,12 @@ export function ShortsSlideMedia({
 
     if (!shouldLoad) {
       el.pause();
-      hlsRef.current?.stopLoad();
+      sourceRef.current?.hls?.stopLoad();
       return;
     }
 
     if (boundUrlRef.current === url) {
-      hlsRef.current?.startLoad();
+      sourceRef.current?.hls?.startLoad();
       if (shouldPlayRef.current) void el.play().catch(() => {});
       return;
     }
@@ -92,53 +83,23 @@ export function ShortsSlideMedia({
     let cancelled = false;
 
     const attach = async () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
+      sourceRef.current?.destroy();
+      sourceRef.current = null;
+      boundUrlRef.current = null;
 
-      if (isHlsUrl(url)) {
-        if (el.canPlayType("application/vnd.apple.mpegurl")) {
-          boundUrlRef.current = url;
-          el.src = url;
-        } else {
-          try {
-            const mod = await import("hls.js");
-            if (cancelled) return;
-            const HlsCtor = (mod.default || mod) as {
-              isSupported: () => boolean;
-              Events: { ERROR: string };
-              new (config?: { enableWorker?: boolean }): HlsLike;
-            };
-            if (!HlsCtor.isSupported()) {
-              onErrorRef.current();
-              return;
-            }
-            const hls = new HlsCtor({ enableWorker: true });
-            if (cancelled) return;
-            hlsRef.current = hls;
-            hls.loadSource(url);
-            hls.attachMedia(el);
-            hls.on(HlsCtor.Events.ERROR, (_event, data) => {
-              if (data?.fatal) onErrorRef.current();
-            });
-            if (cancelled) {
-              hls.destroy();
-              if (hlsRef.current === hls) hlsRef.current = null;
-              return;
-            }
-            boundUrlRef.current = url;
-          } catch {
-            if (!cancelled) onErrorRef.current();
-            return;
-          }
-        }
-      } else {
-        boundUrlRef.current = url;
-        el.src = url;
+      const attached = await attachVideoSource(el, url, {
+        onFatal: () => onErrorRef.current(),
+        isCancelled: () => cancelled,
+      });
+      if (!attached) return;
+      if (cancelled) {
+        attached.destroy();
+        return;
       }
+      sourceRef.current = attached;
+      boundUrlRef.current = url;
 
-      if (!cancelled && shouldPlayRef.current) {
+      if (shouldPlayRef.current) {
         void el.play().catch(() => {});
       }
     };
@@ -151,8 +112,8 @@ export function ShortsSlideMedia({
 
   React.useEffect(() => {
     return () => {
-      hlsRef.current?.destroy();
-      hlsRef.current = null;
+      sourceRef.current?.destroy();
+      sourceRef.current = null;
       boundUrlRef.current = null;
     };
   }, []);
@@ -170,7 +131,10 @@ export function ShortsSlideMedia({
 
   return (
     <video
-        ref={videoRef}
+        ref={(el) => {
+          videoRef.current = el;
+          if (videoElRef) videoElRef.current = el;
+        }}
         poster={poster || undefined}
         loop
         muted={muted}

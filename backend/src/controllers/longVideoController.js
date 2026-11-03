@@ -8,6 +8,7 @@ const Like = require('../models/Like');
 const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
+const { getRequestHost } = require('../utils/requestHost');
 const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
 const {
   generateSignedUrl,
@@ -112,7 +113,7 @@ function getLongVideoHlsProxyUrl(postId, req) {
       req.headers['x-forwarded-proto'].split(',')[0].trim()) ||
     req.protocol ||
     'http';
-  const host = req.get?.('host') || req.headers?.host;
+  const host = getRequestHost(req);
   if (!host) return null;
   return `${proto}://${host}/api/v1/shorts?hls=master&postId=${postId}&ext=.m3u8`;
 }

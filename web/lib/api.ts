@@ -371,7 +371,42 @@ export async function updateProfile(userId: string, form: FormData) {
   const res = await api.put(`/profile/${userId}`, form, {
     headers: { "Content-Type": undefined } as unknown as Record<string, string>,
   });
-  return res.data as { profile?: User; message?: string };
+  // Backend responds with `{ user }` (profileController.updateProfile).
+  return res.data as { user?: User; message?: string };
+}
+
+export type VideoCreatorStatus = {
+  status: "none" | "pending" | "approved" | "rejected" | string;
+  canUpload: boolean;
+  rejectionReason?: string;
+};
+
+export async function getVideoCreatorStatus(): Promise<VideoCreatorStatus> {
+  const res = await api.get("/video-creator/status");
+  const d = (res.data ?? {}) as Partial<VideoCreatorStatus>;
+  return { status: d.status || "none", canUpload: !!d.canUpload, rejectionReason: d.rejectionReason || "" };
+}
+
+/** Mirrors mobile services/longVideos.uploadLongVideo (multipart: video + optional image). */
+export async function uploadLongVideo(
+  params: { video: File; caption?: string; durationSeconds?: number; thumbnail?: File | null },
+  onUploadProgress?: (pct: number) => void
+) {
+  const form = new FormData();
+  form.append("video", params.video, params.video.name || "long-video.mp4");
+  if (params.caption) form.append("caption", params.caption);
+  if (params.durationSeconds != null) form.append("durationSeconds", String(params.durationSeconds));
+  if (params.thumbnail) form.append("image", params.thumbnail, params.thumbnail.name || "thumb.jpg");
+  const res = await api.post("/long-videos", form, {
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
+    timeout: 10 * 60 * 1000,
+    onUploadProgress: (e) => {
+      if (!onUploadProgress || !e.total) return;
+      onUploadProgress(Math.round((e.loaded / e.total) * 100));
+    },
+  });
+  const data = res.data as { video?: Post; post?: Post };
+  return (data.video || data.post) as Post | undefined;
 }
 
 export async function getUserPosts(userId: string, page = 1, limit = 20) {
@@ -608,35 +643,74 @@ export async function getLongVideoById(id: string) {
 }
 
 // Locale type (places) - aligned with app/backend
+export type LocaleTravelInfo = "Drivable" | "Walkable" | "Public Transport" | "Flight Required" | "Not Accessible";
+
 export type Locale = {
   _id: string;
   name: string;
   countryCode: string;
+  /** Full country name — detail endpoint only (list omits it). */
+  country?: string;
   stateProvince?: string;
   stateCode?: string;
   city?: string;
   imageUrl?: string;
   /** Gallery signed URLs (same order as SuperAdmin upload). */
   imageUrls?: string[];
+  blurhash?: string;
+  /** Detail endpoint only. */
   description?: string;
   spotTypes?: string[];
+  travelInfo?: LocaleTravelInfo | string;
   latitude?: number;
   longitude?: number;
   /** Elevation in meters above sea level. */
   altitude?: number;
+  /** Server-computed when `sort=nearest&lat&long` is sent (Number.MAX_VALUE when the locale has no coords). */
+  distanceKm?: number;
+  createdAt?: string;
+  isActive?: boolean;
 };
 
-// Locales (places) - params aligned with app/backend: search, countryCode, stateCode, spotTypes, page, limit
-export async function getLocales(params?: { search?: string; countryCode?: string; stateCode?: string; spotTypes?: string[]; page?: number; limit?: number }) {
+export type LocalesPagination = {
+  total: number;
+  totalPages: number;
+  limit: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+/**
+ * GET /locales — same params as mobile services/locale.ts. Paging is cursor-based
+ * (`pagination.nextCursor`); `page` is ignored by the backend.
+ */
+export async function getLocales(params?: {
+  search?: string;
+  countryCode?: string;
+  stateCode?: string;
+  stateProvince?: string;
+  spotTypes?: string[];
+  lat?: number;
+  long?: number;
+  sort?: "nearest";
+  cursor?: string | null;
+  limit?: number;
+}) {
   const search = new URLSearchParams();
   if (params?.search) search.set("search", params.search);
   if (params?.countryCode) search.set("countryCode", params.countryCode);
   if (params?.stateCode) search.set("stateCode", params.stateCode);
+  if (params?.stateProvince) search.set("stateProvince", params.stateProvince);
   if (params?.spotTypes?.length) search.set("spotTypes", params.spotTypes.join(","));
-  if (params?.page) search.set("page", String(params.page));
+  if (typeof params?.lat === "number" && typeof params?.long === "number") {
+    search.set("lat", String(params.lat));
+    search.set("long", String(params.long));
+    if (params.sort) search.set("sort", params.sort);
+  }
+  if (params?.cursor) search.set("cursor", params.cursor);
   if (params?.limit) search.set("limit", String(params.limit));
   const res = await api.get(`/locales?${search.toString()}`);
-  return res.data as { locales: Locale[]; pagination?: { total: number; totalPages: number } };
+  return res.data as { locales: Locale[]; pagination?: Partial<LocalesPagination> };
 }
 
 export async function getLocaleCountries() {

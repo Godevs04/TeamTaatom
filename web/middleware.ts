@@ -34,6 +34,7 @@ const PROTECTED_PREFIXES = [
   "/hashtag",
   "/help",
   "/creator-monetization",
+  "/upload-long-video",
 ];
 
 function isAuthRoute(pathname: string) {
@@ -213,6 +214,7 @@ export const config = {
     "/help",
     "/help/:path*",
     "/creator-monetization",
+    "/upload-long-video",
     "/creator-monetization/:path*",
     "/connect/page/:path*",
   ],

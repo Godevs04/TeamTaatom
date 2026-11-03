@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/button";
 import {
@@ -15,16 +16,16 @@ import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { useAuth } from "../../context/auth-context";
 import type { User } from "../../types/user";
 import {
-  UserPen,
-  Settings,
-  Wallet,
-  UserPlus,
-  UserMinus,
-  Loader2,
-  MoreHorizontal,
   Ban,
   Flag,
+  Loader2,
+  LogOut,
+  MessageCircle,
+  MoreVertical,
+  Settings,
   Share2,
+  Video,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "../../context/confirm-context";
@@ -38,83 +39,147 @@ const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "other", label: "Other" },
 ];
 
-type ProfileActionsProps = {
-  profile: User;
-  isSelf?: boolean;
-};
+const MENU_ITEM =
+  "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800";
 
-export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
-  const queryClient = useQueryClient();
+function useIsSelf(profile: User) {
   const { user: me } = useAuth();
+  return !!me && me._id === profile._id;
+}
+
+/**
+ * Follow / Following / Request Sent + Message buttons shown inside the profile
+ * card for other users (mirrors mobile app/profile/[id].tsx action row).
+ */
+export function ProfileFollowButtons({ profile }: { profile: User }) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
   const confirm = useConfirm();
-  const resolvedIsSelf = isSelf ?? (!!me && me._id === profile._id);
+  const { user: me } = useAuth();
+  const isSelf = useIsSelf(profile);
 
   const [isFollowing, setIsFollowing] = React.useState(profile.isFollowing ?? false);
-  const [followRequestSent, setFollowRequestSent] = React.useState(
-    profile.followRequestSent ?? false
-  );
-  const [menuOpen, setMenuOpen] = React.useState(false);
-  const [reportOpen, setReportOpen] = React.useState(false);
-  const menuRef = React.useRef<HTMLDivElement>(null);
+  const [followRequestSent, setFollowRequestSent] = React.useState(profile.followRequestSent ?? false);
 
   React.useEffect(() => {
     setIsFollowing(profile.isFollowing ?? false);
     setFollowRequestSent(profile.followRequestSent ?? false);
   }, [profile._id, profile.isFollowing, profile.followRequestSent]);
 
-  React.useEffect(() => {
-    if (!menuOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [menuOpen]);
-
   const blockQ = useQuery({
     queryKey: ["block-status", profile._id],
     queryFn: () => getBlockStatus(profile._id),
-    enabled: !resolvedIsSelf && !!me,
+    enabled: !isSelf && !!me,
   });
-
   const isBlocked = blockQ.data?.isBlocked ?? false;
 
   const followMutation = useMutation({
     mutationFn: () => followProfile(profile._id),
     onSuccess: (data) => {
-      if (data?.followRequestSent !== undefined) {
-        setFollowRequestSent(data.followRequestSent);
-      }
-      if (data?.isFollowing !== undefined) {
-        setIsFollowing(data.isFollowing);
-      }
+      if (data?.followRequestSent !== undefined) setFollowRequestSent(data.followRequestSent);
+      if (data?.isFollowing !== undefined) setIsFollowing(data.isFollowing);
       queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
       queryClient.invalidateQueries({ queryKey: ["posts", "feed"] });
+      // Follower count and post visibility come from the server-rendered page.
+      router.refresh();
     },
-    onError: (e: unknown) => {
-      toast.error(getFriendlyErrorMessage(e));
-    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
+
+  if (isSelf || !me) return null;
+
+  const onFollowClick = async () => {
+    if (isFollowing) {
+      const name = profile.fullName || profile.username || "this user";
+      const ok = await confirm({
+        title: `Unfollow ${name}?`,
+        description: "You will stop seeing their posts in your feed.",
+        confirmText: "Unfollow",
+        cancelText: "Cancel",
+        variant: "destructive",
+      });
+      if (!ok) return;
+    }
+    followMutation.mutate();
+  };
+
+  const label = followRequestSent ? "Request Sent" : isFollowing ? "Following" : "Follow";
+
+  return (
+    <div className="mt-4 flex w-full gap-2.5">
+      <button
+        type="button"
+        onClick={() => void onFollowClick()}
+        disabled={followMutation.isPending || isBlocked}
+        className={cn(
+          "flex h-10 flex-1 items-center justify-center rounded-full text-sm font-bold transition-opacity disabled:opacity-60",
+          isFollowing
+            ? "border border-primary text-primary dark:border-sky-400 dark:text-sky-400"
+            : "bg-gradient-to-r from-taatom-ocean to-taatom-emerald text-white hover:opacity-90"
+        )}
+      >
+        {followMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : label}
+      </button>
+      {isFollowing ? (
+        <Link
+          href={`/chat/${profile._id}`}
+          className="flex h-10 flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-taatom-emerald to-taatom-ocean text-sm font-bold text-white hover:opacity-90"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Message
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Kebab menu. Own profile: Upload long video, Creator Dashboard, Settings,
+ * Copy link, Sign out (mobile profile header menu). Other users: Copy link,
+ * Block / Unblock, Report.
+ */
+export function ProfileMenu({ profile }: { profile: User }) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const confirm = useConfirm();
+  const { user: me, signOut } = useAuth();
+  const isSelf = useIsSelf(profile);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [reportOpen, setReportOpen] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const blockQ = useQuery({
+    queryKey: ["block-status", profile._id],
+    queryFn: () => getBlockStatus(profile._id),
+    enabled: !isSelf && !!me,
+  });
+  const isBlocked = blockQ.data?.isBlocked ?? false;
 
   const blockMutation = useMutation({
     mutationFn: () => blockUser(profile._id),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["block-status", profile._id] });
-      queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
-      queryClient.invalidateQueries({ queryKey: ["posts"] });
-      queryClient.invalidateQueries({ queryKey: ["posts", "feed"] });
-      queryClient.invalidateQueries({ queryKey: ["feed"] });
-      queryClient.invalidateQueries({ queryKey: ["chat"] });
-      queryClient.invalidateQueries({ queryKey: ["journeys"] });
-      queryClient.invalidateQueries({ queryKey: ["search"] });
+      for (const key of [["block-status", profile._id], ["profile", profile._id], ["posts"], ["feed"], ["chat"], ["journeys"], ["search"]]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
       toast.success(data.isBlocked ? "User blocked" : "User unblocked");
       setMenuOpen(false);
-      if (data.isBlocked) {
-        setIsFollowing(false);
-        setFollowRequestSent(false);
-      }
+      router.refresh();
     },
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
@@ -136,8 +201,7 @@ export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
 
   const handleCopyLink = async () => {
     try {
-      const url = `${window.location.origin}/profile/${profile._id}`;
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(`${window.location.origin}/profile/${profile._id}`);
       toast.success("Profile link copied to clipboard");
     } catch {
       toast.error("Failed to copy link");
@@ -158,130 +222,103 @@ export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
       confirmText: action,
       variant: isBlocked ? "default" : "destructive",
     });
-    if (ok) {
-      blockMutation.mutate();
-    }
+    if (ok) blockMutation.mutate();
   };
 
-  if (resolvedIsSelf) {
-    return (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
-          <Link href="/settings/account#profile">
-            <UserPen className="h-4 w-4" />
-            Edit profile
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
-          <Link href="/creator-monetization">
-            <Wallet className="h-4 w-4" />
-            Creator Dashboard
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
-          <Link href="/settings">
-            <Settings className="h-4 w-4" />
-            Settings
-          </Link>
-        </Button>
-        <div className="relative" ref={menuRef}>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="rounded-xl px-2.5"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-label="More actions"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-          {menuOpen && (
-            <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                onClick={handleCopyLink}
-              >
+  const handleSignOut = async () => {
+    setMenuOpen(false);
+    const ok = await confirm({
+      title: "Sign out?",
+      description: "You will need to sign in again to use Taatom.",
+      confirmText: "Sign out",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    await signOut();
+    router.replace("/");
+  };
+
+  if (!me) return null;
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 rounded-full text-primary dark:text-sky-400"
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-label="More actions"
+        aria-expanded={menuOpen}
+      >
+        <MoreVertical className="h-5 w-5" />
+      </Button>
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-30 mt-1 min-w-[210px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          {isSelf ? (
+            <>
+              <Link href="/upload-long-video" role="menuitem" className={MENU_ITEM} onClick={() => setMenuOpen(false)}>
+                <Video className="h-4 w-4" />
+                Upload long video
+              </Link>
+              <Link href="/creator-monetization" role="menuitem" className={MENU_ITEM} onClick={() => setMenuOpen(false)}>
+                <Wallet className="h-4 w-4" />
+                Creator Dashboard
+              </Link>
+              <Link href="/settings" role="menuitem" className={MENU_ITEM} onClick={() => setMenuOpen(false)}>
+                <Settings className="h-4 w-4" />
+                Settings
+              </Link>
+              <button type="button" role="menuitem" className={MENU_ITEM} onClick={handleCopyLink}>
                 <Share2 className="h-4 w-4" />
                 Copy profile link
               </button>
-            </div>
+              <button
+                type="button"
+                role="menuitem"
+                className={cn(MENU_ITEM, "text-red-600 dark:text-red-400")}
+                onClick={() => void handleSignOut()}
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" role="menuitem" className={MENU_ITEM} onClick={handleCopyLink}>
+                <Share2 className="h-4 w-4" />
+                Copy profile link
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => void handleBlockClick()}
+                disabled={blockMutation.isPending}
+              >
+                <Ban className="h-4 w-4" />
+                {isBlocked ? "Unblock user" : "Block user"}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => {
+                  setReportOpen(true);
+                  setMenuOpen(false);
+                }}
+              >
+                <Flag className="h-4 w-4" />
+                Report user
+              </button>
+            </>
           )}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        variant={isFollowing ? "outline" : "default"}
-        size="sm"
-        className="rounded-xl gap-2"
-        onClick={() => followMutation.mutate()}
-        disabled={followMutation.isPending || isBlocked}
-      >
-        {followMutation.isPending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : followRequestSent ? (
-          "Requested"
-        ) : isFollowing ? (
-          <>
-            <UserMinus className="h-4 w-4" />
-            Unfollow
-          </>
-        ) : (
-          <>
-            <UserPlus className="h-4 w-4" />
-            Follow
-          </>
-        )}
-      </Button>
-
-      <div className="relative" ref={menuRef}>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="rounded-xl px-2.5"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-label="More actions"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
-        {menuOpen && (
-          <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              onClick={handleCopyLink}
-            >
-              <Share2 className="h-4 w-4" />
-              Copy profile link
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              onClick={handleBlockClick}
-              disabled={blockMutation.isPending}
-            >
-              <Ban className="h-4 w-4" />
-              {isBlocked ? "Unblock user" : "Block user"}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              onClick={() => {
-                setReportOpen(true);
-                setMenuOpen(false);
-              }}
-            >
-              <Flag className="h-4 w-4" />
-              Report user
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       {reportOpen && (
         <div
@@ -307,10 +344,7 @@ export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
                   <button
                     type="button"
                     disabled={reportMutation.isPending}
-                    className={cn(
-                      "w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors",
-                      "text-slate-700 hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                    )}
+                    className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     onClick={() => reportMutation.mutate(r.id)}
                   >
                     {r.label}
@@ -318,12 +352,7 @@ export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
                 </li>
               ))}
             </ul>
-            <Button
-              type="button"
-              variant="ghost"
-              className="mt-3 w-full rounded-xl"
-              onClick={() => setReportOpen(false)}
-            >
+            <Button type="button" variant="ghost" className="mt-3 w-full rounded-xl" onClick={() => setReportOpen(false)}>
               Cancel
             </Button>
           </div>

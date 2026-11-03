@@ -2,6 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const multer = require('multer');
 const logger = require('../utils/logger');
+const { PROFILE_IMAGES_MAX } = require('../constants/profileImages');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const {
   getProfile,
@@ -526,11 +527,29 @@ router.get('/:id', optionalAuth, getProfile);
  *               profilePic:
  *                 type: string
  *                 format: binary
+ *               profileImages:
+ *                 type: array
+ *                 description: New profile gallery images to append (max 2 in total)
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *               profileImagesKeep:
+ *                 type: string
+ *                 description: JSON array of existing profile image ids to keep, in display order
  *     responses:
  *       200:
  *         description: Profile updated
  */
-router.put('/:id', authMiddleware, upload.single('profilePic'), updateProfileValidation, updateProfile);
+router.put(
+  '/:id',
+  authMiddleware,
+  upload.fields([
+    { name: 'profilePic', maxCount: 1 },
+    { name: 'profileImages', maxCount: PROFILE_IMAGES_MAX }
+  ]),
+  updateProfileValidation,
+  updateProfile
+);
 /**
  * @swagger
  * /api/v1/profile/{id}/follow:

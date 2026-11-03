@@ -1,6 +1,9 @@
 import { haversineKm, type LngLat } from "./map-utils";
 
 const OSRM_BASE = "https://router.project-osrm.org/route/v1/driving";
+const OSRM_TABLE_BASE = "https://router.project-osrm.org/table/v1/driving";
+/** OSRM public demo server rejects very large tables. */
+const OSRM_TABLE_MAX_DESTINATIONS = 50;
 
 export const MAP_ROUTE_COLORS = {
   drive: "#3b82f6",
@@ -283,4 +286,31 @@ export function fastestOptionId(options: NavigationOption[]): string {
   return options.reduce((best, opt) =>
     opt.durationSeconds < best.durationSeconds ? opt : best
   ).id;
+}
+
+/**
+ * Road (driving) distance in km from `from` to each destination, in one OSRM
+ * table request. Entries are null when no road route exists (islands, oceans)
+ * or the request fails — callers fall back to straight-line distance.
+ */
+export async function fetchDrivingDistancesKm(
+  from: { lat: number; lng: number },
+  destinations: Array<{ lat: number; lng: number }>
+): Promise<Array<number | null>> {
+  if (destinations.length === 0) return [];
+  const batch = destinations.slice(0, OSRM_TABLE_MAX_DESTINATIONS);
+  const coords = [from, ...batch].map((p) => `${p.lng},${p.lat}`).join(";");
+  const url = `${OSRM_TABLE_BASE}/${coords}?sources=0&annotations=distance`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return destinations.map(() => null);
+    const data = (await res.json()) as { code?: string; distances?: Array<Array<number | null>> };
+    const row = data.code === "Ok" ? data.distances?.[0] : undefined;
+    return destinations.map((_, i) => {
+      const meters = i < batch.length ? row?.[i + 1] : null;
+      return typeof meters === "number" && Number.isFinite(meters) ? meters / 1000 : null;
+    });
+  } catch {
+    return destinations.map(() => null);
+  }
 }

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { PROFILE_IMAGES_MAX } = require('../constants/profileImages');
 
 const userSchema = new mongoose.Schema({
   fullName: {
@@ -56,6 +57,18 @@ const userSchema = new mongoose.Schema({
   profilePicStorageKey: {
     type: String,
     required: false
+  },
+  // Profile gallery: small images shown next to the full name. Only storage keys are
+  // persisted — signed URLs are generated on read (see resolveProfileImages).
+  profileImages: {
+    type: [{
+      storageKey: { type: String, required: true }
+    }],
+    default: [],
+    validate: {
+      validator: (images) => !images || images.length <= PROFILE_IMAGES_MAX,
+      message: `You can add up to ${PROFILE_IMAGES_MAX} profile images`
+    }
   },
   followersCount: {
     type: Number,

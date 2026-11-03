@@ -16,7 +16,7 @@ import {
 } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { invalidatePostListQueries } from "../../lib/post-list-queries";
-import { getPostDisplayLocation } from "../../lib/post-utils";
+import { getPlayableVideoUrl, getPostDisplayLocation } from "../../lib/post-utils";
 import type { Post } from "../../types/post";
 import { Button } from "../ui/button";
 import { cn, getLikedPostIds, setLikedPostIds, getSavedPostIds, setSavedPostIds } from "../../lib/utils";
@@ -28,6 +28,7 @@ import { SharePostModal } from "./share-post-modal";
 import { PostLikesCount } from "./post-likers-modal";
 import { EditPostModal } from "./edit-post-modal";
 import { ExpandableText } from "../ui/expandable-text";
+import { HlsVideo } from "../media/hls-video";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "spam", label: "Spam" },
@@ -364,7 +365,7 @@ export function PostCard({
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
   const isShort = post.type === "short";
   const isLongVideo = post.type === "long_video";
-  const videoUrl = post.videoUrl || post.mediaUrl || "";
+  const videoUrl = getPlayableVideoUrl(post);
   // Only ever a genuine image -- never mediaUrl, which for a short with no
   // dedicated thumbnail file is the video's own URL (see getPostById).
   const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
@@ -545,7 +546,7 @@ export function PostCard({
       {/* Media */}
       {isShort && videoUrl ? (
         <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100/50 dark:bg-zinc-950/80">
-          <video
+          <HlsVideo
             src={videoUrl}
             poster={posterUrl}
             controls

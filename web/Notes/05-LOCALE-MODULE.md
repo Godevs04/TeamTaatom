@@ -117,3 +117,12 @@ interface Locale {
 ---
 
 *TripScore (continents/countries/locations): [10-ACTIVITY-SEARCH-TRIPSCORE.md](./10-ACTIVITY-SEARCH-TRIPSCORE.md). API: [11-BACKEND-API-REFERENCE.md](./11-BACKEND-API-REFERENCE.md).*
+
+## 11. Web parity notes
+
+- **List** (`web/app/(dashboard)/locale/page.tsx`): `GET /locales` with `lat`, `long`, `sort=nearest` when location is known (server sorts *all* matches), cursor paging via `pagination.nextCursor` (20 per page, "Load More Places"). `page` is ignored by the backend. Locales without coords come back with `distanceKm = Number.MAX_VALUE` — treat as "no distance".
+- **State filter** sends both `stateCode` and `stateProvince` (`/locales/states` returns `stateCode: ''` for some states).
+- **Saved** locales (localStorage `taatom_saved_locales`) are stored without `distanceKm` and refreshed with `GET /locales/:id` when the Saved tab opens — list/detail image URLs are signed for 5 minutes.
+- **Distance**: driving distance via OSRM table (`lib/osrm-routing.ts → fetchDrivingDistancesKm`, `hooks/use-driving-distances.ts`), straight-line fallback. Location is only requested on explicit opt-in (`hooks/use-user-location.ts`). Search radius is applied client-side, like mobile.
+- **Detail**: geocodes via `POST /maps/search-place-user` when a locale has no coords and passes `?lat&lng` to `/locale/[id]/navigate`, which links to `/navigate?destLat&destLng&destName`.
+- Countries/states on web come from `/locales/countries` and `/locales/states` (only places that have locales).

@@ -17,6 +17,7 @@ import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
 import BioDisplay from '../../components/BioDisplay';
+import ProfileImagesStrip from '../../components/profile/ProfileImagesStrip';
 import RotatingGlobe from '../../components/RotatingGlobe';
 import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
@@ -1071,15 +1072,21 @@ export default function UserProfileScreen() {
                         @{profile.username}
                       </Text>
                     ) : null}
-                    <Text style={[styles.profileName, { color: '#38BDF8', fontSize: 15, fontWeight: '700', marginTop: 2 }]}>
-                      {profile.fullName}
-                    </Text>
+                    <View style={[styles.nameRow, { marginTop: 2 }]}>
+                      <Text style={[styles.profileName, { color: '#38BDF8', fontSize: 15, fontWeight: '700', flexShrink: 1 }]} numberOfLines={1}>
+                        {profile.fullName}
+                      </Text>
+                      <ProfileImagesStrip images={profile.profileImages} isDark={isDark} />
+                    </View>
                   </>
                 ) : (
                   <>
-                    <Text style={[styles.profileName, { color: '#1C73B4', fontSize: 15, fontWeight: '700', marginTop: 0 }]}>
-                      {profile.fullName}
-                    </Text>
+                    <View style={styles.nameRow}>
+                      <Text style={[styles.profileName, { color: '#1C73B4', fontSize: 15, fontWeight: '700', flexShrink: 1 }]} numberOfLines={1}>
+                        {profile.fullName}
+                      </Text>
+                      <ProfileImagesStrip images={profile.profileImages} isDark={isDark} />
+                    </View>
                     {profile.username ? (
                       <Text style={[styles.username, { color: profileTheme.textSecondary, fontSize: 15, fontWeight: '600', marginTop: 2 }]}>
                         @{profile.username}
@@ -1713,6 +1720,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     opacity: 0.9,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   profileName: {
     fontSize: 15,

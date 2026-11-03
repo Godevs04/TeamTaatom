@@ -233,6 +233,34 @@ const resolveProfilePic = async (user) => {
 };
 
 /**
+ * Resolve a user's profile gallery images to fresh signed URLs.
+ * Storage keys are never exposed to clients; images that fail to sign are dropped.
+ *
+ * @param {Object} user - Plain user object (lean) with profileImages
+ * @returns {Promise<Array<{_id: string, url: string}>>}
+ */
+const resolveProfileImages = async (user) => {
+  const images = Array.isArray(user?.profileImages) ? user.profileImages : [];
+  if (images.length === 0) return [];
+
+  const resolved = await Promise.all(images.map(async (image) => {
+    if (!image?.storageKey) return null;
+    try {
+      const url = await generateSignedUrl(image.storageKey, 'PROFILE');
+      return url ? { _id: image._id.toString(), url } : null;
+    } catch (err) {
+      logger.warn('resolveProfileImages: failed to sign image', {
+        userId: user._id ? user._id.toString() : 'unknown',
+        error: err.message,
+      });
+      return null;
+    }
+  }));
+
+  return resolved.filter(Boolean);
+};
+
+/**
  * Resolve song audio and artwork URLs to fresh, loadable URLs.
  * Mutates the song object in-place (same style as resolveProfilePic's caller).
  *
@@ -300,6 +328,7 @@ module.exports = {
   isSignedUrl,
   getStorageKeyFromDocument,
   resolveProfilePic,
+  resolveProfileImages,
   resolveSong,
   EXPIRY_TIMES
 };

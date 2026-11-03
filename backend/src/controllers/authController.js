@@ -6,7 +6,7 @@ const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordRese
 const logger = require('../utils/logger');
 const { setAuthToken, clearAuthToken, resolveLoginContext } = require('../utils/authHelpers');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
-const { generateSignedUrl } = require('../services/mediaService');
+const { generateSignedUrl, resolveProfileImages } = require('../services/mediaService');
 const { getUserFollowCounts } = require('../utils/followCounts');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
@@ -307,7 +307,7 @@ const getMe = async (req, res) => {
     const Follow = require('../models/Follow');
     const [user, followingDocs] = await Promise.all([
       User.findById(req.user._id)
-        .select('username fullName bio email profilePic profilePicStorageKey totalLikes followersCount followingCount isVerified createdAt lastLogin interests languagesKnown nationality currentLocation profileOnboardingVersion')
+        .select('username fullName bio email profilePic profilePicStorageKey totalLikes followersCount followingCount isVerified createdAt lastLogin interests languagesKnown nationality currentLocation profileOnboardingVersion profileImages')
         .lean(),
       Follow.find({ follower: req.user._id }).select('following').lean()
     ]);
@@ -354,6 +354,7 @@ const getMe = async (req, res) => {
       nationality: user.nationality ?? '',
       currentLocation: user.currentLocation ?? '',
       profileOnboardingVersion: user.profileOnboardingVersion ?? 0,
+      profileImages: await resolveProfileImages(user),
     };
 
     res.status(200).json({

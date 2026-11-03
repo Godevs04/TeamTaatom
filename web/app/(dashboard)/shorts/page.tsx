@@ -4,7 +4,8 @@ import * as React from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { getShorts, toggleLike, getPostById, deletePost, createReport, type ShortsPagination, type ReportReason } from "../../../lib/api";
+import { useSearchParams } from "next/navigation";
+import { getShorts, getUserShorts, toggleLike, getPostById, deletePost, createReport, type ShortsPagination, type ReportReason } from "../../../lib/api";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
 import { TripComments } from "../../../components/trip/comments";
@@ -28,12 +29,17 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Eye,
   Flag,
   Heart,
+  Link2,
   Loader2,
+  MapPin,
   MessageCircle,
-  Pause,
+  MoreHorizontal,
+  Music2,
   Play,
+  RefreshCw,
   Share2,
   Trash2,
   UserPlus,
@@ -52,10 +58,13 @@ import {
 } from "../../../lib/feed-ads";
 import {
   shortHasLibrarySong,
-  ShortsSlideMedia,
   ShortsSoundtrack,
 } from "../../../components/shorts/shorts-slide-media";
+import { ShortVideoStage } from "../../../components/shorts/short-video-stage";
+import { PostLikesCount } from "../../../components/trip/post-likers-modal";
+import { subscribeSocket, unsubscribeSocket } from "../../../lib/socket";
 import { ContentViewPing } from "../../../components/content-view-ping";
+import { getPlayableVideoUrl, getPostDisplayLocation } from "../../../lib/post-utils";
 
 function getThumbnailUrl(short: Post): string {
   const raw =
@@ -71,15 +80,42 @@ function getThumbnailUrl(short: Post): string {
 }
 
 function getVideoUrl(short: Post): string {
-  const raw = short.mediaUrl || short.videoUrl || "";
-  if (!raw || typeof raw !== "string") return "";
-  if (typeof window !== "undefined" && raw.startsWith("/")) {
-    return window.location.origin + raw;
-  }
-  return raw;
+  return getPlayableVideoUrl(short);
 }
 
-type ShortsPage = { shorts: Post[]; pagination?: unknown };
+type ShortsPage = { shorts: Post[]; pagination?: ShortsPagination; nextPage?: number };
+
+/** Signed media URLs expire after ~15 min; refresh the list before that (mobile caches 10 min). */
+const SHORTS_STALE_MS = 10 * 60 * 1000;
+const USER_SHORTS_PAGE_SIZE = 20;
+
+function getSongTitle(short: Post): string {
+  const song = short.song;
+  if (!song) return "";
+  const populated = typeof song.songId === "object" && song.songId ? song.songId : null;
+  const title = populated?.title || song.title || "";
+  const artist = populated?.artist || song.artist || "";
+  if (!title) return "";
+  return artist ? `${title} · ${artist}` : title;
+}
+
+/** Caption clamped to 2 lines with tap to expand (mobile ShortsCellFeed). */
+function ShortCaption({ text }: { text: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded((prev) => !prev)}
+      className={cn(
+        "block w-full text-left text-sm leading-relaxed text-zinc-200",
+        expanded ? "max-h-40 overflow-y-auto" : "line-clamp-2"
+      )}
+      aria-expanded={expanded}
+    >
+      {text}
+    </button>
+  );
+}
 type ShortsData = { pages: ShortsPage[]; pageParams: unknown[] };
 
 /** Patches every loaded page of the shorts infinite query in place -- mirrors
@@ -100,15 +136,30 @@ const REPORT_REASONS: { id: ReportReason; label: string }[] = [
 ];
 
 export default function ShortsPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <ShortsFeed />
+    </React.Suspense>
+  );
+}
+
+function ShortsFeed() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const confirm = useConfirm();
   const mounted = useMounted();
+  const searchParams = useSearchParams();
+  // Profile-scoped player: /shorts?userId=<id>&postId=<start short>
+  const scopeUserId = searchParams.get("userId") || "";
+  const startPostId = searchParams.get("postId") || "";
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [muted, setMuted] = React.useState(true);
   const [manuallyPaused, setManuallyPaused] = React.useState<Set<string>>(() => new Set());
   const [failedVideoIds, setFailedVideoIds] = React.useState<Set<string>>(() => new Set());
-  const [tapFeedbackId, setTapFeedbackId] = React.useState<string | null>(null);
+  const [playAttempts, setPlayAttempts] = React.useState<Record<string, number>>({});
+  const [menuShortId, setMenuShortId] = React.useState<string | null>(null);
+  const retriedIdsRef = React.useRef<Set<string>>(new Set());
+  const startScrolledRef = React.useRef(false);
   const [commentsShort, setCommentsShort] = React.useState<Post | null>(null);
   const [shareShort, setShareShort] = React.useState<Post | null>(null);
   const [reportShort, setReportShort] = React.useState<Post | null>(null);
@@ -118,16 +169,25 @@ export default function ShortsPage() {
   const mediaTimeRef = React.useRef(0);
 
   const q = useInfiniteQuery({
-    queryKey: ["shorts"],
-    queryFn: async ({ pageParam }) => {
-      return getShorts({ cursor: pageParam, limit: 10 });
+    queryKey: ["shorts", scopeUserId || "feed"],
+    queryFn: async ({ pageParam }): Promise<ShortsPage> => {
+      if (scopeUserId) {
+        const page = typeof pageParam === "number" ? pageParam : 1;
+        const res = await getUserShorts(scopeUserId, page, USER_SHORTS_PAGE_SIZE);
+        const hasMore = page * USER_SHORTS_PAGE_SIZE < res.totalShorts;
+        return { shorts: res.shorts, nextPage: hasMore ? page + 1 : undefined };
+      }
+      return getShorts({ cursor: typeof pageParam === "string" ? pageParam : null, limit: 10 });
     },
-    initialPageParam: null as string | null,
+    initialPageParam: (scopeUserId ? 1 : null) as string | number | null,
     getNextPageParam: (lastPage) => {
+      if (scopeUserId) return lastPage?.nextPage;
       const pagination: ShortsPagination | undefined = lastPage?.pagination;
       if (!pagination?.hasNextPage || !pagination.nextCursor) return undefined;
       return pagination.nextCursor;
     },
+    staleTime: SHORTS_STALE_MS,
+    refetchOnWindowFocus: true,
   });
 
   const rawShorts = React.useMemo<Post[]>(
@@ -216,6 +276,24 @@ export default function ShortsPage() {
     target.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, []);
 
+  const overlayOpen = !!commentsShort || !!shareShort || !!reportShort;
+  React.useEffect(() => {
+    if (overlayOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        goToIndex(Math.min(activeIndex + 1, shortsItems.length - 1));
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        goToIndex(Math.max(activeIndex - 1, 0));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeIndex, goToIndex, overlayOpen, shortsItems.length]);
+
   const togglePause = React.useCallback((shortId: string) => {
     setManuallyPaused((prev) => {
       const next = new Set(prev);
@@ -225,13 +303,85 @@ export default function ShortsPage() {
     });
   }, []);
 
-  const handleCenterTap = React.useCallback((shortId: string) => {
-    togglePause(shortId);
-    setTapFeedbackId(shortId);
-    window.setTimeout(() => {
-      setTapFeedbackId((prev) => (prev === shortId ? null : prev));
-    }, 220);
-  }, [togglePause]);
+  /** Patch one short in every loaded shorts page. */
+  const patchShort = React.useCallback(
+    (shortId: string, patch: Partial<Post>) => {
+      patchShortsQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            shorts: page.shorts.map((s) => (s._id === shortId ? { ...s, ...patch } : s)),
+          })),
+        };
+      });
+    },
+    [qc]
+  );
+
+  const remountPlayer = React.useCallback((shortId: string) => {
+    setPlayAttempts((prev) => ({ ...prev, [shortId]: (prev[shortId] ?? 0) + 1 }));
+  }, []);
+
+  /**
+   * First failure: refetch the post for fresh signed URLs and remount the player
+   * (mobile shorts.tsx does the same). Second failure: show "Tap to retry".
+   */
+  const handleVideoError = React.useCallback(
+    async (shortId: string) => {
+      if (retriedIdsRef.current.has(shortId)) {
+        setFailedVideoIds((prev) => new Set(prev).add(shortId));
+        return;
+      }
+      retriedIdsRef.current.add(shortId);
+      try {
+        const fresh = await getPostById(shortId);
+        patchShort(shortId, { mediaUrl: fresh.mediaUrl, videoUrl: fresh.videoUrl });
+        remountPlayer(shortId);
+      } catch {
+        setFailedVideoIds((prev) => new Set(prev).add(shortId));
+      }
+    },
+    [patchShort, remountPlayer]
+  );
+
+  const handleRetry = React.useCallback(
+    (shortId: string) => {
+      retriedIdsRef.current.delete(shortId);
+      setFailedVideoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(shortId);
+        return next;
+      });
+      void handleVideoError(shortId);
+    },
+    [handleVideoError]
+  );
+
+  // Backend deletes the raw upload once HLS transcoding finishes — repoint the short to its stream.
+  React.useEffect(() => {
+    const onTranscoded = (payload: { shortId?: string }) => {
+      const shortId = payload?.shortId;
+      if (!shortId) return;
+      const hlsUrl = `/api/v1/shorts?hls=master&postId=${shortId}&ext=.m3u8`;
+      patchShort(shortId, { mediaUrl: hlsUrl, videoUrl: hlsUrl });
+      remountPlayer(shortId);
+    };
+    subscribeSocket<{ shortId?: string }>("short:transcoded", onTranscoded);
+    return () => unsubscribeSocket<{ shortId?: string }>("short:transcoded", onTranscoded);
+  }, [patchShort, remountPlayer]);
+
+  // Profile-scoped player opens at the tapped short.
+  React.useEffect(() => {
+    if (!startPostId || startScrolledRef.current) return;
+    const targetIdx = shortsItems.findIndex((item) => !isFeedAdSlot(item) && item._id === startPostId);
+    if (targetIdx < 0) return;
+    startScrolledRef.current = true;
+    const target = feedRef.current?.querySelectorAll<HTMLElement>("[data-short-slide]").item(targetIdx);
+    target?.scrollIntoView({ block: "start" });
+    setActiveIndex(targetIdx);
+  }, [shortsItems, startPostId]);
 
   const likeMutation = useMutation({
     mutationFn: (postId: string) => toggleLike(postId),
@@ -449,8 +599,24 @@ export default function ShortsPage() {
           <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white/95 to-slate-50/90 px-4 py-3 shadow-soft dark:border-zinc-800/80 dark:from-zinc-900/95 dark:to-zinc-900/80">
             <div>
               <p className="text-base font-semibold tracking-tight text-slate-900 dark:text-zinc-100">Shorts</p>
-              <p className="text-xs text-slate-500 dark:text-zinc-400">Swipe or scroll to watch more</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400">Scroll or use ↑ ↓ to watch more · double-click to like</p>
             </div>
+            <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+              onClick={() => {
+                retriedIdsRef.current.clear();
+                setFailedVideoIds(new Set());
+                void q.refetch();
+              }}
+              disabled={q.isRefetching}
+              aria-label="Refresh shorts"
+            >
+              <RefreshCw className={cn("h-4 w-4", q.isRefetching && "animate-spin")} />
+            </Button>
             <Button
               type="button"
               size="icon"
@@ -461,6 +627,7 @@ export default function ShortsPage() {
             >
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </Button>
+            </div>
           </div>
 
           <div className="relative flex-1 overflow-hidden rounded-3xl border border-zinc-900/15 bg-gradient-to-br from-slate-100/90 via-slate-100/70 to-slate-200/60 shadow-soft dark:border-white/15 dark:from-slate-950 dark:via-slate-950 dark:to-zinc-950">
@@ -528,40 +695,31 @@ export default function ShortsPage() {
                   >
                     <div className="flex h-full w-full max-w-[700px] items-center justify-center gap-3 sm:gap-5">
                       <div className="relative aspect-[9/16] h-[90%] max-h-[760px] w-full max-w-[440px] overflow-hidden rounded-3xl border border-zinc-900/20 bg-slate-900 shadow-[0_0_0_1px_rgba(2,6,23,0.12),0_20px_65px_rgba(0,0,0,0.35)] dark:border-white/20 dark:bg-zinc-900 dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_20px_65px_rgba(0,0,0,0.6)]">
-                        {videoUrl && !isVideoFailed ? (
-                          <button
-                            type="button"
-                            className="relative block h-full w-full cursor-pointer"
-                            onClick={() => handleCenterTap(short._id)}
-                            aria-label={isPaused ? "Play short" : "Pause short"}
-                          >
-                            <ShortsSlideMedia
-                              url={videoUrl}
-                              poster={thumbUrl}
-                              shouldLoad={idx === activeIndex || idx === nextPlayableIndex}
-                              shouldPlay={
-                                idx === activeIndex && !isPaused && !isVideoFailed
-                              }
-                              muted={muted || shortHasLibrarySong(short)}
-                              onMediaTime={
-                                idx === activeIndex
-                                  ? (currentTime) => {
-                                      mediaTimeRef.current = currentTime;
-                                    }
-                                  : undefined
-                              }
-                              onError={() => setFailedVideoIds((prev) => new Set(prev).add(short._id))}
-                            />
-                            <span
-                              className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-                                tapFeedbackId === short._id ? "opacity-100" : "opacity-0"
-                              }`}
-                            >
-                              <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/35 bg-black/40 text-white backdrop-blur">
-                                {isPaused ? <Play className="h-7 w-7" /> : <Pause className="h-7 w-7" />}
-                              </span>
-                            </span>
-                          </button>
+                        {videoUrl ? (
+                          <ShortVideoStage
+                            key={`${short._id}:${playAttempts[short._id] ?? 0}`}
+                            url={videoUrl}
+                            poster={thumbUrl}
+                            caption={short.caption}
+                            shouldLoad={idx === activeIndex || idx === nextPlayableIndex}
+                            isActive={idx === activeIndex}
+                            isPaused={isPaused}
+                            muted={muted || shortHasLibrarySong(short)}
+                            failed={isVideoFailed}
+                            onTogglePause={() => togglePause(short._id)}
+                            onDoubleTapLike={() => {
+                              if (!short.isLiked) likeMutation.mutate(short._id);
+                            }}
+                            onError={() => void handleVideoError(short._id)}
+                            onRetry={() => handleRetry(short._id)}
+                            onMediaTime={
+                              idx === activeIndex
+                                ? (currentTime) => {
+                                    mediaTimeRef.current = currentTime;
+                                  }
+                                : undefined
+                            }
+                          />
                         ) : thumbUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -575,31 +733,47 @@ export default function ShortsPage() {
                           </div>
                         )}
 
-                        <div className="absolute inset-x-0 bottom-0 space-y-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-sm font-medium text-zinc-100">
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 space-y-2 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-5 pb-7">
+                          <div className="pointer-events-auto flex items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-zinc-100">
                               {short.user?._id ? (
                                 <Link href={`/profile/${short.user._id}`} className="hover:underline">
-                                  {short.user.fullName ? `@${short.user.fullName}` : "Traveler"}
+                                  {short.user.username
+                                    ? `@${short.user.username}`
+                                    : short.user.fullName || "Traveler"}
                                 </Link>
                               ) : (
                                 "Traveler"
                               )}
                             </p>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-9 w-9 rounded-full bg-white/10 text-white hover:bg-white/20"
-                              onClick={() => togglePause(short._id)}
-                              aria-label={isPaused ? "Play short" : "Pause short"}
-                            >
-                              {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                            </Button>
+                            {short.user?.isFollowing && short.user._id !== user?._id ? (
+                              <span className="shrink-0 rounded-full border border-white/40 px-2 py-0.5 text-[11px] font-medium text-white/90">
+                                Following
+                              </span>
+                            ) : null}
                           </div>
-                          <p className="line-clamp-3 text-sm leading-relaxed text-zinc-200">
-                            {short.caption || "Short-form video from the community."}
-                          </p>
+                          {short.caption ? (
+                            <div className="pointer-events-auto">
+                              <ShortCaption text={short.caption} />
+                            </div>
+                          ) : null}
+                          <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+                            {getSongTitle(short) ? (
+                              <span className="flex max-w-full items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs text-white backdrop-blur">
+                                <Music2 className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{getSongTitle(short)}</span>
+                              </span>
+                            ) : null}
+                            {getPostDisplayLocation(short) !== "Unknown location" ? (
+                              <Link
+                                href={`/trip/${short._id}`}
+                                className="flex max-w-full items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs text-white backdrop-blur hover:bg-white/25"
+                              >
+                                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{getPostDisplayLocation(short)}</span>
+                              </Link>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 
@@ -644,7 +818,11 @@ export default function ShortsPage() {
                             />
                           </motion.span>
                         </Button>
-                        <p className="text-xs text-slate-700 dark:text-zinc-300">{short.likesCount ?? 0}</p>
+                        <PostLikesCount
+                          postId={short._id}
+                          likesCount={short.likesCount ?? 0}
+                          className="text-xs text-slate-700 hover:underline dark:text-zinc-300"
+                        />
                         <Button
                           type="button"
                           size="icon"
@@ -666,7 +844,10 @@ export default function ShortsPage() {
                         >
                           <Share2 className="h-5 w-5" />
                         </Button>
-                        <p className="text-xs text-slate-700 dark:text-zinc-300">{short.viewsCount ?? 0}</p>
+                        <p className="flex items-center gap-1 text-xs text-slate-700 dark:text-zinc-300" aria-label={`${short.viewsCount ?? 0} views`}>
+                          <Eye className="h-3.5 w-3.5" />
+                          {short.viewsCount ?? 0}
+                        </p>
                         <Button
                           type="button"
                           size="icon"
@@ -682,40 +863,80 @@ export default function ShortsPage() {
                             )}
                           />
                         </Button>
-                        {user?._id && short.user?._id === user._id ? (
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-red-500/15 disabled:opacity-40 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-red-500/20"
-                            onClick={() => void handleDelete(short)}
-                            disabled={deletingId === short._id}
-                            aria-label="Delete short"
-                          >
-                            {deletingId === short._id ? (
-                              <Loader2 className="h-5 w-5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-5 w-5" />
-                            )}
-                          </Button>
-                        ) : (
+                        <div className="relative">
                           <Button
                             type="button"
                             size="icon"
                             variant="ghost"
                             className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
-                            onClick={() => {
-                              if (!user) {
-                                toast.error("You must be signed in to report.");
-                                return;
-                              }
-                              setReportShort(short);
-                            }}
-                            aria-label="Report short"
+                            onClick={() => setMenuShortId((prev) => (prev === short._id ? null : short._id))}
+                            aria-label="More options"
+                            aria-expanded={menuShortId === short._id}
                           >
-                            <Flag className="h-5 w-5" />
+                            {deletingId === short._id ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <MoreHorizontal className="h-5 w-5" />
+                            )}
                           </Button>
-                        )}
+                          {menuShortId === short._id ? (
+                            <>
+                              <div className="fixed inset-0 z-30" role="presentation" onClick={() => setMenuShortId(null)} />
+                              <div
+                                role="menu"
+                                className="absolute bottom-0 right-full z-40 mr-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                  onClick={() => {
+                                    setMenuShortId(null);
+                                    void navigator.clipboard
+                                      ?.writeText(`${window.location.origin}/trip/${short._id}`)
+                                      .then(() => toast.success("Link copied"))
+                                      .catch(() => toast.error("Couldn’t copy link"));
+                                  }}
+                                >
+                                  <Link2 className="h-4 w-4" />
+                                  Copy link
+                                </button>
+                                {user?._id && short.user?._id === user._id ? (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={deletingId === short._id}
+                                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                                    onClick={() => {
+                                      setMenuShortId(null);
+                                      void handleDelete(short);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete short
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                    onClick={() => {
+                                      setMenuShortId(null);
+                                      if (!user) {
+                                        toast.error("You must be signed in to report.");
+                                        return;
+                                      }
+                                      setReportShort(short);
+                                    }}
+                                  >
+                                    <Flag className="h-4 w-4" />
+                                    Report
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
                         <div className="mt-1 flex flex-col gap-2">
                           <Button
                             type="button"

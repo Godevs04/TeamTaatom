@@ -1,3 +1,9 @@
+/** Profile gallery image as returned by the API (url is a short-lived signed URL). */
+export interface ProfileImage {
+  _id: string;
+  url: string;
+}
+
 export interface UserType {
   _id: string;
   fullName: string;
@@ -5,6 +11,7 @@ export interface UserType {
   bio?: string;
   email: string;
   profilePic: string;
+  profileImages?: ProfileImage[];
   followers: string[] | number;
   following: string[] | number;
   followingIds?: string[];

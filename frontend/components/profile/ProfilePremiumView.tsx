@@ -16,7 +16,9 @@ import CloudGlassSurface from '../cloud/CloudGlassSurface';
 import PremiumGlassCard from '../ui/PremiumGlassCard';
 import RotatingGlobe from '../RotatingGlobe';
 import BioDisplay from '../BioDisplay';
+import ProfileImagesStrip from './ProfileImagesStrip';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
+import { ProfileImage } from '../../types/user';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const AVATAR = 96;
@@ -26,6 +28,7 @@ export interface ProfilePremiumViewProps {
   fullName: string;
   username?: string;
   bio?: string;
+  profileImages?: ProfileImage[];
   createdAt?: string;
   tripScore?: number;
   postCount: number;
@@ -59,6 +62,7 @@ export default function ProfilePremiumView({
   fullName,
   username,
   bio,
+  profileImages = [],
   tripScore = 0,
   postCount,
   followersCount,
@@ -185,15 +189,21 @@ export default function ProfilePremiumView({
                   @{username}
                 </Text>
               ) : null}
-              <Text style={[styles.displayNameText, { color: '#38BDF8', fontSize: 15, fontWeight: '700', marginTop: 2 }]}>
-                {fullName}
-              </Text>
+              <View style={[styles.nameRow, { marginTop: 2 }]}>
+                <Text style={[styles.displayNameText, { color: '#38BDF8', fontSize: 15, fontWeight: '700', flexShrink: 1 }]} numberOfLines={1}>
+                  {fullName}
+                </Text>
+                <ProfileImagesStrip images={profileImages} isDark={isDark} />
+              </View>
             </>
           ) : (
             <>
-              <Text style={[styles.displayNameText, { color: '#1C73B4', fontSize: 15, fontWeight: '700', marginTop: 0 }]}>
-                {fullName}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text style={[styles.displayNameText, { color: '#1C73B4', fontSize: 15, fontWeight: '700', flexShrink: 1 }]} numberOfLines={1}>
+                  {fullName}
+                </Text>
+                <ProfileImagesStrip images={profileImages} isDark={isDark} />
+              </View>
               {username ? (
                 <Text style={[styles.handleText, { color: textSecondary, fontSize: 15, fontWeight: '600', marginTop: 2 }]}>
                   @{username}
@@ -358,6 +368,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginTop: 12,
     width: '100%',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   displayNameText: {
     fontSize: 15,

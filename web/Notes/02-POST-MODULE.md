@@ -202,3 +202,10 @@ All errors surfaced via useAlert (showError) or CustomAlert so no default system
 ---
 
 *Feed that shows these posts: [01-HOME-MODULE.md](./01-HOME-MODULE.md). Backend API list: [11-BACKEND-API-REFERENCE.md](./11-BACKEND-API-REFERENCE.md).*
+
+## 16. Web shorts playback rules
+
+- Transcoded shorts/long videos use the HLS proxy `…/api/v1/shorts?hls=master&postId=…&ext=.m3u8`. The backend builds that URL from `X-Forwarded-Host` (`src/utils/requestHost.js`) so web gets its own origin; web additionally rewrites any absolute `/api/v1/*` URL to same-origin (`lib/post-utils.ts → toSameOriginApiUrl / getPlayableVideoUrl`).
+- Always attach video through `lib/hls-attach.ts` (`attachVideoSource`) or `components/media/hls-video.tsx` — never `<video src>` with an `.m3u8` URL (only Safari plays HLS natively). hls.js is tried first, native HLS second; fatal errors get one `startLoad` / `recoverMediaError` attempt.
+- Shorts feed (`app/(dashboard)/shorts/page.tsx`): first playback failure refetches the post for fresh signed URLs and remounts the player; second shows "Tap to retry". Listens for `short:transcoded`. Supports `?userId=&postId=` for a profile-scoped player.
+- HLS segments are signed storage URLs fetched by hls.js directly from the bucket, so the bucket CORS policy must allow the web origin (GET/HEAD, `Range` header).
