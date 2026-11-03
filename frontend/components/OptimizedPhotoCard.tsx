@@ -202,6 +202,15 @@ function PhotoCard({
   const [isZooming, setIsZooming] = useState(false);
   
   const [comments, setComments] = useState(post.comments || []);
+  // Latest comments, so comment changes are computed outside a setComments updater.
+  // Notifying other screens (savedEvents.emitPostAction) from inside an updater ran while
+  // React rendered this card and updated HomeScreen mid-render.
+  const commentsRef = useRef(comments);
+  commentsRef.current = comments;
+  // The post.comments array the list was last reset from. Adding a comment makes the feed
+  // update only post.commentsCount, so the list must not be reset from the (older) feed
+  // copy of post.comments then, or the comments added since disappear.
+  const syncedPostCommentsRef = useRef(post.comments);
   const [commentsCount, setCommentsCount] = useState(() => {
     const local = savedEvents.getCommentsCount(post._id);
     if (local === undefined && post._id) {
@@ -339,7 +348,8 @@ function PhotoCard({
   
   const upsertComment = useCallback((incomingComment: any, replaceId?: string) => {
     if (!incomingComment) return;
-    setComments((prev) => {
+    const prev = commentsRef.current;
+    const updated = ((): any[] => {
       let next = [...prev];
       if (replaceId) {
         const replaceIndex = next.findIndex((c) => c._id === replaceId);
@@ -379,10 +389,12 @@ function PhotoCard({
         return true;
       });
 
-      setCommentsCount(next.length);
-      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: next.length });
       return next;
-    });
+    })();
+    commentsRef.current = updated;
+    setComments(updated);
+    setCommentsCount(updated.length);
+    savedEvents.emitPostAction(post._id, 'comment', { commentsCount: updated.length });
   }, [post._id]);
 
   React.useEffect(() => {
@@ -508,6 +520,7 @@ function PhotoCard({
     const finalLikesState = localLikesState || savedEvents.getLikesState(post._id);
     setIsLiked(finalLikesState ? finalLikesState.isLiked : (post.isLiked || false));
     setLikesCount(finalLikesState ? finalLikesState.likesCount : (post.likesCount || 0));
+    syncedPostCommentsRef.current = post.comments;
     setComments(post.comments || []);
     const localCommentsCount = savedEvents.getCommentsCount(post._id);
     if (localCommentsCount === undefined && post._id) {
@@ -537,7 +550,12 @@ function PhotoCard({
     const finalLikesState = localLikesState || savedEvents.getLikesState(post._id);
     setIsLiked(finalLikesState ? finalLikesState.isLiked : (post.isLiked || false));
     setLikesCount(finalLikesState ? finalLikesState.likesCount : (post.likesCount || 0));
-    setComments(post.comments || []);
+    // Reset the list only when the server's comments array itself changed, not when the
+    // feed merely updated commentsCount after a comment was added here.
+    if (syncedPostCommentsRef.current !== post.comments) {
+      syncedPostCommentsRef.current = post.comments;
+      setComments(post.comments || []);
+    }
     const localCommentsCount = savedEvents.getCommentsCount(post._id);
     if (localCommentsCount === undefined && post._id) {
       const count = post.commentsCount || (post.comments ? post.comments.length : 0);
@@ -849,14 +867,12 @@ function PhotoCard({
   }, [upsertComment]);
 
   const handleCommentDeleted = useCallback(async (commentId: string) => {
-    let originalComments: any[] = [];
-    setComments(prev => {
-      originalComments = prev;
-      const filtered = prev.filter(c => c._id !== commentId);
-      setCommentsCount(filtered.length);
-      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: filtered.length });
-      return filtered;
-    });
+    const originalComments = commentsRef.current;
+    const filtered = originalComments.filter(c => c._id !== commentId);
+    commentsRef.current = filtered;
+    setComments(filtered);
+    setCommentsCount(filtered.length);
+    savedEvents.emitPostAction(post._id, 'comment', { commentsCount: filtered.length });
     
     try {
       await deleteComment(post._id, commentId);
@@ -864,6 +880,7 @@ function PhotoCard({
     } catch (error) {
       logger.error('Failed to delete comment, rolling back:', error);
       // Revert local state to the original list of comments
+      commentsRef.current = originalComments;
       setComments(originalComments);
       setCommentsCount(originalComments.length);
       savedEvents.emitPostAction(post._id, 'comment', { commentsCount: originalComments.length });

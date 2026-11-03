@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
@@ -20,7 +21,6 @@ import {
   RefreshControl,
   ActivityIndicator,
   Easing,
-  InteractionManager,
 } from 'react-native';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 
@@ -31,7 +31,7 @@ import { Video, ResizeMode, Audio, type AVPlaybackStatus, type AvPlaybackHandle,
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../components/ui/MaskedView';
 import { useTheme } from '../../context/ThemeContext';
 import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort, deleteComment } from '../../services/posts';
 import { toggleFollow, getProfile } from '../../services/profile';
@@ -43,6 +43,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
+import { getApiBaseUrl } from '../../utils/config';
 import { trackScreenView, trackEngagement } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
 import { GlassModal } from '../../components/ui/GlassModal';
@@ -56,7 +57,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
 import { realtimePostsService } from '../../services/realtimePosts';
-import Constants from 'expo-constants';
+import { isAdsModuleLinked } from '../../utils/adsModule';
 import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
@@ -93,7 +94,7 @@ const isAndroid = Platform.OS === 'android';
 // the parent slot would render a SHORTS_ITEM_HEIGHT-tall black void at
 // position 6 before onLoadFailed could propagate. Skip ad insertion entirely
 // in this environment so dev builds in Expo Go don't show the blank slot.
-const isExpoGo = (Constants as any)?.appOwnership === 'expo';
+const isExpoGo = !isAdsModuleLinked();
 const logger = createLogger('ShortsScreen');
 
 // Tab bar height from (tabs)/_layout - content must sit above it
@@ -230,16 +231,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   useEffect(() => {
     // Defer rendering of heavy components (FlatList, Video) until navigation transition completes
-    const interactionPromise = InteractionManager.runAfterInteractions(() => {
-      setIsTransitionFinished(true);
-    });
+    // InteractionManager was removed in React Native 0.88; idle callback is its replacement.
+    const g = globalThis as any;
+    const idleHandle =
+      typeof g.requestIdleCallback === 'function'
+        ? g.requestIdleCallback(() => setIsTransitionFinished(true))
+        : null;
 
     const fallbackTimer = setTimeout(() => {
       setIsTransitionFinished(true);
     }, 500);
 
     return () => {
-      interactionPromise.cancel();
+      if (idleHandle != null && typeof g.cancelIdleCallback === 'function') {
+        g.cancelIdleCallback(idleHandle);
+      }
       clearTimeout(fallbackTimer);
     };
   }, []);
@@ -263,9 +269,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
-  const [appState, setAppState] = useState(AppState.currentState);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState as AppStateStatus);
   const [containerHeight, setContainerHeight] = useState(isGeneralFeed ? SCREEN_HEIGHT - TAB_BAR_HEIGHT : SCREEN_HEIGHT);
-  const containerViewRef = useRef<View>(null);
+  const containerViewRef = useRef<ComponentRef<typeof View>>(null);
   const [containerWindowFrame, setContainerWindowFrame] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const tabBarGeometry = useTabBarGeometry();
   const isScopedShortsView = !!(effectiveUserId || props.isSavedShorts);
@@ -562,6 +568,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const VIEW_DEBOUNCE_MS = SHORT_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
+  // Number of loadShorts calls currently running. The focus handler checks it so it
+  // does not start a second load while the first one is still fetching.
+  const loadInFlightRef = useRef(0);
   const currentPageRef = useRef(isGeneralFeed ? globalCachedPage : 1);
   const cursorRef = useRef<string | null>(isGeneralFeed ? globalCachedCursor : null);
   const hasMoreRef = useRef(isGeneralFeed ? globalCachedHasMore : true);
@@ -847,6 +856,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const refreshTimer = setTimeout(() => {
         if (effectiveUserId || props.isSavedShorts || effectiveShortId) return;
         if (shortsRef.current.length === 0) {
+          // The mount effect already started the first load; do not fetch the feed twice.
+          if (loadInFlightRef.current > 0) return;
           logger.debug('Shorts screen focused - loading empty feed');
           loadShortsRef.current?.();
         } else if (Date.now() - globalCachedAt > SHORTS_STALE_MS) {
@@ -1180,6 +1191,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }, [localVideoUris]);
 
   const loadShorts = useCallback(async (isSilent = false, forceRefresh = false) => {
+    loadInFlightRef.current += 1;
     try {
       if (!isSilent) {
         setLoading(true);
@@ -1458,6 +1470,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       logger.error('Error loading shorts', error);
       showError('Failed to load shorts');
     } finally {
+      loadInFlightRef.current = Math.max(0, loadInFlightRef.current - 1);
       setLoading(false);
     }
   }, [effectiveUserId, effectiveShortId, showError]);
@@ -1593,7 +1606,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       logger.debug('Feed invalidation event received, marking shorts feed stale');
       if (!effectiveUserId) globalCachedAt = 0;
     };
-    
+
+    // The backend deletes the raw upload as soon as transcoding finishes, so a short already in
+    // the list still pointing at that raw file would play a 404. Switch it to its HLS stream.
+    const handleShortTranscoded = (payload: { shortId?: string }) => {
+      const shortId = payload?.shortId;
+      if (!shortId) return;
+      const hlsUrl = `${getApiBaseUrl()}/api/v1/shorts?hls=master&postId=${shortId}&ext=.m3u8`;
+      const repoint = (list: PostType[]) =>
+        list.map((s) => (String(s._id) === shortId ? { ...s, videoUrl: hlsUrl } : s));
+      if (globalCachedShorts.some((s) => String(s._id) === shortId)) {
+        globalCachedShorts = repoint(globalCachedShorts);
+      }
+      if (shortsRef.current.some((s) => String(s._id) === shortId)) {
+        logger.debug('Short transcoded, switching it to the HLS stream:', shortId);
+        setShorts((prev) => repoint(prev));
+      }
+    };
+
     // Subscribe to socket events for real-time updates
     socketService.subscribe('short:created', handleShortCreated).catch(err => {
       logger.warn('Error subscribing to short:created event:', err);
@@ -1602,11 +1632,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     socketService.subscribe('invalidate:feed', handleInvalidateFeed).catch(err => {
       logger.warn('Error subscribing to invalidate:feed event:', err);
     });
-    
+
+    socketService.subscribe('short:transcoded', handleShortTranscoded).catch(err => {
+      logger.warn('Error subscribing to short:transcoded event:', err);
+    });
+
     // Cleanup: Unsubscribe from socket events when component unmounts or params change
     return () => {
       socketService.unsubscribe('short:created', handleShortCreated);
       socketService.unsubscribe('invalidate:feed', handleInvalidateFeed);
+      socketService.unsubscribe('short:transcoded', handleShortTranscoded);
     };
   }, [effectiveUserId]); // Only depend on scoped user, not loadShorts (use ref instead)
 
@@ -2513,8 +2548,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       >
         <StatusBar 
           barStyle="light-content" 
-          backgroundColor="transparent" 
-          translucent={true}
         />
 
       {/* Premium Top Bar Overlay */}

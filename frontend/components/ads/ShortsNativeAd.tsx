@@ -20,14 +20,15 @@ import {
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Constants from 'expo-constants';
+import { isAdsModuleLinked } from '../../utils/adsModule';
 import { ADMOB } from '../../constants/admob';
 import logger from '../../utils/logger';
 import { initializeAds } from '../../services/admob';
 import { getAdRequestOptions } from '../../services/adRequestOptions';
 
 const isWeb = Platform.OS === 'web';
-const isExpoGo = Constants.appOwnership === 'expo';
+// True in Expo Go and in dev builds that predate the AdMob native module.
+const isExpoGo = !isAdsModuleLinked();
 const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 
 type AdsModule = {

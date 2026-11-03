@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, memo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../ui/MaskedView';
 import { LinearGradient } from 'expo-linear-gradient';
 
 interface PostActionsProps {

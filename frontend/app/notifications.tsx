@@ -586,7 +586,8 @@ export default function NotificationsScreen() {
                     logger.warn('Profile image failed to load:', {
                       userId: item.fromUser?._id,
                       url: item.fromUser?.profilePic?.substring(0, 80),
-                      error: error?.nativeEvent?.error?.message || 'Unknown'
+                      // RN 0.88 types nativeEvent.error as a string (older versions passed an object).
+                      error: String((error?.nativeEvent?.error as any)?.message ?? error?.nativeEvent?.error ?? 'Unknown')
                     });
                   }
                 }}

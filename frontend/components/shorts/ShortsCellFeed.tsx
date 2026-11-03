@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
@@ -22,7 +23,7 @@ import ShortsExpoPlayer from './ShortsExpoPlayer';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../ui/MaskedView';
 import { useRouter } from 'expo-router';
 import LoadingGlobe from '../LoadingGlobe';
 
@@ -245,7 +246,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const lastMuteEnforceAtRef = useRef<number>(0);
   // BUG 15: Animated opacity for crossfade from thumbnail -> video
   const videoOpacity = useRef(new Animated.Value(0)).current;
-  const videoFrameRef = useRef<View>(null);
+  const videoFrameRef = useRef<ComponentRef<typeof View>>(null);
   const [videoFrameSize, setVideoFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
   const urlRefetchAttemptedRef = useRef(false);

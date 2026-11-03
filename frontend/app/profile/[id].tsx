@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert, Image } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
@@ -124,7 +125,7 @@ export default function UserProfileScreen() {
   const profileRef = useRef<any>(null);
   const userShortsRef = useRef<any[]>([]);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const scrollPositionRef = useRef<number>(0);
   const pendingScrollRestoreRef = useRef<boolean>(false);
 

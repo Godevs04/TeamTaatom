@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 
 export default function OnboardingLayout() {
   return (
-    <Stack
+    <Stack id={undefined}
       screenOptions={{
         headerShown: false,
         gestureEnabled: false, // Prevent back navigation during onboarding

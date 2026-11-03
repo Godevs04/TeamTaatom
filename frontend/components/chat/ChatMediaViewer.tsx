@@ -243,7 +243,7 @@ export default function ChatMediaViewer({
       statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#000" hidden={isVisible} />
+      <StatusBar barStyle="light-content" hidden={isVisible} />
       <View style={styles.container}>
         <TouchableOpacity style={styles.closeBtn} onPress={handleClose} hitSlop={16}>
           <Ionicons name="close" size={30} color="#fff" />

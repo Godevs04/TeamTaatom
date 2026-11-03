@@ -462,7 +462,6 @@ export default function SearchScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}

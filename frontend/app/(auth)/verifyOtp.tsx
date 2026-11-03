@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -58,7 +59,7 @@ interface OTPInputProps {
 }
 
 const OTPInput: React.FC<OTPInputProps> = ({ value, onChange, error }) => {
-  const inputRefs = useRef<TextInput[]>([]);
+  const inputRefs = useRef<ComponentRef<typeof TextInput>[]>([]);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
 
   useEffect(() => {

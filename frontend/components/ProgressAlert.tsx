@@ -108,7 +108,7 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
       animationType="none"
       statusBarTranslucent
     >
-      <StatusBar backgroundColor="rgba(0,0,0,0.5)" barStyle="light-content" />
+      <StatusBar barStyle="light-content" />
       <View style={styles.overlay}>
         <Animated.View
           style={[

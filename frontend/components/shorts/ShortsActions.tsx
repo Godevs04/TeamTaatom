@@ -5,7 +5,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../ui/MaskedView';
 import { useRouter } from 'expo-router';
 import { getPostById, getPostLikers } from '../../services/posts';
 import { getProfile } from '../../services/profile';

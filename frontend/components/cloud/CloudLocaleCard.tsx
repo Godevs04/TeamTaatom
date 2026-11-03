@@ -4,7 +4,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../ui/MaskedView';
 import { cloudDesign, localeSubtitle } from '../../constants/cloudDesign';
 import { useCloudGlassTokens } from './CloudGlassSurface';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';

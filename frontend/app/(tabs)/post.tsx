@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
@@ -34,7 +35,7 @@ import { useJourney } from "../../context/JourneyContext";
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../components/ui/MaskedView';
 import { CloudPostMountainBackground, CloudGlassCard } from "../../components/cloud";
 import {
   PostCreateHeader,
@@ -4187,7 +4188,7 @@ export default function PostScreen() {
                 {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched, resetForm }) => {
                   const [commentCursorPosition, setCommentCursorPosition] = useState<number | undefined>();
                   const [isCommentExpanded, setIsCommentExpanded] = useState(false);
-                  const commentInputRef = useRef<TextInput>(null);
+                  const commentInputRef = useRef<ComponentRef<typeof TextInput>>(null);
                   
                   // Calculate number of lines in comment
                   const commentLines = values.comment ? values.comment.split('\n').length : 0;
@@ -4227,7 +4228,7 @@ export default function PostScreen() {
                       setTimeout(() => {
                         const newCursorPos = lastHashIndex + 1 + hashtag.length + 1;
                         setCommentCursorPosition(newCursorPos);
-                        commentInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                        commentInputRef.current?.setSelection(newCursorPos, newCursorPos);
                       }, 50);
                     }
                   };
@@ -4257,7 +4258,7 @@ export default function PostScreen() {
                       setTimeout(() => {
                         const newCursorPos = lastAtIndex + 1 + username.length + 1;
                         setCommentCursorPosition(newCursorPos);
-                        commentInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                        commentInputRef.current?.setSelection(newCursorPos, newCursorPos);
                       }, 50);
                     }
                   };
@@ -4763,7 +4764,7 @@ export default function PostScreen() {
                 {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched, resetForm }) => {
                   const [captionCursorPosition, setCaptionCursorPosition] = useState<number | undefined>();
                   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
-                  const captionInputRef = useRef<TextInput>(null);
+                  const captionInputRef = useRef<ComponentRef<typeof TextInput>>(null);
                   
                   // Calculate number of lines in caption
                   const captionLines = values.caption ? values.caption.split('\n').length : 0;
@@ -4803,7 +4804,7 @@ export default function PostScreen() {
                       setTimeout(() => {
                         const newCursorPos = lastHashIndex + 1 + hashtag.length + 1;
                         setCaptionCursorPosition(newCursorPos);
-                        captionInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                        captionInputRef.current?.setSelection(newCursorPos, newCursorPos);
                       }, 50);
                     }
                   };
@@ -4833,7 +4834,7 @@ export default function PostScreen() {
                       setTimeout(() => {
                         const newCursorPos = lastAtIndex + 1 + username.length + 1;
                         setCaptionCursorPosition(newCursorPos);
-                        captionInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                        captionInputRef.current?.setSelection(newCursorPos, newCursorPos);
                       }, 50);
                     }
                   };

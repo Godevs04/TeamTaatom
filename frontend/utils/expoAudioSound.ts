@@ -28,6 +28,22 @@ export type SongStatus = {
 
 let audioModeReady: Promise<void> | null = null;
 
+// Every player created here that has not been released. Only one song may be audible:
+// callers can lose track of a player (a stale Shorts load, a status read while
+// buffering), and an untracked player otherwise keeps playing under the next short.
+const livePlayers = new Set<AudioPlayer>();
+
+function pauseOtherPlayers(current: AudioPlayer) {
+  livePlayers.forEach((other) => {
+    if (other === current) return;
+    try {
+      other.pause();
+    } catch {
+      // Already released.
+    }
+  });
+}
+
 function ensurePlaybackMode(): Promise<void> {
   if (!audioModeReady) {
     audioModeReady = setAudioModeAsync({
@@ -83,13 +99,21 @@ export async function createSongSound(
 ): Promise<SongSound> {
   await ensurePlaybackMode();
   const player = createAudioPlayer({ uri }, { updateInterval: 150 });
+  livePlayers.add(player);
   let released = false;
   let statusCallback: ((status: SongStatus) => void) | null = null;
 
   const release = () => {
     if (released) return;
     released = true;
+    livePlayers.delete(player);
     statusListener.remove();
+    // Pause before remove(): a player released mid-playback must go silent at once.
+    try {
+      player.pause();
+    } catch {
+      // Already released.
+    }
     try {
       player.remove();
     } catch {
@@ -114,6 +138,7 @@ export async function createSongSound(
       await player.seekTo(options.positionMillis / 1000);
     }
     if (options.shouldPlay) {
+      pauseOtherPlayers(player);
       player.play();
     }
   } catch (error) {
@@ -123,6 +148,8 @@ export async function createSongSound(
 
   const handle: SongSound = {
     async playAsync() {
+      if (released) return statusOf(player, { isLoaded: false, isPlaying: false });
+      pauseOtherPlayers(player);
       player.play();
       return statusOf(player, { isPlaying: true });
     },

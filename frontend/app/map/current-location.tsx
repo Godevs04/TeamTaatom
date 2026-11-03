@@ -10,7 +10,7 @@ import {
   KeyboardAvoidingView,
   Alert,
 } from 'react-native';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../components/ui/MaskedView';
 import { LinearGradient } from 'expo-linear-gradient';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -1524,8 +1524,6 @@ function initMap(){
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar 
         barStyle={isDark ? 'light-content' : 'dark-content'} 
-        backgroundColor="transparent"
-        translucent
       />
       
       {/* Map Container */}

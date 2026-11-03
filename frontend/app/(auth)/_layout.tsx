@@ -19,7 +19,7 @@ export default function AuthLayout() {
   };
 
   return (
-    <Stack
+    <Stack id={undefined}
       screenOptions={{
         headerShown: false,
       }}

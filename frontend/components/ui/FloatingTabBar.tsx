@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React from 'react';
 import { View, StyleSheet, Pressable, Animated } from 'react-native';
 import { BottomTabBarProps } from 'expo-router/js-tabs';
@@ -10,13 +11,28 @@ import { useJourney } from '../../context/JourneyContext';
 import { shortsEvents } from '../../utils/shortsEvents';
 import { setTabBarGeometry } from '../../utils/tabBarGeometry';
 
-export default function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+// expo-router 58 passes `emitter` + `navigateToTab` to custom tab bars instead of
+// the React Navigation 7 `navigation` prop, so accept either shape.
+type TabBarEmitterProps = {
+  emitter?: { emit: (event: any) => { defaultPrevented?: boolean } };
+  navigateToTab?: (routeKey: string) => void;
+  navigation?: any;
+};
+
+export default function FloatingTabBar(props: BottomTabBarProps & TabBarEmitterProps) {
+  const { state, descriptors, emitter, navigateToTab, navigation } = props;
+  const emitTabEvent = (event: any): { defaultPrevented?: boolean } =>
+    (emitter ?? navigation).emit(event);
+  const goToTab = (route: any) => {
+    if (navigateToTab) navigateToTab(route.key);
+    else navigation.navigate(route.name, route.params);
+  };
   const { isDark } = useTheme();
   const pathname = usePathname();
   const router = useRouter();
   const { isTracking, isPaused } = useJourney();
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
-  const outerRef = React.useRef<View>(null);
+  const outerRef = React.useRef<ComponentRef<typeof View>>(null);
 
   React.useEffect(() => {
     let animation: Animated.CompositeAnimation | null = null;
@@ -65,19 +81,19 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
     const { options } = descriptors[route.key];
 
     const onPress = () => {
-      const event = navigation.emit({
+      const event = emitTabEvent({
         type: 'tabPress',
         target: route.key,
         canPreventDefault: true,
       });
 
       if (state.index !== indexInState && !event.defaultPrevented) {
-        navigation.navigate(route.name, route.params);
+        goToTab(route);
       }
     };
 
     const onLongPress = () => {
-      navigation.emit({
+      emitTabEvent({
         type: 'tabLongPress',
         target: route.key,
       });
@@ -122,7 +138,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
     const { options } = descriptors[route.key];
 
     const onPress = () => {
-      navigation.emit({
+      emitTabEvent({
         type: 'tabPress',
         target: route.key,
         canPreventDefault: true,

@@ -1140,7 +1140,7 @@ function RootLayoutInner() {
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}
       >
-        <Stack
+        <Stack id={undefined}
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: theme.colors.background },

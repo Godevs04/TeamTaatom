@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
@@ -41,7 +42,7 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
 export default function ConnectSearchScreen() {
   const { theme } = useTheme();
   const router = useRouter();
-  const searchInputRef = useRef<TextInput>(null);
+  const searchInputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ConnectPageType[]>([]);
   const [loading, setLoading] = useState(false);

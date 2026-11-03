@@ -55,41 +55,63 @@ class AudioManager {
     return () => { this.sessionMuteListeners.delete(callback); };
   }
 
-  async playSound(sound: Audio.Sound, postId: string) {
-    if (this.isFrozen()) {
-      // Caller's screen is mid-blur. Don't start playback — just unload the
-      // sound the caller already loaded so we don't leak a native player.
-      try { await sound.unloadAsync(); } catch (_) {}
-      logger.debug('audioManager.playSound bypassed (frozen):', postId);
-      return;
-    }
-    await this.stopAll();
-    this.currentSound = sound;
-    this.currentPostId = postId;
-    await sound.playAsync().catch(() => {});
-    this.notifyListeners(postId);
-    logger.debug('Playing audio:', postId);
+  // Every sound started through playSound that has not been stopped yet. Tracking
+  // only `currentSound` let a sound escape: two overlapping playSound calls (fast
+  // Shorts swipes) both ran stopAll before either set currentSound, so one song kept
+  // playing untracked while the next one started.
+  private activeSounds: Set<Audio.Sound> = new Set();
+  // playSound / stopAll run one at a time, in the order they were called.
+  private queue: Promise<void> = Promise.resolve();
+
+  private enqueue(task: () => Promise<void>): Promise<void> {
+    const run = this.queue.then(task, task);
+    this.queue = run.catch(() => {});
+    return run;
   }
 
-  async stopAll() {
-    const sound = this.currentSound;
+  private async stopSound(sound: Audio.Sound): Promise<void> {
+    this.activeSounds.delete(sound);
+    // Stop and unload without trusting getStatusAsync(): expo-audio can report
+    // isLoaded:false while buffering, and skipping the stop left that song playing.
+    await sound.stopAsync().catch(() => {});
+    await sound.unloadAsync().catch(() => {});
+  }
+
+  private async stopAllNow(except?: Audio.Sound): Promise<void> {
+    const sounds = Array.from(this.activeSounds).filter((s) => s !== except);
+    if (this.currentSound && this.currentSound !== except && !sounds.includes(this.currentSound)) {
+      sounds.push(this.currentSound);
+    }
     this.currentSound = null;
     this.currentPostId = null;
     this.notifyListeners(null);
-    if (sound) {
-      try {
-        const status = await sound.getStatusAsync();
-        if (status.isLoaded) {
-          if (status.isPlaying) {
-            await sound.stopAsync().catch(() => {});
-          }
-          await sound.unloadAsync().catch(() => {});
-        }
-      } catch (_) {
-        // Sound already gone — safe to ignore
-      }
+    if (sounds.length > 0) {
+      await Promise.all(sounds.map((s) => this.stopSound(s)));
       logger.debug('Stopped all audio');
     }
+  }
+
+  playSound(sound: Audio.Sound, postId: string): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.isFrozen()) {
+        // Caller's screen is mid-blur. Don't start playback — just unload the
+        // sound the caller already loaded so we don't leak a native player.
+        try { await sound.unloadAsync(); } catch (_) {}
+        logger.debug('audioManager.playSound bypassed (frozen):', postId);
+        return;
+      }
+      await this.stopAllNow(sound);
+      this.activeSounds.add(sound);
+      this.currentSound = sound;
+      this.currentPostId = postId;
+      await sound.playAsync().catch(() => {});
+      this.notifyListeners(postId);
+      logger.debug('Playing audio:', postId);
+    });
+  }
+
+  stopAll(): Promise<void> {
+    return this.enqueue(() => this.stopAllNow());
   }
 
   async deactivateSession(): Promise<void> {
@@ -120,12 +142,13 @@ class AudioManager {
    * Instantly pause the current active sound
    */
   async pauseCurrentSound(): Promise<void> {
-    const sound = this.currentSound;
-    if (sound) {
-      try {
-        await sound.pauseAsync().catch(() => {});
-      } catch (_) {}
-    }
+    // Pause every tracked sound, not only the current one, so a song that escaped
+    // tracking during a fast swipe cannot keep playing under the next short.
+    const sounds = new Set(this.activeSounds);
+    if (this.currentSound) sounds.add(this.currentSound);
+    await Promise.all(
+      Array.from(sounds).map((s) => s.pauseAsync().catch(() => {}))
+    );
   }
 
   /**

@@ -1855,8 +1855,6 @@ export default function HomeScreen() {
         <View style={styles.safeArea}>
           <StatusBar
             barStyle={isDark ? 'light-content' : 'dark-content'}
-            backgroundColor="transparent"
-            translucent
           />
           <View style={[styles.topBarContainer, { position: 'relative' }]}>
             <BlurView
@@ -1891,8 +1889,6 @@ export default function HomeScreen() {
       {screenBg}
       <StatusBar 
         barStyle={isDark ? 'light-content' : 'dark-content'} 
-        backgroundColor="transparent"
-        translucent
       />
       <View style={styles.safeArea}>
         {/* Scrollable feed container (zIndex: 1) */}

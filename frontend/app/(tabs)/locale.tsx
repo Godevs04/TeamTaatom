@@ -1,3 +1,4 @@
+import type { ComponentRef } from 'react';
 import React, { useState, useEffect, useReducer, useMemo, useCallback, useRef } from 'react';
 import {
   View,
@@ -40,7 +41,7 @@ import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureM
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { matchGradientLocations } from '../../utils/linearGradient';
-import MaskedView from '@react-native-masked-view/masked-view';
+import MaskedView from '../../components/ui/MaskedView';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import { getLocales, getLocaleById, Locale } from '../../services/locale';
 import { updateDynamicLocation } from '../../services/userManagement';
@@ -1086,7 +1087,7 @@ export default function LocaleScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const savedScrollOffsetRef = useRef<number>(0);
   const flatListRef = useRef<any>(null);
-  const filterScrollRef = useRef<ScrollView>(null);
+  const filterScrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
 
   // Pulsing animation for skeletons
   const skeletonAnim = useRef(new Animated.Value(0.3)).current;
@@ -3844,7 +3845,7 @@ export default function LocaleScreen() {
   if (loading && !calculatingDistances) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <StatusBar barStyle="dark-content" />
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color="#4A90E2" />
         </View>
@@ -3868,8 +3869,6 @@ export default function LocaleScreen() {
     >
       <StatusBar
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor="transparent"
-        translucent
       />
 
       <LinearGradient
