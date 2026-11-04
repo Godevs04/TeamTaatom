@@ -35,10 +35,22 @@ export function toSameOriginApiUrl(raw: string): string {
   return raw;
 }
 
-/** Playable video URL for a short / long video, routed through the web proxy when it points at our API. */
+/**
+ * Browser-playable video URL: same-origin API proxy, and for the HLS playlist
+ * proxy also `seg=proxy` so the backend lists segments as same-origin proxy
+ * URLs. Without it segments are signed storage-bucket URLs, which hls.js
+ * (Chrome/Firefox/Edge) can't fetch cross-origin unless the bucket has CORS.
+ */
+export function toWebVideoUrl(raw: string): string {
+  const url = toSameOriginApiUrl(raw);
+  if (!/[?&]hls=master\b/.test(url) || /[?&]seg=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}seg=proxy`;
+}
+
+/** Playable video URL for a short / long video (see toWebVideoUrl). */
 export function getPlayableVideoUrl(post: Pick<Post, "mediaUrl" | "videoUrl"> | null | undefined): string {
   const raw = post?.mediaUrl || post?.videoUrl || "";
-  return typeof raw === "string" ? toSameOriginApiUrl(raw) : "";
+  return typeof raw === "string" ? toWebVideoUrl(raw) : "";
 }
 
 /**

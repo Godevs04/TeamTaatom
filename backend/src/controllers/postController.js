@@ -81,8 +81,14 @@ const handleHLSProxy = async (req, res) => {
 
   if (hls === 'master') {
     const s3Key = `shorts/hls/${postId}/index.m3u8`;
+    // `seg=proxy` (sent by the web app): point segments at this same proxy with
+    // relative URLs instead of signed bucket URLs. Browsers play HLS via hls.js,
+    // which fetches segments with XHR — signed bucket URLs are cross-origin and
+    // fail without a bucket CORS policy. Native players (mobile, Safari) keep
+    // the direct signed URLs.
+    const proxySegments = req.query.seg === 'proxy';
     try {
-      const playlistCacheKey = CacheKeys.shortsHlsPlaylist(String(postId));
+      const playlistCacheKey = `${CacheKeys.shortsHlsPlaylist(String(postId))}${proxySegments ? ':proxy' : ''}`;
       const cachedPlaylist = await getCache(playlistCacheKey);
       if (typeof cachedPlaylist === 'string' && cachedPlaylist.length > 0) {
         res.setHeader('Content-Type', 'application/x-mpegURL');
@@ -114,6 +120,10 @@ const handleHLSProxy = async (req, res) => {
         const trimmed = line.trim();
         if (!trimmed.endsWith('.ts') || trimmed.startsWith('http') || !/^[A-Za-z0-9._-]+\.ts$/.test(trimmed)) {
           return line;
+        }
+        if (proxySegments) {
+          // Relative: resolves against the playlist URL, i.e. the web origin's /api/v1 proxy.
+          return `/api/v1/shorts?hls=segment&postId=${postId}&file=${trimmed}`;
         }
         const segmentKey = `shorts/hls/${postId}/${trimmed}`;
         try {
@@ -148,6 +158,13 @@ const handleHLSProxy = async (req, res) => {
 
       res.setHeader('Content-Type', 'video/MP2T');
       res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache segment for 24 hours
+      if (typeof s3Response.ContentLength === 'number') {
+        res.setHeader('Content-Length', String(s3Response.ContentLength));
+      }
+      s3Response.Body.on('error', (streamErr) => {
+        logger.error(`[HLS Proxy] Segment stream error for post ${postId}, file ${file}:`, streamErr);
+        res.destroy(streamErr);
+      });
       s3Response.Body.pipe(res);
     } catch (err) {
       logger.error(`[HLS Proxy] Segment error for post ${postId}, file ${file}:`, err);

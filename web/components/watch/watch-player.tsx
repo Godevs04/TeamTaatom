@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { attachVideoSource, type AttachedVideoSource } from "../../lib/hls-attach";
-import { toSameOriginApiUrl } from "../../lib/post-utils";
+import { toWebVideoUrl } from "../../lib/post-utils";
 import { Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { AdSenseUnit } from "../ads/adsense-unit";
 import {
@@ -223,7 +223,7 @@ export function WatchPlayer({
     cleanupSource();
 
     const setup = async () => {
-      const attached = await attachVideoSource(el, toSameOriginApiUrl(videoUrl), {
+      const attached = await attachVideoSource(el, toWebVideoUrl(videoUrl), {
         onFatal: () => {
           setPlaybackError("Couldn’t load this stream. Tap retry.");
           setPaused(true);
