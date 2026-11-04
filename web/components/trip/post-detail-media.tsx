@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { toSameOriginApiUrl } from "../../lib/post-utils";
+import { toWebVideoUrl } from "../../lib/post-utils";
 import { HlsVideo } from "../media/hls-video";
 
 export function PostDetailMedia({
@@ -21,7 +21,7 @@ export function PostDetailMedia({
   posterUrl?: string;
   isLongVideo?: boolean;
 }) {
-  const playableUrl = videoUrl ? toSameOriginApiUrl(videoUrl) : "";
+  const playableUrl = videoUrl ? toWebVideoUrl(videoUrl) : "";
   const [index, setIndex] = React.useState(0);
   const [lightbox, setLightbox] = React.useState(false);
   const current = images[Math.min(index, Math.max(images.length - 1, 0))] || "";

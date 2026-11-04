@@ -110,10 +110,22 @@ const ipKeyGenerator = (req) => {
   return req.ip || req.connection?.remoteAddress || 'unknown';
 };
 
+/**
+ * HLS playlist / segment fetches (GET /api/v1/shorts?hls=master|segment) are
+ * read-only media requests issued by the video player — one short is ~5-20 of
+ * them when segments are proxied for browsers — so they must not consume the
+ * general API budget or players start failing with 429s mid-scroll.
+ */
+const isHlsMediaRequest = (req) =>
+  req.method === 'GET' &&
+  req.path.replace(/\/+$/, '') === '/api/v1/shorts' &&
+  (req.query?.hls === 'master' || req.query?.hls === 'segment');
+
 // General rate limiter
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 1000, // 1000 requests per 15 minutes
+  skip: isHlsMediaRequest,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
