@@ -93,8 +93,9 @@ const androidVersionCode = appJson.expo.android?.versionCode;
 
 console.log(`\n📱 Version Information:`);
 console.log(`   Version: ${version}`);
-console.log(`   iOS Build Number: ${iosBuildNumber}`);
-console.log(`   Android Version Code: ${androidVersionCode}`);
+// eas.json `appVersionSource: "remote"`: EAS assigns build numbers, so app.json omits them.
+console.log(`   iOS Build Number: ${iosBuildNumber ?? 'managed remotely by EAS'}`);
+console.log(`   Android Version Code: ${androidVersionCode ?? 'managed remotely by EAS'}`);
 
 // Verify bundle identifiers
 const iosBundleId = appJson.expo.ios?.bundleIdentifier;

@@ -40,6 +40,7 @@
     "babel-preset-expo": "~58.0.0",
     "cashfree-pg-api-contract": "^2.1.1",
     "expo": "~58.0.23",
+    "expo-application": "~58.1.2",
     "expo-asset": "~58.0.20",
     "expo-audio": "~58.0.11",
     "expo-auth-session": "~58.0.17",

@@ -3,9 +3,9 @@
  * Handles automatic update checking and installation using Expo Updates
  */
 
-import { Platform } from 'react-native';
 import { showGlobalAlert } from '../utils/globalAlertHandler';
 import Constants from 'expo-constants';
+import { getNativeBuildNumber } from '../utils/buildInfo';
 import logger from '../utils/logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -290,11 +290,7 @@ class UpdateService {
    * Get current build number
    */
   getCurrentBuildNumber(): string {
-    if (Platform.OS === 'ios') {
-      return Constants.expoConfig?.ios?.buildNumber || '1';
-    } else {
-      return String(Constants.expoConfig?.android?.versionCode || 1);
-    }
+    return getNativeBuildNumber();
   }
 
   /**
