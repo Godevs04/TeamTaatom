@@ -270,9 +270,11 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
   }
 
   const { NativeAdView: AdView, NativeAsset: Asset, NativeAssetType: AssetType, NativeMediaView: MediaView } = adsModule;
-  const hasVideo = !!nativeAd.mediaContent?.hasVideoContent;
   const imageUrl = nativeAd.images?.[0]?.url as string | undefined;
-  const showMediaView = !!nativeAd.mediaContent && (hasVideo || !imageUrl);
+  // Google requires the main image/video to render through MediaView (it also
+  // drives impression + click tracking for the media area). The plain image asset
+  // is only a fallback for ads that return no mediaContent.
+  const showMediaView = !!nativeAd.mediaContent;
 
   return (
     <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]} pointerEvents="box-none">
