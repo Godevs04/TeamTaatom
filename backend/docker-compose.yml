@@ -6,7 +6,21 @@ services:
     image: redis:7-alpine
     container_name: taatom-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # Redis only holds cache entries and rate-limit counters (all rebuildable), so:
+    #  - cap memory and evict least-recently-used keys instead of growing into swap on the 2 GB host
+    #  - skip AOF/RDB persistence (no disk writes on every cache set)
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-200mb}
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "no"
+      - --save
+      - ""
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
@@ -36,6 +50,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # Keep the V8 heap well inside the 2 GB host (Redis + OS + ffmpeg need the rest);
+      # without a cap Node grows until the box swaps, which users feel as lag.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=768}
       # Inside this compose network the Redis service is named "redis", not localhost.
       REDIS_HOST: redis
     depends_on:

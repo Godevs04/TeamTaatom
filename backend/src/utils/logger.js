@@ -122,6 +122,8 @@ const logger = {
    * Supports both: logger.debug(message, data) and logger.debug(...args) for backward compatibility
    */
   debug: (message, ...args) => {
+    // Debug output is development-only; skip the work entirely elsewhere.
+    if (!isDevelopment) return;
     if (shouldLog('debug')) {
       // Handle legacy calls: logger.debug('message', arg1, arg2, ...)
       const data = args.length > 0 && typeof args[0] === 'object' && !(args[0] instanceof Error)
@@ -142,6 +144,8 @@ const logger = {
    * Supports both: logger.info(message, data) and logger.info(...args) for backward compatibility
    */
   info: (message, ...args) => {
+    // Production only prints info with STRUCTURED_LOGGING; skip building an entry nobody sees.
+    if (!isDevelopment && process.env.STRUCTURED_LOGGING !== 'true') return;
     if (shouldLog('info')) {
       // Handle legacy calls: logger.info('message', arg1, arg2, ...)
       const data = args.length > 0 && typeof args[0] === 'object' && !(args[0] instanceof Error)

@@ -1,7 +1,6 @@
 const rateLimit = require('express-rate-limit');
 const RedisStore = require('rate-limit-redis').default;
-const { redisClient } = require('../utils/cache');
-const logger = require('../utils/logger');
+const { redisClient, reportRedisError } = require('../utils/cache');
 
 // Custom resilient store that delegates to RedisStore if Redis is ready,
 // and falls back to express-rate-limit's built-in MemoryStore otherwise.
@@ -40,7 +39,7 @@ class ResilientRedisStore {
             this.redisStore.init(this.options);
           }
         } catch (err) {
-          logger.error(`Failed to initialize RedisStore for prefix ${this.prefix}:`, err.message);
+          reportRedisError({ module: `rate-limit:${this.prefix}`, operation: 'init' }, err);
           return null;
         }
       }
@@ -55,7 +54,7 @@ class ResilientRedisStore {
       try {
         return await store.get(key);
       } catch (err) {
-        logger.warn(`Rate limiter Redis get failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+        reportRedisError({ module: `rate-limit:${this.prefix}`, operation: 'get', level: 'warning', extra: { fallback: 'memory' } }, err);
       }
     }
     if (typeof this.memoryStore.get === 'function') {
@@ -69,7 +68,7 @@ class ResilientRedisStore {
       try {
         return await store.increment(key);
       } catch (err) {
-        logger.warn(`Rate limiter Redis increment failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+        reportRedisError({ module: `rate-limit:${this.prefix}`, operation: 'increment', level: 'warning', extra: { fallback: 'memory' } }, err);
       }
     }
     return await this.memoryStore.increment(key);
@@ -81,7 +80,7 @@ class ResilientRedisStore {
       try {
         return await store.decrement(key);
       } catch (err) {
-        logger.warn(`Rate limiter Redis decrement failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+        reportRedisError({ module: `rate-limit:${this.prefix}`, operation: 'decrement', level: 'warning', extra: { fallback: 'memory' } }, err);
       }
     }
     return await this.memoryStore.decrement(key);
@@ -93,7 +92,7 @@ class ResilientRedisStore {
       try {
         return await store.resetKey(key);
       } catch (err) {
-        logger.warn(`Rate limiter Redis resetKey failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+        reportRedisError({ module: `rate-limit:${this.prefix}`, operation: 'resetKey', level: 'warning', extra: { fallback: 'memory' } }, err);
       }
     }
     return await this.memoryStore.resetKey(key);

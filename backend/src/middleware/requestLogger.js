@@ -98,9 +98,42 @@ const extractResponseInfo = (res, responseTime) => {
 /**
  * Request/Response logging middleware
  */
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+// Production default is 'minimal': nothing is logged for normal traffic. Set REQUEST_LOG_MODE=full
+// to get the old per-request request/response logging while debugging.
+const REQUEST_LOG_MODE = process.env.REQUEST_LOG_MODE || (IS_DEVELOPMENT ? 'full' : 'minimal');
+const SLOW_REQUEST_MS = parseInt(process.env.SLOW_REQUEST_MS, 10) || 3000;
+
+/** Production logging: one line for server errors and slow requests only, nothing per normal request. */
+const minimalRequestLogger = (req, res, next) => {
+  const startTime = process.hrtime.bigint();
+  res.on('finish', () => {
+    const responseTime = Number(process.hrtime.bigint() - startTime) / 1e6;
+    const isServerError = res.statusCode >= 500;
+    const isSlow = responseTime >= SLOW_REQUEST_MS;
+    if (!isServerError && !isSlow) return;
+    if (req.path === '/health' || req.path === '/api/health') return;
+    const entry = {
+      requestId: req.id || undefined,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      responseTimeMs: Math.round(responseTime),
+      platform: req.get('x-platform') || undefined,
+      type: isServerError ? 'server_error' : 'slow_request',
+    };
+    if (isServerError) logger.error('API Response', entry);
+    else logger.warn('Slow API request', entry);
+  });
+  next();
+};
+
 const requestLogger = (req, res, next) => {
   if (!ENABLE_REQUEST_LOGGING) {
     return next();
+  }
+  if (REQUEST_LOG_MODE !== 'full') {
+    return minimalRequestLogger(req, res, next);
   }
 
   const startTime = Date.now();

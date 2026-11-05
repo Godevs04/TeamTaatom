@@ -19,9 +19,11 @@ if (SENTRY_DSN) {
     environment: process.env.NODE_ENV || process.env.SENTRY_ENVIRONMENT || 'development',
     
     // Traces sample rate for performance monitoring (0.0 to 1.0)
-    tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE 
-      ? parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE) 
-      : 1.0,
+    // Tracing every request costs CPU/memory on the small production host; sample 10% there
+    // unless SENTRY_TRACES_SAMPLE_RATE says otherwise. Errors are always captured regardless.
+    tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE
+      ? parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE)
+      : (process.env.NODE_ENV === 'production' ? 0.1 : 1.0),
     
     // Enable debug mode in development
     debug: process.env.SENTRY_DEBUG === 'true' || false,
