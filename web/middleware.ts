@@ -41,7 +41,26 @@ function isAuthRoute(pathname: string) {
   return AUTH_ROUTES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+/**
+ * Read-only pages that logged-out visitors (and Google / AdSense crawlers) may
+ * view: the places directory, a place, a single trip, and a profile. The backend
+ * still enforces profile privacy for anonymous viewers (private / followers-only
+ * content is not returned), and every interaction (like, comment, follow, save,
+ * navigate) still requires sign-in.
+ */
+const PUBLIC_READ_PATTERNS = [
+  /^\/locale\/?$/,
+  /^\/locale\/[^/]+\/?$/,
+  /^\/trip\/[^/]+\/?$/,
+  /^\/profile\/[^/]+\/?$/,
+];
+
+function isPublicRead(pathname: string) {
+  return PUBLIC_READ_PATTERNS.some((re) => re.test(pathname));
+}
+
 function isProtected(pathname: string) {
+  if (isPublicRead(pathname)) return false;
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 

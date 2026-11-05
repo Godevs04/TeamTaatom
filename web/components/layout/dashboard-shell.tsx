@@ -57,7 +57,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isShortsRoute = Boolean(pathname?.startsWith("/shorts"));
   const mounted = useMounted();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  // Logged-out visitors can read public pages (places, trips, profiles).
+  const isGuest = mounted && !authLoading && !user;
   const profileHref = mounted && user?._id ? `/profile/${user._id}` : "/feed";
 
   return (
@@ -197,6 +199,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             isShortsRoute && "h-[calc(100vh-3.5rem)] max-w-none p-0"
           )}
         >
+          {isGuest ? (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
+              <p className="text-sm text-slate-700 dark:text-zinc-200">
+                You&apos;re browsing Taatom as a guest. Sign in to like, comment, save and follow travelers.
+              </p>
+              <Link
+                href={`/auth/login?next=${encodeURIComponent(pathname || "/feed")}`}
+                className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-on-primary hover:opacity-90"
+              >
+                Sign in
+              </Link>
+            </div>
+          ) : null}
           {children}
         </div>
       </div>

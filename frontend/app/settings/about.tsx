@@ -21,6 +21,7 @@ import { getUserFromStorage } from '../../services/auth';
 import api from '../../services/api';
 import CustomAlert from '../../components/CustomAlert';
 import Constants from 'expo-constants';
+import { getNativeBuildNumber } from '../../utils/buildInfo';
 import logger from '../../utils/logger';
 import { theme } from '../../constants/theme';
 import AboutPolicies from '../../components/AboutPolicies';
@@ -201,7 +202,7 @@ export default function AboutSettingsScreen() {
       if (!updateService.isEnabled()) {
         // Updates not enabled (development mode or Expo Go)
         const currentVersion = Constants.expoConfig?.version || '1.0.0';
-        const buildNumber = Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '1';
+        const buildNumber = getNativeBuildNumber();
         showSuccess(
           `You are using version ${currentVersion} (Build ${buildNumber}).\n\nUpdates are only available in production builds.`,
           'Check for Updates'
@@ -231,7 +232,7 @@ export default function AboutSettingsScreen() {
     } catch (error: any) {
       logger.error('Error checking for updates:', error);
       const currentVersion = Constants.expoConfig?.version || '1.0.0';
-      const buildNumber = Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '1';
+      const buildNumber = getNativeBuildNumber();
       showSuccess(
         `You are using version ${currentVersion} (Build ${buildNumber}).\n\nIf an update is available, you can also get it from the App Store or Play Store.`,
         'Check for Updates'

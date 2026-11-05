@@ -67,6 +67,7 @@
 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import { getNativeBuildNumber } from './buildInfo';
 import logger from './logger';
 
 interface ErrorContext {
@@ -243,7 +244,7 @@ export const reportError = (error: any, context: ErrorContext = {}): void => {
     Sentry.setContext('error_details', {
       // Application info
       appVersion: Constants.expoConfig?.version || '1.0.0',
-      buildNumber: Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || 'unknown',
+      buildNumber: getNativeBuildNumber(),
       platform: Platform.OS,
       platformVersion: Platform.Version,
       
