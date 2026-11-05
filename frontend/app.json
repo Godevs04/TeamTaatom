@@ -259,7 +259,11 @@
       "./plugins/withCashfreeSubscriptionAndroid.js",
       "./plugins/withFfmpegKitIos.js"
     ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "updates": {
+      "url": "https://u.expo.dev/c3b80b3d-23d8-4948-abfa-80963e4192d0",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0

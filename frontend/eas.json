@@ -12,6 +12,7 @@
     },
     "development": {
       "extends": "base",
+      "channel": "development",
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
@@ -28,6 +29,7 @@
     },
     "preview": {
       "extends": "base",
+      "channel": "preview",
       "distribution": "internal",
       "ios": {
         "simulator": false,
@@ -43,6 +45,7 @@
     },
     "production": {
       "extends": "base",
+      "channel": "production",
       "distribution": "store",
       "ios": {
         "simulator": false,

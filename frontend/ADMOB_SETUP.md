@@ -10,7 +10,7 @@ google.com, pub-6362359854606661, DIRECT, f08c47fec0942fa0
 
 - **Web:** Served at `https://your-domain.com/app-ads.txt` (see `web/public/app-ads.txt`). Deploy the web app and ensure your domain is listed in Google Play / App Store as the developer website so AdMob can verify.
 - **AdMob:** In AdMob → Apps → Set up app-ads.txt, add your developer website domain and wait 24+ hours for verification.
-
+ 
 ## Mobile app (iOS / Android)
 
 ### 1. App IDs in app.json

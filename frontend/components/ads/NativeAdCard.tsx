@@ -40,7 +40,8 @@ const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 export type NativeAdCardProps = {
   /** Unique key for list stability; used to avoid re-loading same slot on re-mount */
   adIndex: number;
-  /** Start the ad request only after this row is on screen. */
+  /** Start the ad request once this row is on (or next to) the screen. Latches:
+   *  scrolling away later does not destroy an ad that already loaded. */
   visible?: boolean;
   /** Fired exactly once when the ad finishes loading and is about to render.
    *  Used by the home-feed cap tracker to count Google ad impressions toward
@@ -90,6 +91,10 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
   const impressionFiredRef = useRef(false);
 
   const unitId = Platform.OS === 'android' ? ADMOB.android.native : ADMOB.ios.native;
+  const [armed, setArmed] = useState(visible);
+  useEffect(() => {
+    if (visible) setArmed(true);
+  }, [visible]);
 
   // Refs to fire onLoadFailed at most once per slot, regardless of which
   // failure path triggered it. Without these, the parent could be told to
@@ -140,7 +145,7 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
 
   // Load the native ad once the module is available. Optional: preload one ad in a ref and reuse to reduce load cycles.
   useEffect(() => {
-    if (!visible) return;
+    if (!armed) return;
     if (!adsModule || !unitId || unitId.includes('XXXXXXXXXX')) {
       if (adsModule === null && !moduleError) return;
       setLoading(false);
@@ -231,7 +236,7 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
     // ad load every time the parent re-creates the callback, leaking ad
     // requests and double-counting impressions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adsModule, unitId, adIndex, visible]);
+  }, [adsModule, unitId, adIndex, armed]);
 
   const frame = mediaFrame(windowWidth, nativeAd?.mediaContent?.aspectRatio);
 
