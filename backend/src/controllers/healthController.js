@@ -6,7 +6,7 @@
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
-const { redisClient } = require('../utils/cache');
+const { redisClient, reportRedisError } = require('../utils/cache');
 
 /**
  * Basic health check - quick response for load balancers
@@ -69,12 +69,11 @@ const detailedHealthCheck = async (req, res) => {
     };
 
     const isDbHealthy = dbState === 1;
+    // Public endpoint: never expose the database host, name or stats. Report a real round-trip
+    // time instead — it shows at a glance whether Atlas is close to this server.
     healthStatus.services.database = {
       status: isDbHealthy ? 'healthy' : 'unhealthy',
       state: dbStates[dbState] || 'unknown',
-      name: mongoose.connection.name || 'unknown',
-      host: mongoose.connection.host || 'unknown',
-      port: mongoose.connection.port || 'unknown',
     };
 
     if (!isDbHealthy) {
@@ -82,20 +81,13 @@ const detailedHealthCheck = async (req, res) => {
       healthStatus.status = 'degraded';
     }
 
-    // Get database stats if connected
     if (isDbHealthy) {
       try {
-        const dbStats = await mongoose.connection.db.stats();
-        healthStatus.services.database.stats = {
-          collections: dbStats.collections,
-          dataSize: Math.round(dbStats.dataSize / 1024 / 1024),
-          storageSize: Math.round(dbStats.storageSize / 1024 / 1024),
-          indexes: dbStats.indexes,
-          indexSize: Math.round(dbStats.indexSize / 1024 / 1024),
-          unit: 'MB',
-        };
-      } catch (statsError) {
-        logger.warn('Failed to get database stats', { error: statsError.message });
+        const pingStarted = Date.now();
+        await mongoose.connection.db.admin().ping();
+        healthStatus.services.database.responseTimeMs = Date.now() - pingStarted;
+      } catch (pingError) {
+        logger.warn('Database ping failed', { error: pingError.message });
       }
     }
   } catch (error) {
@@ -131,7 +123,7 @@ const detailedHealthCheck = async (req, res) => {
         responseTimeMs,
       };
     } catch (error) {
-      logger.error('Redis health check failed', error);
+      reportRedisError({ module: 'health', operation: 'ping' }, error);
       healthStatus.services.redis = {
         status: 'unhealthy',
         error: error.message,

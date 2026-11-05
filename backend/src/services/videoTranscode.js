@@ -65,6 +65,13 @@ function tryLoadFfmpeg() {
   return ffmpeg;
 }
 
+// The API and ffmpeg share a small host (2 vCPU). Unbounded, libx264 takes every core for the
+// whole encode and every request queues behind it. Cap the threads and lower ffmpeg's CPU priority
+// so the API always has a core; transcodes run in the background, so slower encodes are fine.
+const FFMPEG_THREADS = Math.max(1, parseInt(process.env.FFMPEG_THREADS, 10) || 1);
+const FFMPEG_THREAD_OPTIONS = [`-threads ${FFMPEG_THREADS}`];
+const FFMPEG_NICE = Math.min(19, Math.max(0, parseInt(process.env.FFMPEG_NICE, 10) || 10));
+
 function tmpFile(ext) {
   const id = crypto.randomBytes(8).toString('hex');
   return path.join(os.tmpdir(), `taatom-short-${id}.${ext}`);
@@ -101,7 +108,7 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
   let outputWritten = false;
 
   try {
-    fs.writeFileSync(inputPath, inputBuffer);
+    await fs.promises.writeFile(inputPath, inputBuffer);
     inputWritten = true;
 
     // Probe to decide whether re-encoding is needed.
@@ -166,7 +173,9 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
       ff(inputPath)
         .videoCodec('libx264')
         .audioCodec('aac')
+        .renice(FFMPEG_NICE)
         .outputOptions([
+          ...FFMPEG_THREAD_OPTIONS,
           '-preset veryfast',
           '-profile:v main',
           '-level 4.0',
@@ -188,7 +197,7 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
     outputWritten = true;
     const transcodeMs = Date.now() - transcodeStart;
 
-    const outputBuffer = fs.readFileSync(outputPath);
+    const outputBuffer = await fs.promises.readFile(outputPath);
     logger.info('[videoTranscode] Transcoded successfully', {
       inputBytes: inputBuffer.length,
       outputBytes: outputBuffer.length,
@@ -225,7 +234,9 @@ function transcodeToHLS(inputPath, outputDir) {
     ff(inputPath)
       .videoCodec('libx264')
       .audioCodec('aac')
+      .renice(FFMPEG_NICE)
       .outputOptions([
+        ...FFMPEG_THREAD_OPTIONS,
         '-preset veryfast',
         '-profile:v main',
         '-level 4.0',
@@ -404,7 +415,7 @@ async function processJob(job, Post) {
 
       for (const file of files) {
         const filePath = path.join(tempOutDir, file);
-        const fileBuffer = fs.readFileSync(filePath);
+        const fileBuffer = await fs.promises.readFile(filePath);
         const fileExt = file.split('.').pop() || '';
 
         let contentType = 'application/x-mpegURL';

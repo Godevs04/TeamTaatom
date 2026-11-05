@@ -201,18 +201,18 @@ async function getPublicAuthorIdStrings() {
 }
 
 async function getAllowedPostAuthorIds(viewerId) {
-  const publicIds = await getPublicAuthorIdStrings();
-
   if (!viewerId) {
-    return publicIds;
+    return getPublicAuthorIdStrings();
   }
   const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId) ? new mongoose.Types.ObjectId(viewerId) : null;
   if (!viewerObjId) return [];
 
-  // publicUsers and follows are independent of each other — only restrictedAuthors
-  // genuinely depends on follows' result (followingIds), so only that one stays
-  // after the first two.
-  const follows = await Follow.find({ follower: viewerObjId }).select('following').lean();
+  // publicUsers and follows are independent of each other, so fetch them together; only
+  // restrictedAuthors depends on follows' result (followingIds).
+  const [publicIds, follows] = await Promise.all([
+    getPublicAuthorIdStrings(),
+    Follow.find({ follower: viewerObjId }).select('following').lean(),
+  ]);
   const followingIds = follows.map(f => f.following);
   const restrictedAuthors = await User.find({
     _id: { $in: followingIds },
@@ -288,8 +288,11 @@ const getPosts = async (req, res) => {
     }
 
     const result = await cacheWrapper(cacheKey, async () => {
-      let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
-      const blockedIds = viewerId ? await getBidirectionalBlockedIds(viewerId) : [];
+      // Independent lookups — one Atlas round trip instead of two in a row.
+      let [allowedAuthorIds, blockedIds] = await Promise.all([
+        getAllowedPostAuthorIds(viewerId),
+        viewerId ? getBidirectionalBlockedIds(viewerId) : Promise.resolve([]),
+      ]);
       const blockedSet = new Set(blockedIds);
       let allowedFiltered = blockedIds.length
         ? allowedAuthorIds.filter(id => !blockedSet.has(id.toString()))

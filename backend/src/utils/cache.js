@@ -5,6 +5,15 @@
 const Redis = require('ioredis');
 const logger = require('./logger');
 
+// Sentry is initialised in src/instrument.js (loaded first by server.js); requiring the SDK here
+// returns that same client. Before init (tests, scripts) captureException is a no-op.
+let Sentry = null;
+try {
+  Sentry = require('@sentry/node');
+} catch {
+  Sentry = null;
+}
+
 const memoryStore = new Map();
 const MAX_MEMORY_KEYS = 1000;
 
@@ -44,6 +53,88 @@ const describeRedisError = (err) => {
     return err.errors.map((e) => e.message || e.code).filter(Boolean).join('; ');
   }
   return err.code || String(err);
+};
+
+/**
+ * Which feature a cache key belongs to, used to tag Sentry events so a Redis
+ * problem can be traced to the module that hit it.
+ */
+const moduleForKey = (key) => {
+  if (!key || typeof key !== 'string') return 'unknown';
+  if (/^user:[^:]+:posts:/.test(key)) return 'user-posts';
+  const head = key.split(':')[0];
+  const MODULES = {
+    posts: 'posts-feed',
+    post: 'post',
+    user: 'profile',
+    session: 'session',
+    search: 'search',
+    trending: 'trending',
+    hashtag: 'hashtag',
+    locales: 'locale',
+    shorts: 'shorts',
+    signedurl: 'media-signed-url',
+    blocked: 'blocked-users',
+    authuser: 'auth',
+    analytics: 'analytics-admin',
+    idx: 'cache-index',
+  };
+  return MODULES[head] || head || 'unknown';
+};
+
+const REPORT_THROTTLE_MS = 60 * 1000;
+const lastReportAt = new Map();
+
+/**
+ * Log a Redis failure and send it to Sentry, tagged with the module and operation.
+ * Identical failures (same module + operation + error code) are reported at most once a minute
+ * so an outage cannot flood Sentry.
+ *
+ * @param {object} info
+ * @param {string} info.module - feature that hit the error (e.g. 'posts-feed', 'rate-limit:general')
+ * @param {string} info.operation - Redis/cache operation (e.g. 'get', 'set', 'invalidate')
+ * @param {Error} err
+ * @param {object} [info.extra] - extra non-sensitive context (never values)
+ * @param {'error'|'warning'} [info.level]
+ */
+const reportRedisError = ({ module: mod, operation, extra, level = 'error' }, err) => {
+  const code = err?.code || err?.name || 'ERR';
+  const message = describeRedisError(err);
+  const throttleKey = `${mod}|${operation}|${code}`;
+  const now = Date.now();
+  const last = lastReportAt.get(throttleKey) || 0;
+  if (now - last < REPORT_THROTTLE_MS) return;
+  lastReportAt.set(throttleKey, now);
+  if (lastReportAt.size > 500) lastReportAt.clear();
+
+  const logFn = level === 'warning' ? logger.warn : logger.error;
+  logFn(`[Redis][${mod}] ${operation} failed: ${message}`, { code, ...extra });
+
+  if (!Sentry || typeof Sentry.captureException !== 'function' || !process.env.SENTRY_DSN) return;
+  try {
+    const error = err instanceof Error ? err : new Error(message);
+    Sentry.withScope((scope) => {
+      scope.setLevel(level);
+      scope.setTag('component', 'redis');
+      scope.setTag('redis.module', mod);
+      scope.setTag('redis.operation', operation);
+      scope.setTag('redis.code', String(code));
+      scope.setContext('redis', {
+        module: mod,
+        operation,
+        code,
+        message,
+        connected: isRedisConnected,
+        status: redisClient?.status,
+        ...extra,
+      });
+      // One Sentry issue per module/operation/code instead of one per stack trace.
+      scope.setFingerprint(['redis', mod, operation, String(code)]);
+      Sentry.captureException(error);
+    });
+  } catch {
+    // Reporting must never break a request.
+  }
 };
 
 try {
@@ -86,19 +177,45 @@ try {
     }
     lastRedisErrorKey = errorKey;
     lastRedisErrorAt = now;
-    logger.warn('Redis connection error, falling back to local memory cache:', {
-      error: describeRedisError(err),
-      code: err?.code,
-      target: redisUrl ? 'REDIS_URL' : `${redisHost}:${redisPort}`,
-    });
+    reportRedisError({
+      module: 'redis-connection',
+      operation: 'connect',
+      level: 'warning',
+      extra: { target: redisUrl ? 'REDIS_URL' : `${redisHost}:${redisPort}`, fallback: 'memory' },
+    }, err);
   });
 
   redisClient.on('close', () => {
     isRedisConnected = false;
   });
 } catch (err) {
-  logger.warn('Failed to initialize Redis client, falling back to local memory cache:', { error: err.message });
+  reportRedisError({ module: 'redis-connection', operation: 'init', extra: { fallback: 'memory' } }, err);
 }
+
+/**
+ * Bulk invalidation without SCAN.
+ * deleteCacheByPattern('posts:*') used to SCAN the whole keyspace (signed URLs, sessions, shorts…)
+ * on every like/comment/save. Keys in these groups are now also recorded in a small Redis SET
+ * (`idx:<prefix>`), so invalidating a group only touches that group's keys.
+ */
+const INDEX_PREFIX_RULES = [
+  /^posts:/,
+  /^user:[^:]+:posts:/,
+  /^hashtag:[^:]+:/,
+  /^locales:/,
+  /^shorts:feed:first:/,
+];
+const INDEX_KEY_TTL_SECONDS = 2 * 60 * 60; // longer than any TTL used for indexed keys
+
+/** The index group a key belongs to (e.g. 'user:42:posts:'), or null if it is not indexed. */
+const indexPrefixFor = (key) => {
+  for (const rule of INDEX_PREFIX_RULES) {
+    const m = key.match(rule);
+    if (m) return m[0];
+  }
+  return null;
+};
+const indexKeyFor = (prefix) => `idx:${prefix}`;
 
 /**
  * Get cached value
@@ -110,9 +227,16 @@ const getCache = async (key) => {
     try {
       const data = await redisClient.get(key);
       if (!data) return null;
-      return JSON.parse(data);
+      try {
+        return JSON.parse(data);
+      } catch (parseErr) {
+        // Corrupt entry: drop it so every later read doesn't fail the same way.
+        reportRedisError({ module: moduleForKey(key), operation: 'get:parse' }, parseErr);
+        redisClient.unlink(key).catch(() => {});
+        return null;
+      }
     } catch (err) {
-      logger.error('Redis getCache error:', err);
+      reportRedisError({ module: moduleForKey(key), operation: 'get' }, err);
       return null;
     }
   }
@@ -144,14 +268,26 @@ const setCache = async (key, value, ttl = CACHE_TTL.POST) => {
   if (redisClient && isRedisConnected) {
     try {
       const stringified = JSON.stringify(value);
-      if (ttl) {
+      const indexPrefix = indexPrefixFor(key);
+      if (indexPrefix) {
+        // One round trip: value + index membership.
+        const indexKey = indexKeyFor(indexPrefix);
+        const multi = redisClient.multi();
+        if (ttl) multi.set(key, stringified, 'EX', ttl);
+        else multi.set(key, stringified);
+        multi.sadd(indexKey, key);
+        multi.expire(indexKey, INDEX_KEY_TTL_SECONDS);
+        const results = await multi.exec();
+        const failed = results && results.find(([e]) => e);
+        if (failed) throw failed[0];
+      } else if (ttl) {
         await redisClient.set(key, stringified, 'EX', ttl);
       } else {
         await redisClient.set(key, stringified);
       }
       return true;
     } catch (err) {
-      logger.error('Redis setCache error:', err);
+      reportRedisError({ module: moduleForKey(key), operation: 'set', extra: { ttl } }, err);
       return false;
     }
   }
@@ -181,10 +317,10 @@ const setCache = async (key, value, ttl = CACHE_TTL.POST) => {
 const deleteCache = async (key) => {
   if (redisClient && isRedisConnected) {
     try {
-      const result = await redisClient.del(key);
+      const result = await redisClient.unlink(key);
       return result > 0;
     } catch (err) {
-      logger.error('Redis deleteCache error:', err);
+      reportRedisError({ module: moduleForKey(key), operation: 'delete' }, err);
       return false;
     }
   }
@@ -200,6 +336,27 @@ const deleteCache = async (key) => {
  */
 const deleteCacheByPattern = async (pattern) => {
   if (redisClient && isRedisConnected) {
+    // Indexed group ('posts:*', 'user:<id>:posts:*', …): delete exactly the recorded keys.
+    const prefix = pattern.endsWith('*') && pattern.indexOf('*') === pattern.length - 1
+      ? pattern.slice(0, -1)
+      : null;
+    if (prefix && indexPrefixFor(prefix) === prefix) {
+      const indexKey = indexKeyFor(prefix);
+      try {
+        const keys = await redisClient.smembers(indexKey);
+        let deletedCount = 0;
+        for (let i = 0; i < keys.length; i += 500) {
+          deletedCount += await redisClient.unlink(keys.slice(i, i + 500));
+        }
+        // Remove only the members we deleted; keys added meanwhile stay indexed.
+        if (keys.length > 0) await redisClient.srem(indexKey, keys);
+        return deletedCount;
+      } catch (err) {
+        reportRedisError({ module: moduleForKey(prefix), operation: 'invalidate', extra: { pattern } }, err);
+        return 0;
+      }
+    }
+
     try {
       let cursor = '0';
       let deletedCount = 0;
@@ -214,7 +371,7 @@ const deleteCacheByPattern = async (pattern) => {
       } while (cursor !== '0');
       return deletedCount;
     } catch (err) {
-      logger.error('Redis deleteCacheByPattern error:', err);
+      reportRedisError({ module: moduleForKey(pattern), operation: 'invalidate:scan', extra: { pattern } }, err);
       return 0;
     }
   }
@@ -242,18 +399,20 @@ const deleteCacheByPattern = async (pattern) => {
 const inFlight = new Map();
 
 const cacheWrapper = async (key, fn, ttl = CACHE_TTL.POST) => {
-  const cachedValue = await getCache(key);
-  if (cachedValue !== null) {
-    return cachedValue;
-  }
+  // Join an in-flight load first: concurrent misses then share one Redis GET and one DB query.
   if (inFlight.has(key)) {
     return inFlight.get(key);
   }
   const pending = (async () => {
     try {
+      const cachedValue = await getCache(key);
+      if (cachedValue !== null) {
+        return cachedValue;
+      }
       const freshValue = await fn();
       if (freshValue !== null && freshValue !== undefined) {
-        await setCache(key, freshValue, ttl);
+        // Don't make the caller wait for the write; setCache reports its own failures.
+        setCache(key, freshValue, ttl).catch(() => {});
       }
       return freshValue;
     } finally {
@@ -312,4 +471,6 @@ module.exports = {
   CacheKeys,
   CACHE_TTL,
   redisClient,
+  reportRedisError,
+  moduleForKey,
 };

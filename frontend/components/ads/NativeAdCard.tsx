@@ -155,6 +155,8 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
     }
 
     destroyedRef.current = false;
+    // FlashList recycles this card between ad slots; a new slot must be able to report its own failure.
+    failureFiredRef.current = false;
     setLoading(true);
     setError(false);
 

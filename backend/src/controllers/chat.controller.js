@@ -122,6 +122,8 @@ async function canChat(userId, otherId) {
   return true;
 }
 
+const LIST_CHATS_MESSAGE_LIMIT = 100;
+
 exports.listChats = async (req, res) => {
   try {
   const userId = req.user._id;
@@ -130,6 +132,9 @@ exports.listChats = async (req, res) => {
   // Get all chats (user_chat, admin_support, connect_page)
   const [allChats, currentUserDoc, whoBlockedMe] = await Promise.all([
     Chat.find({ participants: userId })
+      // The list only needs the preview + unread counts. Loading every chat's full history made
+      // this endpoint grow with every message ever sent; clients cap the badge at 99+ anyway.
+      .slice('messages', -LIST_CHATS_MESSAGE_LIMIT)
       .populate('participants', 'fullName username profilePic profilePicStorageKey isVerified')
       .populate('connectPageId', 'name profileImage followerCount')
       .sort('-updatedAt')
@@ -153,8 +158,9 @@ exports.listChats = async (req, res) => {
   });
   
   // Ensure every message has status, unreadCount, and signed attachments
-  // Generate signed URLs for profile pictures
-  for (const chat of chats) {
+  // Generate signed URLs for profile pictures. Chats are independent, so process them in parallel
+  // (each one awaits signed-URL lookups; doing them one by one added a round trip per chat).
+  await Promise.all(chats.map(async (chat) => {
     let unreadCount = 0;
     if (Array.isArray(chat.messages)) {
       // Re-sign attachment URLs for the last-message preview shown in the chat list.
@@ -200,9 +206,9 @@ exports.listChats = async (req, res) => {
       // Filter out null participants (deleted users that populate couldn't resolve)
       chat.participants = chat.participants.filter(p => p != null);
       
-      for (const participant of chat.participants) {
+      const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+      await Promise.all(chat.participants.map(async (participant) => {
         // Special handling for Taatom Official user
-        const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
         if (participant._id && participant._id.toString() === officialId) {
           participant.isVerified = true;
           participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
@@ -211,9 +217,9 @@ exports.listChats = async (req, res) => {
           // Use centralized resolveProfilePic (handles storage key, legacy URLs, and stale signed URLs)
           participant.profilePic = await resolveProfilePic(participant);
         }
-      }
+      }));
     }
-  }
+  }));
   
   // Resolve connectPageId for connect_page chats
   for (const chat of chats) {
