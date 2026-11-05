@@ -52,6 +52,7 @@ import {
   updateJourneyLocation,
   getActiveJourney,
   getJourneyDetail,
+  isJourneyClosedError,
 } from '../services/journey';
 import { Journey, Coordinate } from '../types/journey';
 import { calculateCoordinateDistance } from '../components/PolylineRenderer';
@@ -161,7 +162,7 @@ async function uploadCoordinatesInOrder(journeyId: string, coords: Coordinate[])
       response = await updateJourneyLocation(journeyId, ordered.slice(i, i + UPLOAD_CHUNK_SIZE));
     } catch (err: any) {
       const message = String(err?.message || 'Failed to upload coordinates');
-      throw new CoordinateUploadError(message, ordered.slice(i), /not active/i.test(message));
+      throw new CoordinateUploadError(message, ordered.slice(i), isJourneyClosedError(err));
     }
   }
   return response;
@@ -1091,7 +1092,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           await completeJourney(journeyId, { snapToRoads, endCoords });
           logger.debug(`[Journey] Successfully synced completion for journey: ${journeyId}`);
         } catch (err: any) {
-          if ((err.message && err.message.includes('not active or paused')) || (err.response?.data?.message && err.response.data.message.includes('not active or paused'))) {
+          if (isJourneyClosedError(err) || (err instanceof CoordinateUploadError && err.journeyClosed)) {
             logger.debug(`[Journey] Journey ${journeyId} was already completed on server.`);
           } else {
             logger.error(`[Journey] Failed to sync completion for journey ${journeyId}, will retry:`, err);

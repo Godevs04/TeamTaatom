@@ -2,6 +2,21 @@ import api from './api';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
 
+/** Error carrying the server's own message/status; `message` stays the user-facing text. */
+export type JourneyApiError = Error & { serverMessage?: string; status?: number; code?: string };
+
+const toJourneyError = (error: any, parsed: { code: string; message: string; userMessage: string }): JourneyApiError => {
+  const err = new Error(parsed.userMessage) as JourneyApiError;
+  err.serverMessage = error?.response?.data?.error?.message || error?.response?.data?.message || parsed.message;
+  err.status = error?.response?.status;
+  err.code = parsed.code;
+  return err;
+};
+
+/** True when the server says the journey is already completed/closed (retrying can never succeed). */
+export const isJourneyClosedError = (error: any): boolean =>
+  /not active/i.test(String(error?.serverMessage || '')) || /not active/i.test(String(error?.message || ''));
+
 export interface Coordinate {
   latitude: number;
   longitude: number;
@@ -169,7 +184,7 @@ export const updateJourneyLocation = async (
   } catch (error: any) {
     const parsedError = parseError(error);
     logger.error('updateJourneyLocation', parsedError);
-    throw new Error(parsedError.userMessage);
+    throw toJourneyError(error, parsedError);
   }
 };
 
@@ -189,7 +204,7 @@ export const completeJourney = async (
   } catch (error: any) {
     const parsedError = parseError(error);
     logger.error('completeJourney', parsedError);
-    throw new Error(parsedError.userMessage);
+    throw toJourneyError(error, parsedError);
   }
 };
 

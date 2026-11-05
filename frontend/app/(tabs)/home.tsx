@@ -2039,7 +2039,11 @@ export default function HomeScreen() {
         {/* Absolute Top Bar (zIndex: 1000) */}
         <View
           style={styles.topBarContainer}
-          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+          onLayout={(e) => {
+            // Sub-pixel re-measures used to nudge the list's top padding, which read as the feed jumping.
+            const next = Math.round(e.nativeEvent.layout.height);
+            setHeaderHeight((prev) => (Math.abs(prev - next) < 2 ? prev : next));
+          }}
         >
           <BlurView
             intensity={95}

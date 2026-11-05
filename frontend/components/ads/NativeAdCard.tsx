@@ -268,7 +268,9 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
 
   if (loading || !adsModule || !nativeAd) {
     return (
-      <View style={[styles.wrapper, { padding: 16, minHeight: 180 }]}>
+      // Reserve roughly the loaded ad's height (header + 1.91:1 media + CTA) so the feed does not
+      // jump when the creative arrives.
+      <View style={[styles.wrapper, { padding: 16, minHeight: frame.height + 150 }]}>
         <PostSkeleton />
       </View>
     );
