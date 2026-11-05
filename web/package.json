@@ -33,7 +33,7 @@
     "socket.io-client": "^4.8.1",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^20",
