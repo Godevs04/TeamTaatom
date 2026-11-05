@@ -54,6 +54,8 @@ export type ShortsNativeAdProps = {
   height?: number;
   /** When true, ad fills the parent (position absolute, 100% size) to match full Shorts cell. */
   fillParent?: boolean;
+  /** Pixels of the cell hidden behind the floating tab bar; text/CTA are lifted above it. */
+  bottomClearance?: number;
   /** Called when the ad fires an impression (observe-only; e.g. analytics). */
   onImpression?: () => void;
   /** Fired when this slot cannot render an ad (Expo Go / web stub, module load
@@ -64,9 +66,9 @@ export type ShortsNativeAdProps = {
   onLoadFailed?: () => void;
 };
 
-function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onImpression, onLoadFailed }: ShortsNativeAdProps) {
+function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, bottomClearance = 0, onImpression, onLoadFailed }: ShortsNativeAdProps) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
   const [moduleError, setModuleError] = useState(false);
   const [nativeAd, setNativeAd] = useState<any>(null);
@@ -156,7 +158,9 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         adsModule.NativeAd.createForAdRequest(unitId, {
           ...getAdRequestOptions(),
           startVideoMuted: true,
-          aspectRatio: adsModule.NativeMediaAspectRatio.ANY,
+          // Shorts are full-screen vertical: ask for portrait creatives first. Anything else that
+          // still comes back is shown as a centered card instead of being stretched to fill.
+          aspectRatio: adsModule.NativeMediaAspectRatio.PORTRAIT,
           adChoicesPlacement: adsModule.NativeAdChoicesPlacement.TOP_RIGHT,
         })
       )
@@ -257,20 +261,36 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     ? [styles.container, styles.containerFill, { opacity: fadeAnim }]
     : [styles.container, { height, opacity: fadeAnim }];
 
+  // Bottom chrome must clear both the home indicator and the floating tab bar.
+  const bottomSafe = Math.max(bottomInset, bottomClearance) + 16;
+  const mediaRatio = Number(nativeAd.mediaContent?.aspectRatio) || 0;
+  // Portrait (or square-ish) creatives fill the screen like a reel; landscape ones would be
+  // cropped to a sliver, so they sit in a centered card at their real shape.
+  const fullBleed = mediaRatio > 0 && mediaRatio <= 0.9;
+  const cardWidth = windowWidth - 24;
+  const cardHeight = mediaRatio > 0 ? Math.round(cardWidth / mediaRatio) : Math.round(cardWidth / 1.91);
+  const advertiser = nativeAd.advertiser || nativeAd.store || '';
+
   return (
     <Animated.View style={containerStyle}>
       <AdView nativeAd={nativeAd} style={StyleSheet.absoluteFill}>
-        {/* Media fills screen (reel-style) */}
         {nativeAd.mediaContent ? (
-          <View style={StyleSheet.absoluteFill}>
-            <MediaView style={styles.media} />
-          </View>
+          fullBleed ? (
+            <View style={StyleSheet.absoluteFill}>
+              <MediaView style={styles.media} resizeMode="cover" />
+            </View>
+          ) : (
+            <View style={[styles.cardWrap, { paddingBottom: bottomSafe + 120 }]} pointerEvents="box-none">
+              <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
+                <MediaView style={styles.media} resizeMode="contain" />
+              </View>
+            </View>
+          )
         ) : null}
 
-        {/* Dark gradient overlay for readability */}
         <LinearGradient
-          colors={['rgba(0,0,0,0.7)', 'transparent', 'rgba(0,0,0,0.85)']}
-          locations={[0, 0.35, 1]}
+          colors={['rgba(0,0,0,0.55)', 'transparent', 'transparent', 'rgba(0,0,0,0.85)']}
+          locations={[0, 0.18, 0.55, 1]}
           style={[StyleSheet.absoluteFill, styles.overlay]}
           pointerEvents="none"
         />
@@ -280,24 +300,39 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
           <Text style={styles.sponsoredLabel}>Sponsored</Text>
         </View>
 
-        {/* Headline Container View - direct child of AdView */}
-        <View style={[styles.headlineContainer, { bottom: bottomInset + 80 }]}>
+        {/* Reel-style footer: advertiser row, headline, body, CTA — all above the tab bar. */}
+        <View style={[styles.footer, { bottom: bottomSafe }]} pointerEvents="box-none">
+          <View style={styles.advertiserRow} pointerEvents="box-none">
+            {nativeAd.icon?.url ? (
+              <Asset assetType={AssetType.ICON}>
+                <Image source={{ uri: nativeAd.icon.url }} style={styles.icon} resizeMode="cover" />
+              </Asset>
+            ) : null}
+            {advertiser ? (
+              <Asset assetType={AssetType.ADVERTISER}>
+                <Text style={styles.advertiser} numberOfLines={1}>{advertiser}</Text>
+              </Asset>
+            ) : null}
+          </View>
           <Asset assetType={AssetType.HEADLINE}>
             <Text style={styles.headline} numberOfLines={2}>
               {nativeAd.headline}
             </Text>
           </Asset>
-        </View>
-
-        {/* CTA Container View - direct child of AdView */}
-        <View style={[styles.ctaContainer, { bottom: bottomInset + 24 }]}>
-          <Asset assetType={AssetType.CALL_TO_ACTION}>
-            <View style={styles.ctaWrap}>
-              <Text style={styles.ctaText} numberOfLines={1}>
-                {nativeAd.callToAction}
-              </Text>
-            </View>
-          </Asset>
+          {nativeAd.body ? (
+            <Asset assetType={AssetType.BODY}>
+              <Text style={styles.body} numberOfLines={2}>{nativeAd.body}</Text>
+            </Asset>
+          ) : null}
+          {nativeAd.callToAction ? (
+            <Asset assetType={AssetType.CALL_TO_ACTION}>
+              <View style={styles.ctaWrap}>
+                <Text style={styles.ctaText} numberOfLines={1}>
+                  {nativeAd.callToAction}
+                </Text>
+              </View>
+            </Asset>
+          ) : null}
         </View>
       </AdView>
     </Animated.View>
@@ -342,15 +377,44 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     color: 'rgba(255,255,255,0.8)',
   },
-  headlineContainer: {
+  cardWrap: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#111',
+  },
+  footer: {
     position: 'absolute',
     left: 16,
     right: 16,
   },
-  ctaContainer: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
+  advertiserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  icon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  advertiser: {
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  body: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 19,
+    color: 'rgba(255,255,255,0.85)',
   },
   headline: {
     fontSize: 18,
@@ -361,6 +425,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   ctaWrap: {
+    marginTop: 14,
     alignSelf: 'flex-start',
     paddingVertical: 12,
     paddingHorizontal: 20,

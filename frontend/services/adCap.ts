@@ -1,7 +1,9 @@
 /**
  * Ad cap tracker and View Telemetry Engine.
- * Enforces the "5 Google AdMob ads per user per 8h rolling window" rule,
- * shared across the home feed (posts), shorts feed (reels), and Connect website preview.
+ * Enforces "10 Google AdMob ads per 8 hours" separately for each placement: home feed,
+ * shorts, and Connect website preview each have their own counter and window (the window starts
+ * at that placement's first impression). Feed ads sit at fixed positions (after post 5, 10, 15, …)
+ * on every visit / refresh until the placement's cap is reached.
  *
  * Implements:
  *   1. 30-second app startup ignored window.
@@ -47,9 +49,16 @@ export interface AdCapState {
   postDelayViews: string[];
   /** Set of unique IDs viewed during the 30-second app startup ignored window */
   ignoredIds: string[];
-  /** Placement + content-count milestones that already produced an ad impression. */
+  /** Placement + content-count milestones that already produced an ad impression (kept for
+   *  analytics/back-compat only — positions are no longer skipped because of it). */
   shownAdMilestones: string[];
+  /** Independent 10-per-8h counters per placement ('home', 'shorts', 'website'). Each window
+   *  starts at that placement's first impression. */
+  placements: Record<string, PlacementCap>;
 }
+
+export type AdPlacement = 'home' | 'shorts' | 'website';
+export type PlacementCap = { count: number; windowStart: number | null };
 
 const EMPTY_STATE: AdCapState = {
   count: 0,
@@ -60,6 +69,7 @@ const EMPTY_STATE: AdCapState = {
   postDelayViews: [],
   ignoredIds: [],
   shownAdMilestones: [],
+  placements: {},
 };
 
 // Module-level variables
@@ -93,7 +103,33 @@ function freshState(startupTime: number): AdCapState {
     postDelayViews: [],
     ignoredIds: [],
     shownAdMilestones: [],
+    placements: {},
   };
+}
+
+function isPlacementExpired(cap: PlacementCap | undefined, now: number): boolean {
+  return !!cap && cap.windowStart != null && now - cap.windowStart >= WINDOW_MS;
+}
+
+/** Current count for a placement, treating an expired window as empty. */
+function placementCount(state: AdCapState, placement: string, now: number): number {
+  const cap = state.placements?.[placement];
+  if (!cap || isPlacementExpired(cap, now)) return 0;
+  return cap.count;
+}
+
+function parsePlacements(raw: unknown): Record<string, PlacementCap> {
+  const out: Record<string, PlacementCap> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, value] of Object.entries(raw as Record<string, any>)) {
+    if (value && typeof value.count === 'number') {
+      out[key] = {
+        count: value.count,
+        windowStart: typeof value.windowStart === 'number' ? value.windowStart : null,
+      };
+    }
+  }
+  return out;
 }
 
 function adMilestoneKey(placement: string, threshold: number): string {
@@ -108,6 +144,7 @@ async function ensureLoaded(): Promise<AdCapState> {
       cache = {
         ...freshState(cache.appLaunchTimestamp),
         appLaunchTimestamp: cache.appLaunchTimestamp,
+        placements: cache.placements,
       };
       await persist(cache);
       notifyListeners();
@@ -135,6 +172,7 @@ async function ensureLoaded(): Promise<AdCapState> {
             shownAdMilestones: Array.isArray(parsed.shownAdMilestones)
               ? parsed.shownAdMilestones.filter((m): m is string => typeof m === 'string')
               : [],
+            placements: parsePlacements(parsed.placements),
           };
         }
       } catch {
@@ -146,6 +184,7 @@ async function ensureLoaded(): Promise<AdCapState> {
         cache = {
           ...freshState(currentSessionStartup),
           appLaunchTimestamp: cache.appLaunchTimestamp,
+          placements: cache.placements,
         };
       }
 
@@ -176,24 +215,14 @@ export function getAdCapSnapshot(): AdCapState {
   return cache ?? EMPTY_STATE;
 }
 
-/** True iff a Google AdMob ad slot is allowed to render right now. */
-export function canShowGoogleAd(): boolean {
-  const state = getAdCapSnapshot();
-  const now = Date.now();
-  if (isWindowExpired(state, now)) {
-    return true;
-  }
-  return state.count < MAX_GOOGLE_ADS;
+/** True iff a Google AdMob ad slot for this placement is allowed to render right now. */
+export function canShowGoogleAd(placement: AdPlacement = 'home'): boolean {
+  return placementCount(getAdCapSnapshot(), placement, Date.now()) < MAX_GOOGLE_ADS;
 }
 
-/** Returns 0..MAX_GOOGLE_ADS — useful for remaining ads math. */
-export function getRemainingGoogleAdSlots(): number {
-  const state = getAdCapSnapshot();
-  const now = Date.now();
-  if (isWindowExpired(state, now)) {
-    return MAX_GOOGLE_ADS;
-  }
-  return Math.max(0, MAX_GOOGLE_ADS - state.count);
+/** Returns 0..MAX_GOOGLE_ADS for this placement — useful for remaining ads math. */
+export function getRemainingGoogleAdSlots(placement: AdPlacement = 'home'): number {
+  return Math.max(0, MAX_GOOGLE_ADS - placementCount(getAdCapSnapshot(), placement, Date.now()));
 }
 
 type AdMilestone = {
@@ -208,41 +237,37 @@ export function hasShownAdMilestone(milestone: AdMilestone): boolean {
   );
 }
 
-/** Record one Google AdMob impression. Starts the 8h window if this is the first impression. */
+/**
+ * Record one Google AdMob impression for its placement (feed, shorts, or website — each has its
+ * own 10-per-8h window, started by that placement's first impression). Every impression counts:
+ * the same position (e.g. "after post 5") shows an ad again on each refresh / re-entry until the
+ * placement's cap is reached.
+ */
 export async function recordGoogleAdImpression(milestone?: AdMilestone): Promise<boolean> {
   const state = await ensureLoaded();
+  if (!cache) cache = state;
   const now = Date.now();
-  if (isWindowExpired(state, now)) {
-    // Reset if window has expired
-    const nextState = {
-      ...freshState(state.appLaunchTimestamp),
-      appLaunchTimestamp: state.appLaunchTimestamp,
-    };
-    cache = nextState;
-    await persist(cache);
-  }
+  const placement = milestone?.placement || 'website';
 
-  if (!cache) {
+  const placements = cache.placements || (cache.placements = {});
+  let cap = placements[placement];
+  if (!cap || isPlacementExpired(cap, now)) {
+    cap = { count: 0, windowStart: null };
+    placements[placement] = cap;
+  }
+  if (cap.count >= MAX_GOOGLE_ADS) {
     return false;
   }
+  cap.count += 1;
+  if (cap.windowStart == null) cap.windowStart = now;
 
-  const milestoneKey = milestone
-    ? adMilestoneKey(milestone.placement, milestone.threshold)
-    : null;
-  if (milestoneKey && cache.shownAdMilestones.includes(milestoneKey)) {
-    return false;
+  if (milestone) {
+    const key = adMilestoneKey(milestone.placement, milestone.threshold);
+    if (!cache.shownAdMilestones.includes(key)) cache.shownAdMilestones.push(key);
   }
-
-  if (milestoneKey) {
-    cache.shownAdMilestones.push(milestoneKey);
-  }
-
-  if (cache.count < MAX_GOOGLE_ADS) {
-    cache.count += 1;
-    if (cache.windowStart == null) {
-      cache.windowStart = now;
-    }
-  }
+  // Keep the legacy aggregate fields roughly in step (view-matrix housekeeping uses windowStart).
+  cache.count += 1;
+  if (cache.windowStart == null) cache.windowStart = now;
 
   await persist(cache);
   notifyListeners();
@@ -391,7 +416,8 @@ function injectPositionalFeedAds<T>(
       const milestone = { placement, threshold: contentCount };
       const key = adMilestoneKey(placement, contentCount);
       const alreadyPlaced = !!keep?.has(key);
-      const allowed = !options.isCapped && !options.shownAdMilestones?.includes(key);
+      // Positions are fixed (5, 10, 15, …) on every visit; only the placement's cap stops new slots.
+      const allowed = !options.isCapped;
       if (alreadyPlaced || allowed) {
         result.push({ type: 'ad', adIndex, milestone });
       }
@@ -402,7 +428,7 @@ function injectPositionalFeedAds<T>(
   return result;
 }
 
-/** Inserts ad slots after posts 5, 10, 15, 20, 25 (shared 5-per-8h impression cap). */
+/** Inserts ad slots after posts 5, 10, 15, 20, 25, … (home feed's own 10-per-8h cap). */
 export function injectHomeFeedAds<T>(
   items: T[],
   options: FeedAdCapOptions
@@ -485,8 +511,8 @@ export function injectAds<T extends { _id: string }>(
   return result;
 }
 
-/** React hook: subscribes to the cap and re-renders on changes. */
-export function useAdCap() {
+/** React hook: the cap for one placement ('home' | 'shorts' | 'website'); re-renders on changes. */
+export function useAdCap(placement: AdPlacement = 'home') {
   const [snapshot, setSnapshot] = useState<AdCapState>(() => getAdCapSnapshot());
 
   useEffect(() => {
@@ -504,22 +530,38 @@ export function useAdCap() {
     };
   }, []);
 
-  const expired = snapshot.windowStart != null && isWindowExpired(snapshot, Date.now());
+  // Re-evaluate when the placement's 8h window ends, so ads come back without an app restart.
+  const cap = snapshot.placements?.[placement];
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!cap?.windowStart) return;
+    const msLeft = cap.windowStart + WINDOW_MS - Date.now();
+    if (msLeft <= 0) return;
+    const t = setTimeout(() => forceTick((n) => n + 1), Math.min(msLeft + 1000, 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [cap?.windowStart]);
+
+  const now = Date.now();
+  const expired = isPlacementExpired(cap, now);
+  const currentCount = !cap || expired ? 0 : cap.count;
 
   // Stable identity per snapshot so consumers' useMemo/useCallback deps don't churn every render.
   return useMemo(() => {
-    const currentCount = expired ? 0 : snapshot.count;
+    const globalExpired = snapshot.windowStart != null && isWindowExpired(snapshot, now);
     return {
+      placement,
       count: currentCount,
-      isCapped: expired ? false : currentCount >= MAX_GOOGLE_ADS,
+      isCapped: currentCount >= MAX_GOOGLE_ADS,
       remainingSlots: Math.max(0, MAX_GOOGLE_ADS - currentCount),
-      windowStart: expired ? null : snapshot.windowStart,
-      postDelayViews: expired ? [] : snapshot.postDelayViews,
+      windowStart: !cap || expired ? null : cap.windowStart,
+      postDelayViews: globalExpired ? [] : snapshot.postDelayViews,
       ignoredIds: snapshot.ignoredIds,
       appLaunchTimestamp: snapshot.appLaunchTimestamp,
-      shownAdMilestones: expired ? [] : snapshot.shownAdMilestones,
+      // Positions no longer skip "already shown" slots; exposed empty for older callers.
+      shownAdMilestones: [] as string[],
     };
-  }, [snapshot, expired]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, placement, currentCount, expired]);
 }
 
 export const AD_CAP_MAX = MAX_GOOGLE_ADS;

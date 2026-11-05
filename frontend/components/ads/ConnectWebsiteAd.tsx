@@ -28,7 +28,7 @@ export type ConnectWebsiteAdProps = {
 
 function ConnectWebsiteAdComponent({ pageId, skipAds }: ConnectWebsiteAdProps) {
   // Strike 15: Content Obfuscation integration. Ensure ads adapt to premium locked status.
-  const adCap = useAdCap();
+  const adCap = useAdCap('website');
   const markedGoogleRef = useRef(false);
 
   const kind = useMemo(

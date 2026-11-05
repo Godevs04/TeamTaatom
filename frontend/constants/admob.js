@@ -64,6 +64,13 @@ export const ADMOB = {
     native: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/2247696110'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/8141104654'),
+    /** Home-feed native ads. Android has no separate feed unit yet, so it shares `native`. */
+    feedNative: (__DEV__ || FORCE_TEST_ADS)
+      ? 'ca-app-pub-3940256099942544/2247696110'
+      : liveUnit(
+          env.EXPO_PUBLIC_ADMOB_ANDROID_FEED_NATIVE_UNIT_ID || env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID,
+          'ca-app-pub-6362359854606661/8141104654'
+        ),
   },
 
   /**
@@ -87,9 +94,13 @@ export const ADMOB = {
           env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_INTERSTITIAL_UNIT_ID,
           'ca-app-pub-6362359854606661/4698300005'
         ),
-    /** Native Advanced (in-feed + shorts). Production: ca-app-pub-6362359854606661/3239601539 */
+    /** Native Advanced (shorts). iOS uses the same unit as the feed. Production: ca-app-pub-6362359854606661/6183226310 */
     native: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/3986624511'
-      : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/3239601539'),
+      : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/6183226310'),
+    /** Native Advanced (home feed) — dedicated unit. Production: ca-app-pub-6362359854606661/6183226310 */
+    feedNative: (__DEV__ || FORCE_TEST_ADS)
+      ? 'ca-app-pub-3940256099942544/3986624511'
+      : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_FEED_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/6183226310'),
   },
 };

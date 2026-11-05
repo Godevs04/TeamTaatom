@@ -25,6 +25,7 @@ import { isAdsModuleLinked } from '../../utils/adsModule';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
 import logger from '../../utils/logger';
+import { addBreadcrumb } from '../../utils/sentryContext';
 import { initializeAds } from '../../services/admob';
 import { getAdRequestOptions } from '../../services/adRequestOptions';
 
@@ -90,7 +91,8 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
   // destroyed (effect cleanup) so a re-load fires it again.
   const impressionFiredRef = useRef(false);
 
-  const unitId = Platform.OS === 'android' ? ADMOB.android.native : ADMOB.ios.native;
+  // Home feed has its own ad unit so its fill/revenue is tracked separately from Shorts.
+  const unitId = Platform.OS === 'android' ? ADMOB.android.feedNative : ADMOB.ios.feedNative;
   const [armed, setArmed] = useState(visible);
   useEffect(() => {
     if (visible) setArmed(true);
@@ -160,6 +162,7 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
     setLoading(true);
     setError(false);
 
+    addBreadcrumb('[AdMob] feed native ad request', 'ads', { platform: Platform.OS, adIndex, unitId: maskAdUnitId(unitId) });
     logger.debug('[AdMob] Loading home native ad', {
       platform: Platform.OS,
       unitId: maskAdUnitId(unitId),
@@ -196,6 +199,7 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
           unitId: maskAdUnitId(unitId),
           adIndex,
         });
+        addBreadcrumb('[AdMob] feed native ad loaded', 'ads', { platform: Platform.OS, adIndex });
         setNativeAd(ad);
         setLoading(false);
         // Observe impression only; do not count immediately on load.
@@ -204,6 +208,7 @@ function NativeAdCardComponent({ adIndex, visible = true, onImpression, onLoadFa
           ad.addAdEventListener(adsModule.AdEventType.IMPRESSION as any, () => {
             if (!impressionFiredRef.current) {
               impressionFiredRef.current = true;
+              addBreadcrumb('[AdMob] feed native ad impression', 'ads', { platform: Platform.OS, adIndex });
               try { onImpressionRef.current?.(); } catch { /* swallow */ }
             }
           });
