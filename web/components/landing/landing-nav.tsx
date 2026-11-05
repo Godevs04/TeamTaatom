@@ -7,17 +7,17 @@ import { motion, useMotionValueEvent, useScroll } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
-  { id: "explore", label: "Explore" },
-  { id: "stories", label: "Stories" },
-  { id: "journeys", label: "Journeys" },
-  { id: "product", label: "Product" },
+  { id: "how", label: "How it works" },
+  { id: "stories", label: "Journals" },
+  { id: "journeys", label: "Map" },
+  { id: "product", label: "Shorts" },
   { id: "community", label: "Community" },
 ] as const;
 
 const spring = { type: "spring" as const, stiffness: 420, damping: 36 };
 
 export function LandingNav() {
-  const [active, setActive] = React.useState<string>("explore");
+  const [active, setActive] = React.useState<string>("");
   const [scrolled, setScrolled] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const { scrollY } = useScroll();

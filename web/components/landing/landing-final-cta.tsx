@@ -60,10 +60,10 @@ export function LandingFinalCta() {
             <div className="grid items-center gap-12 lg:grid-cols-2">
               <RevealItem>
                 <h2 className="landing-h2 font-display max-w-lg text-white">
-                  Where will your next story take you?
+                  Your next trip is a story waiting to be written.
                 </h2>
                 <p className="mt-5 max-w-md text-[1rem] leading-relaxed text-white/80">
-                  Begin a journal for the trip ahead — or the one you wish you had written down.
+                  Start a journal for the trip ahead — or the one you still talk about. It&apos;s free on iPhone, Android and the web.
                 </p>
                 <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
                   <MagneticButton
@@ -71,16 +71,16 @@ export function LandingFinalCta() {
                     className="bg-white text-[var(--landing-ink)] !shadow-[0_12px_40px_rgba(0,0,0,0.2)]"
                   >
                     <span className="inline-flex items-center gap-2">
-                      Begin your journey
+                      Start your first journal
                       <ArrowRight className="h-4 w-4" aria-hidden />
                     </span>
                   </MagneticButton>
                   <MagneticButton
-                    href="#stories"
+                    href="/download"
                     variant="secondary"
                     className="border-white/40 !bg-white/10 text-white backdrop-blur-sm hover:!bg-white/20"
                   >
-                    Explore stories
+                    Get the app
                   </MagneticButton>
                 </div>
               </RevealItem>

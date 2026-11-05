@@ -5,13 +5,13 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Play, Plus } from "lucide-react";
 import { SectionReveal, RevealItem } from "./section-reveal";
-import { LANDING_IMAGES } from "@/lib/landing-images";
+import { placeImage } from "@/lib/landing-images";
 import { HoverLiftCard } from "./motion-primitives";
 
 const REELS = [
-  { title: "Above the Clouds", location: "Alps", duration: "0:24", image: LANDING_IMAGES.reels[0] },
-  { title: "Lakeside Morning", location: "Dolomites, Italy", duration: "0:18", image: LANDING_IMAGES.reels[1] },
-  { title: "Monsoon Trails", location: "India", duration: "0:31", image: LANDING_IMAGES.reels[2] },
+  { title: "Boat ride at Braies", location: "Dolomites, Italy", duration: "0:24", image: placeImage("braies", 400) },
+  { title: "Island hopping", location: "Ha Long Bay, Vietnam", duration: "0:18", image: placeImage("halong", 400) },
+  { title: "The long way west", location: "Road trip, USA", duration: "0:31", image: placeImage("roadTrip", 400) },
 ] as const;
 
 export function LandingReels() {
@@ -22,10 +22,10 @@ export function LandingReels() {
     >
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <RevealItem className="mb-10 sm:mb-12">
-          <p className="landing-eyebrow text-[var(--landing-accent)]">Travel reels</p>
+          <p className="landing-eyebrow text-[var(--landing-accent)]">Shorts</p>
           <h2 className="landing-h2 font-display mt-3 text-[var(--landing-ink)]">Moments in motion.</h2>
           <p className="landing-body mt-3 max-w-lg">
-            Short vertical stories with pace and place — the rhythm of a trip, one reel at a time.
+            Fifteen seconds of a place says more than a hundred photos. Share quick vertical clips, tagged with where and when.
           </p>
         </RevealItem>
 

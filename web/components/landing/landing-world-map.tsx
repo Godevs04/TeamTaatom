@@ -32,20 +32,20 @@ export function LandingWorldMap() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <RevealItem>
-            <p className="landing-eyebrow text-white/50">Explore the world</p>
-            <h2 className="landing-h2 font-display mt-4 text-white">Every place has a story behind it.</h2>
+            <p className="landing-eyebrow text-white/50">Your travel map</p>
+            <h2 className="landing-h2 font-display mt-4 text-white">See everywhere you&apos;ve been — at a glance.</h2>
             <p className="mt-4 max-w-md text-[1rem] leading-relaxed text-white/65">
-              Follow glowing routes across the map — see where travelers are saving memories right now.
+              Every memory you save lands on your own world map. Watch it fill up trip by trip, and explore places other travelers loved.
             </p>
             <Link
-              href="/auth/register"
+              href="/locale"
               className="mt-8 inline-flex h-11 items-center justify-center rounded-full bg-white px-6 text-[14px] font-semibold text-[var(--landing-ink)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(255,255,255,0.15)]"
             >
-              Explore map
+              Explore places
             </Link>
             {countryTags.length > 0 ? (
               <div className="mt-8">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Popular right now</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Popular with travelers</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {countryTags.map((tag) => (
                     <span
@@ -73,7 +73,7 @@ export function LandingWorldMap() {
               >
                 <GlassCard className="p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--landing-accent)]">
-                    Someone just shared a memory
+                    A memory from Lisbon
                   </p>
                   <div className="mt-2 flex gap-2.5">
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-stone-200">

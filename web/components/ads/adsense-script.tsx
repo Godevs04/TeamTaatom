@@ -1,6 +1,6 @@
 "use client";
 
-import Script from "next/script";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { getAdSenseClientId, isAdSenseEnabled } from "../../lib/adsense";
 
@@ -29,24 +29,28 @@ export function isAdEligiblePath(pathname: string | null | undefined): boolean {
   return !!pathname && AD_ELIGIBLE_PATTERNS.some((re) => re.test(pathname));
 }
 
+const LOADER_ID = "adsense-loader";
+
 /**
  * Loads the AdSense bootstrap once, the first time the visitor reaches an
- * ad-eligible page. Uses afterInteractive — beforeInteractive is only valid in
- * pages/_document (Pages Router).
+ * ad-eligible page. Injected as a plain <script> (not next/script): next/script
+ * adds a `data-nscript` attribute, which AdSense rejects with
+ * "AdSense head tag doesn't support data-nscript attribute".
  */
 export function AdSenseScript() {
   const pathname = usePathname();
-  if (!isAdSenseEnabled()) return null;
-  const client = getAdSenseClientId();
-  if (!client || !isAdEligiblePath(pathname)) return null;
+  const client = isAdSenseEnabled() ? getAdSenseClientId() : null;
+  const eligible = !!client && isAdEligiblePath(pathname);
 
-  return (
-    <Script
-      id="adsense-loader"
-      async
-      strategy="afterInteractive"
-      src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`}
-      crossOrigin="anonymous"
-    />
-  );
+  useEffect(() => {
+    if (!eligible || !client || document.getElementById(LOADER_ID)) return;
+    const script = document.createElement("script");
+    script.id = LOADER_ID;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(client)}`;
+    document.head.appendChild(script);
+  }, [eligible, client]);
+
+  return null;
 }

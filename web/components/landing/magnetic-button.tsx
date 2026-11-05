@@ -46,8 +46,11 @@ export function MagneticButton({ href, onClick, children, className, variant = "
       style={{ x: sx, y: sy }}
       onMouseMove={onMove}
       onMouseLeave={onLeave}
-      whileHover={reduced ? undefined : { scale: 1.02 }}
-      whileTap={reduced ? undefined : { scale: 0.98 }}
+      // Always set (never branch on reduced motion here): whileTap adds a tabindex
+      // during SSR, so a client-only difference breaks hydration. MotionConfig
+      // reducedMotion="user" on the landing already drops the scale for those visitors.
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       className={cn(
         "inline-flex h-12 w-full items-center justify-center rounded-full px-8 text-[15px] font-semibold transition-[box-shadow,filter] duration-300 sm:w-auto",
