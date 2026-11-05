@@ -25,7 +25,7 @@ Format: `ca-app-pub-6362359854606661~XXXXXXXXXX` (the part after `~` is your app
 ### 2. Ad unit IDs in constants/admob.js
 
 Replace the placeholder ad unit IDs in `frontend/constants/admob.js` (or set `EXPO_PUBLIC_ADMOB_*` in `.env` / `app.base.json`):
-
+ 
 - **Banner / Native:** already wired for iOS + Android production units.
 - **Watch / long-video (LLD):** prefer **rewarded interstitial**, then standard rewarded, then interstitial fallback.
   - iOS rewarded interstitial (production): `ca-app-pub-6362359854606661/4698300005`
