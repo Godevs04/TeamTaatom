@@ -41,7 +41,6 @@ import { useRouter, useFocusEffect, useLocalSearchParams, useSegments } from 'ex
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
-import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { isNetworkFailure } from '../../utils/networkErrors';
 import { getApiBaseUrl } from '../../utils/config';
@@ -389,6 +388,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const swipeStartXRef = useRef<number | null>(null);
   const swipeStartYRef = useRef<number | null>(null);
   const isSwipeActiveRef = useRef(false);
+  // Set once a touch has clearly started as a vertical scroll; it can then never turn into the profile swipe.
+  const isVerticalGestureRef = useRef(false);
   const [isSwipeActive, setIsSwipeActive] = useState(false);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
@@ -631,7 +632,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const isSavedShortsStack = segments.includes('saved-shorts');
   const shortsPlaybackSurfaceActive = isOnTabShorts || isUserShortsStack || isSavedShortsStack;
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
-  const { handleScroll } = useScrollToHideNav();
 
   // ============================================
   // CENTRALIZED VIDEO CONTROL HELPERS
@@ -2005,6 +2005,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     swipeStartXRef.current = pageX;
     swipeStartYRef.current = pageY;
     isSwipeActiveRef.current = false;
+    isVerticalGestureRef.current = false;
     setIsSwipeActive(false);
   };
 
@@ -2022,14 +2023,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       } else {
         swipeAnimation.setValue(0);
       }
-    } else {
-      // Lock swipe horizontally if horizontal movement exceeds 5px and dominates vertical movement
-      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
-        if (deltaX < 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
-          isSwipeActiveRef.current = true;
-          setIsSwipeActive(true);
-          swipeAnimation.setValue(Math.max(deltaX, -SCREEN_WIDTH));
-        }
+    } else if (!isVerticalGestureRef.current) {
+      // A 5px lock grabbed ordinary vertical swipes that drifted slightly left: the whole screen
+      // slid sideways and the list stopped scrolling (felt like shaking / lag). Lock only on a
+      // clearly horizontal leftward move, and give up for good once the touch goes vertical.
+      if (Math.abs(deltaY) > 12 && Math.abs(deltaY) >= Math.abs(deltaX)) {
+        isVerticalGestureRef.current = true;
+      } else if (deltaX < -18 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+        isSwipeActiveRef.current = true;
+        setIsSwipeActive(true);
+        swipeAnimation.setValue(Math.max(deltaX, -SCREEN_WIDTH));
       }
     }
   };
@@ -2639,8 +2642,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         disableIntervalMomentum={true}
         onEndReached={loadMoreShorts}
         onEndReachedThreshold={0.3}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
         directionalLockEnabled={false}
         alwaysBounceVertical={true}
         bounces={true}

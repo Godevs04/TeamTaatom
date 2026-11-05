@@ -67,6 +67,12 @@ const ShortsExpoPlayer = React.forwardRef<AvPlaybackHandle, Props>(function Shor
   callbacks.current = props;
   const announced = useRef(false);
   const loadAnnounced = useRef(false);
+  // What the parent wants right now. Read by the stall-recovery listeners below.
+  const wantsPlayRef = useRef(!!props.shouldPlay && !!uri);
+  wantsPlayRef.current = !!props.shouldPlay && !!uri;
+  // Set by an imperative pause (blur, back, app background) so recovery never fights it.
+  const manualPauseRef = useRef(false);
+  const lastResumeAtRef = useRef(0);
 
   // Stable object identity so re-renders never hand useVideoPlayer a "new" source.
   const videoSource = useMemo(
@@ -83,10 +89,12 @@ const ShortsExpoPlayer = React.forwardRef<AvPlaybackHandle, Props>(function Shor
       created.timeUpdateEventInterval = 0.25;
       created.audioMixingMode = "doNotMix";
       try {
+        // waitsToMinimizeStalling must stay true on iOS: with false, AVPlayer drops its rate to 0
+        // when the buffer runs dry and never resumes — the "short pauses by itself" bug.
         created.bufferOptions = {
-          preferredForwardBufferDuration: 5,
-          waitsToMinimizeStalling: false,
-          minBufferForPlayback: 0.4,
+          preferredForwardBufferDuration: 10,
+          waitsToMinimizeStalling: true,
+          minBufferForPlayback: 0.5,
         };
       } catch {
         // Web playback has no native buffer control.
@@ -114,13 +122,36 @@ const ShortsExpoPlayer = React.forwardRef<AvPlaybackHandle, Props>(function Shor
 
   useEffect(() => {
     if (!uri) return;
-    if (props.shouldPlay) player.play();
-    else player.pause();
+    if (props.shouldPlay) {
+      manualPauseRef.current = false;
+      player.play();
+    } else {
+      player.pause();
+    }
   }, [player, props.shouldPlay, uri]);
 
   useEffect(() => {
     const emit = (isPlaying = player.playing) => {
       callbacks.current.onPlaybackStatusUpdate?.(statusOf(player, isPlaying));
+    };
+    // Playback stopped although the parent still wants it (buffer underrun, audio-session
+    // hiccup, item became ready after a stall): start it again, at most once a second.
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+    const resumeIfWanted = (delayMs: number) => {
+      if (resumeTimer) clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(() => {
+        resumeTimer = null;
+        if (!wantsPlayRef.current || manualPauseRef.current || player.playing) return;
+        if (player.status === "error") return;
+        const now = Date.now();
+        if (now - lastResumeAtRef.current < 1000) return;
+        lastResumeAtRef.current = now;
+        try {
+          player.play();
+        } catch {
+          // Player was released between the check and the call.
+        }
+      }, delayMs);
     };
     const subscriptions = [
       player.addListener("statusChange", ({ status, error }) => {
@@ -133,36 +164,48 @@ const ShortsExpoPlayer = React.forwardRef<AvPlaybackHandle, Props>(function Shor
           loadAnnounced.current = true;
           callbacks.current.onLoad?.(statusOf(player, player.playing));
         }
+        if (status === "readyToPlay") resumeIfWanted(100);
         emit();
       }),
-      player.addListener("playingChange", ({ isPlaying }) => emit(isPlaying)),
+      player.addListener("playingChange", ({ isPlaying }) => {
+        if (!isPlaying) resumeIfWanted(400);
+        emit(isPlaying);
+      }),
       player.addListener("timeUpdate", ({ currentTime }) => {
         // Fallback for platforms where onFirstFrameRender is not delivered: playback has advanced, so a frame is on screen.
         if (currentTime > 0 && !announced.current) announceFirstFrame();
         emit();
       }),
     ];
-    return () => subscriptions.forEach((subscription) => subscription.remove());
+    return () => {
+      if (resumeTimer) clearTimeout(resumeTimer);
+      subscriptions.forEach((subscription) => subscription.remove());
+    };
   }, [player]);
 
   useImperativeHandle(ref, () => ({
     playAsync: async () => {
+      manualPauseRef.current = false;
       player.play();
       return statusOf(player, true);
     },
     pauseAsync: async () => {
+      manualPauseRef.current = true;
       player.pause();
       return statusOf(player, false);
     },
     stopAsync: async () => {
+      manualPauseRef.current = true;
       player.pause();
       return statusOf(player, false);
     },
     unloadAsync: async () => {
+      manualPauseRef.current = true;
       player.pause();
       return statusOf(player, false);
     },
     replayAsync: async () => {
+      manualPauseRef.current = false;
       player.replay();
       return statusOf(player, true);
     },
