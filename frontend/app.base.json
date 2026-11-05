@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.4.25",
+    "version": "26.4.26",
     "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
