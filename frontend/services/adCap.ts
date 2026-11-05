@@ -358,7 +358,16 @@ type FeedAdCapOptions = {
   count?: number;
   remainingSlots?: number;
   shownAdMilestones?: string[];
+  /** Milestone keys already placed in the list this session. They stay in place even
+   *  after their impression is recorded (or the cap is reached), so an ad never
+   *  vanishes from under the user mid-scroll. */
+  keepMilestones?: ReadonlySet<string>;
 };
+
+/** Milestone key for a feed ad slot (`<placement>:<threshold>`). */
+export function getAdMilestoneKey(milestone: AdMilestone): string {
+  return adMilestoneKey(milestone.placement, milestone.threshold);
+}
 
 function injectPositionalFeedAds<T>(
   items: T[],
@@ -366,7 +375,8 @@ function injectPositionalFeedAds<T>(
   placement: string,
   options: FeedAdCapOptions
 ): (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] {
-  if (items.length === 0 || options.isCapped) {
+  const keep = options.keepMilestones;
+  if (items.length === 0 || (options.isCapped && !keep?.size)) {
     return items;
   }
 
@@ -379,7 +389,10 @@ function injectPositionalFeedAds<T>(
     contentCount += 1;
     if (contentCount % everyN === 0 && contentCount < items.length) {
       const milestone = { placement, threshold: contentCount };
-      if (!options.shownAdMilestones?.includes(adMilestoneKey(placement, contentCount))) {
+      const key = adMilestoneKey(placement, contentCount);
+      const alreadyPlaced = !!keep?.has(key);
+      const allowed = !options.isCapped && !options.shownAdMilestones?.includes(key);
+      if (alreadyPlaced || allowed) {
         result.push({ type: 'ad', adIndex, milestone });
       }
       adIndex += 1;

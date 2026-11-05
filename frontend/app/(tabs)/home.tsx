@@ -59,6 +59,7 @@ import {
   recordGoogleAdImpression,
   logContentView,
   injectHomeFeedAds,
+  getAdMilestoneKey,
   HOME_AD_EVERY_N_POSTS,
 } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
@@ -241,16 +242,19 @@ function useRowPlayback(
   postId: string | null,
   index: number,
 ) {
-  const [flags, setFlags] = useState({ visible: false, preload: false, near: false });
+  const [flags, setFlags] = useState({ visible: false, preload: false, near: false, ahead: false });
   useEffect(() => {
     return subscribeVisibility((visibility) => {
       const visible = !!postId && visibility.postId === postId;
       const preload = visibility.index != null && index === visibility.index + 1;
       const near = visibility.index != null && Math.abs(index - visibility.index) <= 1;
+      // Up to 2 rows below the visible row (or on screen): ad requests take a few
+      // seconds, so they start just before the slot scrolls in.
+      const ahead = visibility.index != null && index - visibility.index >= -1 && index - visibility.index <= 2;
       setFlags((prev) => (
-        prev.visible === visible && prev.preload === preload && prev.near === near
+        prev.visible === visible && prev.preload === preload && prev.near === near && prev.ahead === ahead
           ? prev
-          : { visible, preload, near }
+          : { visible, preload, near, ahead }
       ));
     });
   }, [subscribeVisibility, postId, index]);
@@ -260,12 +264,12 @@ function useRowPlayback(
 const FeedListItem = React.memo(
   ({ item, index, subscribeVisibility, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
     const postId = isAdItem(item) ? null : item._id;
-    const { visible, preload } = useRowPlayback(subscribeVisibility, postId, index);
+    const { visible, preload, ahead } = useRowPlayback(subscribeVisibility, postId, index);
     if (isAdItem(item)) {
       return (
         <NativeAdCard
           adIndex={item.adIndex}
-          visible
+          visible={ahead}
           onImpression={() => recordGoogleAdImpression(item.milestone)}
           onLoadFailed={() => onAdLoadFailed(item.adIndex)}
         />
@@ -563,6 +567,10 @@ export default function HomeScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
+  // Ad slots already placed in the feed this session. Recording an impression adds
+  // the slot's milestone to the cap state; without this the slot would be dropped
+  // from the list right after it loads (often before the user scrolls to it).
+  const placedAdMilestonesRef = useRef(new Set<string>());
   const handleAdLoadFailed = useCallback((adIndex: number) => {
     setFailedAdIndices(prev => {
       if (prev.includes(adIndex)) return prev;
@@ -1666,7 +1674,11 @@ export default function HomeScreen() {
 
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0 || feedMode === 'watch') return posts as FeedItem[];
-    const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
+    const placed = placedAdMilestonesRef.current;
+    const rawFeed = injectHomeFeedAds(posts, { ...adCap, keepMilestones: placed }) as FeedItem[];
+    for (const item of rawFeed) {
+      if (isAdItem(item)) placed.add(getAdMilestoneKey(item.milestone));
+    }
     if (failedAdIndices.length === 0) return rawFeed;
     const failed = new Set(failedAdIndices);
     return rawFeed.filter((item) => !isAdItem(item) || !failed.has(item.adIndex));
