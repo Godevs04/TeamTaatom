@@ -1440,6 +1440,8 @@ export default function HomeScreen() {
       setRefreshing(false);
       return;
     }
+    // Give slots that had no fill earlier a fresh chance on pull-to-refresh.
+    setFailedAdIndices(prev => (prev.length === 0 ? prev : []));
     
     // Allow scroll-to-post effect to run again after refresh if postId in URL
     hasScrolledToPostIdRef.current = null;
