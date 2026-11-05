@@ -6,6 +6,37 @@ export function unsplash(photoId: string, width: number, quality = 80): string {
   return `https://images.unsplash.com/photo-${photoId}?auto=format&fit=crop&w=${width}&q=${quality}`;
 }
 
+/**
+ * Destination photos for the redesigned landing (each label matches the photo).
+ * Verified to load from images.unsplash.com.
+ */
+export const LANDING_PLACES = {
+  venice: { id: "1523906834658-6e24ef2386f9", place: "Venice", country: "Italy" },
+  braies: { id: "1476514525535-07fb3b4ae5f1", place: "Lago di Braies", country: "Italy" },
+  moraine: { id: "1493246507139-91e8fad9978e", place: "Moraine Lake", country: "Canada" },
+  roadTrip: { id: "1500530855697-b586d89ba3ee", place: "Desert road trip", country: "USA" },
+  paris: { id: "1502602898657-3e91760cbb34", place: "Paris", country: "France" },
+  london: { id: "1513635269975-59663e0ac1ad", place: "London", country: "United Kingdom" },
+  machuPicchu: { id: "1526392060635-9d6019884377", place: "Machu Picchu", country: "Peru" },
+  halong: { id: "1528127269322-539801943592", place: "Ha Long Bay", country: "Vietnam" },
+  cappadocia: { id: "1530789253388-582c481c54b0", place: "Cappadocia", country: "Türkiye" },
+  bali: { id: "1537996194471-e657df975ab4", place: "Ulun Danu Beratan, Bali", country: "Indonesia" },
+  dolomitesFriends: { id: "1539635278303-d4002c07eae3", place: "Dolomites", country: "Italy" },
+  lisbonBeach: { id: "1507525428034-b723cf961d3e", place: "Sunset beach", country: "Portugal" },
+} as const;
+
+export type LandingPlaceKey = keyof typeof LANDING_PLACES;
+
+export function placeImage(key: LandingPlaceKey, width: number, quality = 82): string {
+  return unsplash(LANDING_PLACES[key].id, width, quality);
+}
+
+/** Flat-lay "travel journal" textures (no place). */
+export const LANDING_TEXTURES = {
+  journalFlatlay: unsplash("1504609773096-104ff2c73ba4", 1200, 80),
+  mapFlatlay: unsplash("1488646953014-85cb44e25828", 1200, 80),
+} as const;
+
 export const LANDING_IMAGES = {
   hero: {
     mountains: unsplash("1506905925346-21bda4d32df4", 560, 85),

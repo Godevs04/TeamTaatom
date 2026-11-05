@@ -4,29 +4,29 @@ import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { SectionReveal, RevealItem } from "./section-reveal";
-import { LANDING_IMAGES } from "@/lib/landing-images";
+import { placeImage } from "@/lib/landing-images";
 import { HoverLiftCard } from "./motion-primitives";
 import { cn } from "@/lib/utils";
 
 const STORIES = [
   {
-    title: "Iceland Ring Road",
-    meta: "7 Days · 23 Photos · 4 Songs",
-    image: LANDING_IMAGES.stories.iceland,
+    title: "Five slow days in Cappadocia",
+    meta: "Türkiye · 5 days · 38 photos · 6 songs",
+    image: placeImage("cappadocia", 900),
     href: "/auth/register",
   },
   {
-    title: "Venice Canal Weekend",
-    meta: "10 Days · 52 Memories",
-    image: LANDING_IMAGES.stories.venice,
+    title: "A long weekend in Venice",
+    meta: "Italy · 3 days · 24 memories",
+    image: placeImage("venice", 900),
     href: "/auth/register",
   },
   {
-    title: "Kerala Monsoon Trails",
-    meta: "5 Days · Story Collection",
-    image: LANDING_IMAGES.stories.kerala,
+    title: "Walking the Inca Trail",
+    meta: "Peru · 4 days · 41 photos",
+    image: placeImage("machuPicchu", 900),
     href: "/auth/register",
   },
 ] as const;
@@ -47,13 +47,13 @@ export function LandingStoryFeed() {
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <RevealItem className="mb-10 flex flex-col gap-4 sm:mb-12 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="landing-eyebrow text-[var(--landing-accent)]">Featured journeys</p>
+            <p className="landing-eyebrow text-[var(--landing-accent)]">Trip journals</p>
             <h2 className="landing-h2 font-display mt-3 text-[var(--landing-ink)]">Open a trip. Stay awhile.</h2>
             <p className="landing-body mt-3 max-w-md">
-              Real routes with photos, music, and days you can wander through.
+              Each trip reads like a little book — day by day, place by place, with the songs that played along the way.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:hidden">
             <button
               type="button"
               onClick={prev}
@@ -129,7 +129,7 @@ function JourneyCard({ story }: { story: (typeof STORIES)[number] }) {
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent" />
             <span className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur-sm transition-colors group-hover:bg-white/30">
-              <Info className="h-4 w-4" aria-hidden />
+              <ArrowUpRight className="h-4 w-4" aria-hidden />
             </span>
             <div className="absolute inset-x-0 bottom-0 p-6">
               <h3 className="font-display text-xl font-medium leading-snug text-white sm:text-2xl">{story.title}</h3>

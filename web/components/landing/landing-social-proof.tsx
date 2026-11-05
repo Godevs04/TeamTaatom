@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 import { MapPin, Play } from "lucide-react";
-import { LANDING_IMAGES } from "@/lib/landing-images";
+import { LANDING_IMAGES, placeImage } from "@/lib/landing-images";
 import { cn } from "@/lib/utils";
 import { SectionReveal, RevealItem } from "./section-reveal";
 import { WaveformBars } from "./landing-shared";
@@ -15,7 +15,7 @@ const ACTIVITY = [
     avatar: LANDING_IMAGES.avatars[0],
     action: "pinned a memory in Venice",
     location: "Venice, Italy",
-    time: "2m ago",
+    time: "Day 3 of 5",
     preview: "photo" as const,
     previewSrc: LANDING_IMAGES.stories.venice,
   },
@@ -23,19 +23,19 @@ const ACTIVITY = [
     id: "alex",
     name: "Alex",
     avatar: LANDING_IMAGES.avatars[2],
-    action: "shared a reel from Iceland",
-    location: "Reykjavík, Iceland",
-    time: "8m ago",
+    action: "shared a boat-day reel",
+    location: "Ha Long Bay, Vietnam",
+    time: "Day 2 of 6",
     preview: "video" as const,
-    previewSrc: LANDING_IMAGES.stories.iceland,
+    previewSrc: placeImage("halong", 200),
   },
   {
     id: "priya",
     name: "Priya",
     avatar: LANDING_IMAGES.avatars[1],
-    action: "added music to her Lisbon story",
-    location: "Lisbon, Portugal",
-    time: "15m ago",
+    action: "added a song to her beach day",
+    location: "Algarve, Portugal",
+    time: "Day 1 of 4",
     preview: "music" as const,
     previewSrc: LANDING_IMAGES.stories.coast,
   },
@@ -51,10 +51,10 @@ export function LandingSocialProof() {
     >
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <RevealItem className="mb-10 max-w-xl sm:mb-12">
-          <p className="landing-eyebrow text-[var(--landing-accent)]">Live community</p>
-          <h2 className="landing-h2 font-display mt-3 text-[var(--landing-ink)]">Travel is happening right now.</h2>
+          <p className="landing-eyebrow text-[var(--landing-accent)]">From the community</p>
+          <h2 className="landing-h2 font-display mt-3 text-[var(--landing-ink)]">Small moments, saved for good.</h2>
           <p className="landing-body mt-3">
-            Real people saving trips they mean to return to — one city, one song, one afternoon at a time.
+            The kind of things people keep on Taatom — a view, a song, an afternoon they don&apos;t want to forget.
           </p>
         </RevealItem>
 
@@ -66,9 +66,9 @@ export function LandingSocialProof() {
             aria-hidden
           >
             <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-500/80" />
-            {!reduced ? <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/35" /> : null}
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/35 motion-reduce:hidden" />
           </motion.span>
-          <p className="landing-eyebrow text-[var(--landing-muted)]">Live activity</p>
+          <p className="landing-eyebrow text-[var(--landing-muted)]">Inside a journal</p>
         </div>
 
         <ul className="space-y-3" role="list">
