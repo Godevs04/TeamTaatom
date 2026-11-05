@@ -21,7 +21,7 @@ Replace the placeholder App IDs in `app.json` (inside the `react-native-google-m
 - **iOS:** `ca-app-pub-6362359854606661~0000000000` → your iOS app ID from AdMob.
 
 Format: `ca-app-pub-6362359854606661~XXXXXXXXXX` (the part after `~` is your app’s ID in AdMob).
- 
+
 ### 2. Ad unit IDs in constants/admob.js
 
 Replace the placeholder ad unit IDs in `frontend/constants/admob.js` (or set `EXPO_PUBLIC_ADMOB_*` in `.env` / `app.base.json`):
