@@ -9,8 +9,8 @@ import { LANDING_IMAGES } from "@/lib/landing-images";
 import { HoverLiftCard } from "./motion-primitives";
 
 const REELS = [
-  { title: "Coastal Highway", location: "Portugal", duration: "0:24", image: LANDING_IMAGES.reels[0] },
-  { title: "Midnight Train", location: "Japan", duration: "0:18", image: LANDING_IMAGES.reels[1] },
+  { title: "Above the Clouds", location: "Alps", duration: "0:24", image: LANDING_IMAGES.reels[0] },
+  { title: "Lakeside Morning", location: "Dolomites, Italy", duration: "0:18", image: LANDING_IMAGES.reels[1] },
   { title: "Monsoon Trails", location: "India", duration: "0:31", image: LANDING_IMAGES.reels[2] },
 ] as const;
 
@@ -52,8 +52,8 @@ export function LandingReels() {
                       <span className="absolute left-3 top-3 rounded-md bg-black/35 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                         {reel.duration}
                       </span>
-                      <span className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/25 opacity-90 backdrop-blur-sm transition-transform group-hover:scale-110">
-                        <Play className="h-4 w-4 fill-white text-white" aria-hidden />
+                      <span className="absolute left-1/2 top-1/2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 ring-1 ring-white/50 transition-transform group-hover:scale-110">
+                        <Play className="ml-0.5 h-4 w-4 fill-white text-white" aria-hidden />
                       </span>
                       <div className="absolute inset-x-0 bottom-0 p-3">
                         <p className="text-[12px] font-semibold text-white">{reel.title}</p>

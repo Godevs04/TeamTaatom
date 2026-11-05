@@ -43,19 +43,21 @@ export function LandingWorldMap() {
             >
               Explore map
             </Link>
-            <div className="mt-8">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Popular right now</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {countryTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full border border-white/12 bg-white/8 px-3.5 py-1.5 text-[12px] font-medium text-white/75 backdrop-blur-sm transition-colors hover:bg-white/14"
-                  >
-                    {tag}
-                  </span>
-                ))}
+            {countryTags.length > 0 ? (
+              <div className="mt-8">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Popular right now</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {countryTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-[12px] font-medium text-white/75 backdrop-blur-sm transition-colors hover:bg-white/15"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
           </RevealItem>
 
           <RevealItem className="relative">
@@ -63,7 +65,7 @@ export function LandingWorldMap() {
               <LandingConnectionsMap className="absolute inset-0" />
 
               <motion.div
-                className="absolute bottom-[10%] right-[4%] z-20 w-[min(72%,220px)]"
+                className="absolute bottom-3 right-3 z-20 w-[min(62%,220px)] sm:bottom-[10%] sm:right-[4%]"
                 initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
@@ -75,12 +77,23 @@ export function LandingWorldMap() {
                   </p>
                   <div className="mt-2 flex gap-2.5">
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-stone-200">
-                      <Image src={LANDING_IMAGES.stories.coast} alt="Lisbon memory" fill className="object-cover" sizes="56px" />
+                      <Image
+                        src={LANDING_IMAGES.stories.coast}
+                        alt="Lisbon memory"
+                        fill
+                        className="object-cover"
+                        sizes="56px"
+                      />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[12px] font-semibold text-[var(--landing-ink)]">Sunset in Alfama</p>
+                      <p className="text-[12px] font-semibold text-[var(--landing-ink)]">
+                        Sunset in Alfama
+                      </p>
                       <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-[var(--landing-subtle)]">
-                        <MapPin className="h-2.5 w-2.5 text-[var(--landing-accent)]" aria-hidden />
+                        <MapPin
+                          className="h-2.5 w-2.5 text-[var(--landing-accent)]"
+                          aria-hidden
+                        />
                         Lisbon, Portugal
                       </p>
                     </div>

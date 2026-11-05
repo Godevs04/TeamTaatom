@@ -18,9 +18,9 @@ const ease = [0.22, 1, 0.36, 1] as const;
 
 const POLAROIDS = [
   {
-    city: "Kyoto",
-    country: "Japan",
-    src: LANDING_IMAGES.stories.japan,
+    city: "Venice",
+    country: "Italy",
+    src: LANDING_IMAGES.stories.venice,
     top: "14%",
     left: "6%",
     rotate: -8,
@@ -60,7 +60,7 @@ const ANCHORS = {
   daylightTop: vb(100 - 6 - 38.5 / 2, 100 - 8 - 15),
 } as const;
 
-// Kyoto → hub → Lisbon → Daylight (single journey wire, no stray arcs)
+// Venice → hub → Lisbon → Daylight (single journey wire, no stray arcs)
 const ROUTES = [
   {
     d: `M ${ANCHORS.kyotoRight.x} ${ANCHORS.kyotoRight.y} Q ${(ANCHORS.kyotoRight.x + HUB.x) / 2} ${ANCHORS.kyotoRight.y - 6} ${HUB.x} ${HUB.y}`,
@@ -79,6 +79,8 @@ const ROUTES = [
     opacity: 0.5,
     width: 1.35,
     delay: 0.6,
+    // Daylight card sits bottom-left on phones (see below), so this wire only fits from sm up.
+    className: "hidden sm:inline",
   },
 ] as const;
 
@@ -139,6 +141,7 @@ export function LandingHeroScene() {
               strokeWidth={route.width}
               strokeOpacity={route.opacity}
               delay={route.delay}
+              className={"className" in route ? route.className : undefined}
             />
           ))}
         </motion.svg>
@@ -163,7 +166,7 @@ export function LandingHeroScene() {
           >
             <FloatingMotion duration={5.5 + card.delay * 10} y={7} delay={card.delay}>
               <HoverLiftCard>
-                <GlassCard className="w-[min(42vw,148px)] overflow-hidden p-2 sm:w-[148px]">
+                <GlassCard className="w-[min(34vw,148px)] overflow-hidden p-2 sm:w-[148px]">
                   <div className="relative aspect-[4/5] overflow-hidden rounded-xl bg-stone-200">
                     <Image src={card.src} alt={`${card.city}, ${card.country}`} fill className="object-cover" sizes="148px" />
                   </div>
@@ -181,7 +184,7 @@ export function LandingHeroScene() {
         ))}
 
         <motion.div
-          className="absolute bottom-[8%] right-[6%] z-[25] w-[min(52vw,200px)]"
+          className="absolute bottom-[6%] left-[6%] z-[25] w-[min(42vw,200px)] sm:bottom-[8%] sm:left-auto sm:right-[6%]"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.55, duration: 0.65, ease }}

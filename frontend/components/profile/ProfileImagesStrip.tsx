@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -29,13 +29,29 @@ const THUMB_HEIGHT = 22;
 export default function ProfileImagesStrip({ images = [], isDark }: ProfileImagesStripProps) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  // Open state is kept separate from the current page: the pager's scroll events
+  // (including the one fired when the modal closes and its offset resets) may only
+  // change the page, never reopen the viewer.
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [startIndex, setStartIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const viewerOpenRef = useRef(false);
 
   if (images.length === 0) {
     return null;
   }
 
-  const closeViewer = () => setViewerIndex(null);
+  const openViewer = (index: number) => {
+    viewerOpenRef.current = true;
+    setStartIndex(index);
+    setCurrentIndex(index);
+    setViewerOpen(true);
+  };
+
+  const closeViewer = () => {
+    viewerOpenRef.current = false;
+    setViewerOpen(false);
+  };
 
   return (
     <>
@@ -43,7 +59,7 @@ export default function ProfileImagesStrip({ images = [], isDark }: ProfileImage
         {images.map((image, index) => (
           <Pressable
             key={image._id}
-            onPress={() => setViewerIndex(index)}
+            onPress={() => openViewer(index)}
             accessibilityRole="imagebutton"
             accessibilityLabel={`Open profile photo ${index + 1} of ${images.length}`}
             style={({ pressed }) => [
@@ -57,7 +73,7 @@ export default function ProfileImagesStrip({ images = [], isDark }: ProfileImage
       </View>
 
       <Modal
-        visible={viewerIndex !== null}
+        visible={viewerOpen}
         transparent
         animationType="fade"
         statusBarTranslucent
@@ -65,12 +81,14 @@ export default function ProfileImagesStrip({ images = [], isDark }: ProfileImage
       >
         <View style={styles.viewerOverlay}>
           <ScrollView
+            key={`viewer-${startIndex}`}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
-            contentOffset={{ x: (viewerIndex ?? 0) * width, y: 0 }}
+            contentOffset={{ x: startIndex * width, y: 0 }}
             onMomentumScrollEnd={(event) => {
-              setViewerIndex(Math.round(event.nativeEvent.contentOffset.x / width));
+              if (!viewerOpenRef.current) return;
+              setCurrentIndex(Math.round(event.nativeEvent.contentOffset.x / width));
             }}
           >
             {images.map((image) => (
@@ -90,9 +108,9 @@ export default function ProfileImagesStrip({ images = [], isDark }: ProfileImage
             <Ionicons name="close" size={26} color="#FFFFFF" />
           </Pressable>
 
-          {images.length > 1 && viewerIndex !== null ? (
+          {images.length > 1 ? (
             <Text style={[styles.viewerCounter, { bottom: insets.bottom + 24 }]}>
-              {viewerIndex + 1} / {images.length}
+              {currentIndex + 1} / {images.length}
             </Text>
           ) : null}
         </View>

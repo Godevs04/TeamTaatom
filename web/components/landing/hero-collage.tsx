@@ -172,7 +172,7 @@ export function HeroCollage() {
           >
             <Image src={p.src} alt={p.alt} fill className="object-cover" sizes="80vw" priority={i === 0} />
             {i === 0 ? (
-              <div className="absolute bottom-3 left-3 right-3 rounded-xl bg-white/92 p-3 backdrop-blur-sm">
+              <div className="absolute bottom-3 left-3 right-3 rounded-xl bg-white/90 p-3 backdrop-blur-sm">
                 <p className="text-xs text-[var(--landing-muted)]">Kyoto · Japan</p>
                 <p className="font-display text-sm text-[var(--landing-ink)]">Temple walk at dawn</p>
               </div>

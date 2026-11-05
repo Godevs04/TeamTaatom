@@ -50,7 +50,7 @@ export function MagneticButton({ href, onClick, children, className, variant = "
       whileTap={reduced ? undefined : { scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       className={cn(
-        "inline-flex h-12 items-center justify-center rounded-full px-8 text-[15px] font-semibold transition-[box-shadow,filter] duration-300",
+        "inline-flex h-12 w-full items-center justify-center rounded-full px-8 text-[15px] font-semibold transition-[box-shadow,filter] duration-300 sm:w-auto",
         base,
         className
       )}
@@ -61,14 +61,14 @@ export function MagneticButton({ href, onClick, children, className, variant = "
 
   if (href) {
     return (
-      <Link href={href} className="inline-block">
+      <Link href={href} className="inline-flex w-full sm:w-auto">
         {inner}
       </Link>
     );
   }
 
   return (
-    <button type="button" onClick={onClick} className="inline-block">
+    <button type="button" onClick={onClick} className="inline-flex w-full sm:w-auto">
       {inner}
     </button>
   );

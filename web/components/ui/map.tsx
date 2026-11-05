@@ -156,6 +156,25 @@ function DefaultLoader() {
   );
 }
 
+function MapUnavailable({ dark }: { dark: boolean }) {
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-4 text-center text-xs",
+        dark ? "bg-[#0f1a2e] text-white/60" : "bg-[#e8ebe8] text-slate-500",
+      )}
+      role="img"
+      aria-label="Map unavailable"
+    >
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+      </svg>
+      <span>The map can&apos;t be shown in this browser.</span>
+    </div>
+  );
+}
+
 function getViewport(map: MapLibreGL.Map): MapViewport {
   const center = map.getCenter();
   return {
@@ -184,6 +203,10 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
   const [mapInstance, setMapInstance] = useState<MapLibreGL.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isStyleLoaded, setIsStyleLoaded] = useState(false);
+  // MapLibre throws synchronously when the browser can't create a WebGL context
+  // (WebGL disabled, GPU blocklisted, low-power / headless browsers, crawlers).
+  // Catch it so one map can't take down the whole page via the error boundary.
+  const [initFailed, setInitFailed] = useState(false);
   const currentStyleRef = useRef<MapStyleOption | null>(null);
   const styleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const internalUpdateRef = useRef(false);
@@ -220,16 +243,22 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
       resolvedTheme === "dark" ? mapStyles.dark : mapStyles.light;
     currentStyleRef.current = initialStyle;
 
-    const map = new MapLibreGL.Map({
-      container: containerRef.current,
-      style: initialStyle,
-      renderWorldCopies: false,
-      attributionControl: {
-        compact: true,
-      },
-      ...props,
-      ...viewport,
-    });
+    let map: MapLibreGL.Map;
+    try {
+      map = new MapLibreGL.Map({
+        container: containerRef.current,
+        style: initialStyle,
+        renderWorldCopies: false,
+        attributionControl: {
+          compact: true,
+        },
+        ...props,
+        ...viewport,
+      });
+    } catch {
+      setInitFailed(true);
+      return;
+    }
 
     const styleDataHandler = () => {
       clearStyleTimeout();
@@ -333,7 +362,11 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         ref={containerRef}
         className={cn("relative h-full w-full", className)}
       >
-        {(!isLoaded || loading) && <DefaultLoader />}
+        {initFailed ? (
+          <MapUnavailable dark={resolvedTheme === "dark"} />
+        ) : (
+          (!isLoaded || loading) && <DefaultLoader />
+        )}
         {/* SSR-safe: children render only when map is loaded on client */}
         {mapInstance && children}
       </div>

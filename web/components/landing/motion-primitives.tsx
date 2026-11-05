@@ -26,13 +26,15 @@ type AnimatedRoutePathProps = {
   strokeWidth?: number;
   strokeOpacity?: number;
   delay?: number;
+  className?: string;
 };
 
-export function AnimatedRoutePath({ d, strokeWidth = 1.5, strokeOpacity = 0.45, delay = 0 }: AnimatedRoutePathProps) {
+export function AnimatedRoutePath({ d, strokeWidth = 1.5, strokeOpacity = 0.45, delay = 0, className }: AnimatedRoutePathProps) {
   const reduced = useReducedMotion();
   return (
     <motion.path
       d={d}
+      className={className}
       fill="none"
       stroke="var(--landing-accent)"
       strokeWidth={strokeWidth}
