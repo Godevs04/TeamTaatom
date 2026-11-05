@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
+import { addBreadcrumb } from '../../utils/sentryContext';
 const AnyFlashList = FlashList as any;
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
@@ -634,7 +635,11 @@ export default function HomeScreen() {
   }, [posts, publishVisibility]);
 
   // Frequency control: ads flow unconditionally without scroll or time limits.
-  const adCap = useAdCap();
+  const adCap = useAdCap('home');
+  // Shows up in Sentry next to the ad request breadcrumbs: tells "no ad because capped" apart from "ad failed".
+  useEffect(() => {
+    addBreadcrumb('[AdMob] feed ad cap state', 'ads', { isCapped: adCap.isCapped, count: (adCap as any).count });
+  }, [adCap.isCapped]);
   const hasSetScrollThresholdRef = useRef(false);
 
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
@@ -1440,8 +1445,10 @@ export default function HomeScreen() {
       setRefreshing(false);
       return;
     }
-    // Give slots that had no fill earlier a fresh chance on pull-to-refresh.
+    // Give slots that had no fill earlier a fresh chance on pull-to-refresh, and re-check the
+    // cap from scratch: kept slots only protect ads from vanishing mid-scroll, not across refreshes.
     setFailedAdIndices(prev => (prev.length === 0 ? prev : []));
+    placedAdMilestonesRef.current = new Set();
     
     // Allow scroll-to-post effect to run again after refresh if postId in URL
     hasScrolledToPostIdRef.current = null;

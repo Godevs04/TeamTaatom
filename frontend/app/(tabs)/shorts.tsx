@@ -522,7 +522,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Persistent 5-per-8h Google AdMob cap, shared with the home feed. The
   // existing per-session counter above stays in place as defense-in-depth;
   // the persistent cap is the authoritative limit across app restarts.
-  const adCap = useAdCap();
+  const adCap = useAdCap('shorts');
   // When an ad slot can't render (Expo Go, no AdMob fill, network error,
   // placeholder unit ID, …), ShortsNativeAd returns null but its parent
   // wrapper still occupies a SHORTS_ITEM_HEIGHT-tall cell with the black
@@ -1487,6 +1487,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (isRefreshingToTopRef.current) return;
     isRefreshingToTopRef.current = true;
     userPausedShortIdsRef.current.clear();
+    placedShortsAdsRef.current.clear(); // refresh re-checks the shorts ad cap from scratch
     setRefreshing(true);
     setCurrentIndex(0);
     setCurrentVisibleIndex(0);
@@ -2107,7 +2108,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 5-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken && !adCap.isCapped;
+  // Ad slots already in the list this visit. They stay when the cap is reached mid-scroll, so the
+  // reels never shift under the viewer; a fresh visit/refresh re-checks the cap from scratch.
+  const placedShortsAdsRef = useRef(new Set<number>());
+  const adsAvailable = !isWeb && !isExpoGo && !shortsAdsBroken;
+  const showShortsAds = adsAvailable && (!adCap.isCapped || placedShortsAdsRef.current.size > 0);
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
@@ -2117,11 +2122,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if ((i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
         const currentAdIndex = adCount++;
         const threshold = i + 1;
-        const milestoneKey = `shorts:${threshold}`;
-        if (
-          !failedAdIndices.includes(currentAdIndex) &&
-          !adCap.shownAdMilestones.includes(milestoneKey)
-        ) {
+        // Fixed positions (after reel 5, 10, 15, …) on every visit; only the shorts cap (10 per 8h) stops new ones.
+        const allowed = placedShortsAdsRef.current.has(threshold) || !adCap.isCapped;
+        if (allowed && !failedAdIndices.includes(currentAdIndex)) {
+          placedShortsAdsRef.current.add(threshold);
           result.push({
             type: 'ad',
             adIndex: currentAdIndex,
@@ -2131,7 +2135,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
     return result;
-  }, [shorts, showShortsAds, failedAdIndices, adCap.shownAdMilestones]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shorts, showShortsAds, failedAdIndices, adCap.isCapped]);
 
   useEffect(() => {
     shortsDataRef.current = shortsData;
@@ -2347,6 +2352,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           <ShortsNativeAd
             adIndex={item.adIndex}
             height={containerHeight}
+            bottomClearance={bottomClearance}
             fillParent
             onImpression={() => {
               consecutiveAdFailuresRef.current = 0; // Reset on successful impression

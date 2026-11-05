@@ -7,6 +7,7 @@ export const ADMOB: {
     rewarded: string;
     rewardedInterstitial: string;
     native: string;
+    feedNative: string;
   };
   ios: {
     banner: string;
@@ -14,6 +15,7 @@ export const ADMOB: {
     rewarded: string;
     rewardedInterstitial: string;
     native: string;
+    feedNative: string;
   };
 };
 
