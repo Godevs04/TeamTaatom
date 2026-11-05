@@ -18,9 +18,9 @@ const STORIES = [
     href: "/auth/register",
   },
   {
-    title: "Japan Cherry Blossom Route",
+    title: "Venice Canal Weekend",
     meta: "10 Days · 52 Memories",
-    image: LANDING_IMAGES.stories.japan,
+    image: LANDING_IMAGES.stories.venice,
     href: "/auth/register",
   },
   {

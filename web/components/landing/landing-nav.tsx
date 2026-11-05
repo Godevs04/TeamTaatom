@@ -59,7 +59,7 @@ export function LandingNav() {
           "pointer-events-auto relative flex w-full max-w-5xl items-center justify-between gap-3 rounded-2xl border px-3 sm:px-5",
           "border-white/30 bg-white/50 shadow-[0_12px_40px_rgba(15,23,42,0.06)]",
           "backdrop-blur-[20px] supports-[backdrop-filter]:bg-white/55",
-          scrolled && "border-white/45 shadow-[0_16px_48px_rgba(15,23,42,0.09)] supports-[backdrop-filter]:bg-white/72",
+          scrolled && "border-white/45 shadow-[0_16px_48px_rgba(15,23,42,0.09)] supports-[backdrop-filter]:bg-white/70",
           scrolled ? "py-2" : "py-2.5 sm:py-3"
         )}
         style={{ WebkitBackdropFilter: "blur(20px)" }}
@@ -68,9 +68,9 @@ export function LandingNav() {
 
         <Link href="/" className="relative z-10 flex shrink-0 items-center gap-2 pl-0.5">
           <motion.div animate={{ scale: scrolled ? 0.92 : 1 }} transition={spring}>
-            <Image src="/icon.png" alt="Taatom" width={28} height={28} className="rounded-lg object-contain" priority />
+            <Image src="/icon.png" alt="" width={28} height={28} className="h-7 w-7 rounded-lg object-contain" priority />
           </motion.div>
-          <span className="font-display hidden text-[0.9375rem] font-medium tracking-tight text-[var(--landing-ink)] sm:inline">
+          <span className="font-display text-[0.9375rem] font-medium tracking-tight text-[var(--landing-ink)]">
             Taatom
           </span>
         </Link>

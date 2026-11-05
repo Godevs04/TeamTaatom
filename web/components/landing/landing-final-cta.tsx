@@ -16,18 +16,29 @@ const ACTIONS = [
   { label: "Share stories", icon: Share2, top: "76%", right: "18%" },
 ] as const;
 
-const FOOTER_LINKS = [
-  { href: "/contact", label: "About" },
-  { href: "/privacy", label: "Privacy" },
-  { href: "/terms", label: "Terms" },
-  { href: "/contact", label: "Contact" },
-] as const;
-
-const SOCIAL = [
-  { href: "https://instagram.com", label: "Instagram" },
-  { href: "https://x.com", label: "X" },
-  { href: "https://youtube.com", label: "YouTube" },
-  { href: "https://tiktok.com", label: "TikTok" },
+const FOOTER_COLUMNS = [
+  {
+    title: "Product",
+    links: [
+      { href: "/locale", label: "Explore places" },
+      { href: "/download", label: "Download the app" },
+      { href: "/auth/register", label: "Create an account" },
+      { href: "/auth/login", label: "Log in" },
+    ],
+  },
+  {
+    title: "Company",
+    links: [{ href: "/contact", label: "Contact us" }],
+  },
+  {
+    title: "Legal",
+    links: [
+      { href: "/privacy", label: "Privacy Policy" },
+      { href: "/terms", label: "Terms of Service" },
+      { href: "/copyrights", label: "Copyright" },
+      { href: "/child-safety", label: "Child Safety" },
+    ],
+  },
 ] as const;
 
 export function LandingFinalCta() {
@@ -67,7 +78,7 @@ export function LandingFinalCta() {
                   <MagneticButton
                     href="#stories"
                     variant="secondary"
-                    className="border-white/35 !bg-white/12 text-white backdrop-blur-sm hover:!bg-white/22"
+                    className="border-white/40 !bg-white/10 text-white backdrop-blur-sm hover:!bg-white/20"
                   >
                     Explore stories
                   </MagneticButton>
@@ -112,38 +123,37 @@ export function LandingFinalCta() {
       </div>
 
       <footer className="relative z-10 border-t border-white/10 bg-[#0f1419] text-white/65">
-        <div className="mx-auto flex max-w-7xl flex-col items-center gap-6 px-4 py-8 sm:flex-row sm:justify-between sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-2">
-            <Image src="/icon.png" alt="Taatom" width={24} height={24} className="rounded-md" />
-            <span className="font-display text-[0.9375rem] font-medium text-white">Taatom</span>
-          </Link>
-
-          <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[13px]">
-            {FOOTER_LINKS.map((link) => (
-              <Link key={link.label} href={link.href} className="transition-colors hover:text-white">
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-3">
-            {SOCIAL.map((s) => (
-              <a
-                key={s.label}
-                href={s.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={s.label}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 text-[11px] font-semibold transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white"
-              >
-                {s.label[0]}
-              </a>
-            ))}
+        <div className="mx-auto grid max-w-7xl grid-cols-2 gap-x-6 gap-y-10 px-4 py-12 sm:px-6 lg:grid-cols-[1.4fr_repeat(3,1fr)] lg:px-8">
+          <div className="col-span-2 max-w-xs lg:col-span-1">
+            <Link href="/" className="inline-flex items-center gap-2">
+              <Image src="/icon.png" alt="" width={28} height={28} className="h-7 w-7 rounded-md" />
+              <span className="font-display text-[1.0625rem] font-medium text-white">Taatom</span>
+            </Link>
+            <p className="mt-4 text-[13px] leading-relaxed text-white/55">
+              A travel journal for places, music and moments — on iOS, Android and the web.
+            </p>
           </div>
+
+          {FOOTER_COLUMNS.map((col) => (
+            <nav key={col.title} aria-label={col.title}>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/40">{col.title}</p>
+              <ul className="mt-4 space-y-2.5 text-[13px]">
+                {col.links.map((link) => (
+                  <li key={link.href}>
+                    <Link href={link.href} className="transition-colors hover:text-white">
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
         </div>
-        <p className="border-t border-white/8 pb-6 pt-4 text-center text-[12px] text-white/40">
-          © {new Date().getFullYear()} Taatom. All rights reserved.
-        </p>
+        <div className="border-t border-white/10">
+          <p className="mx-auto max-w-7xl px-4 py-5 text-center text-[12px] text-white/40 sm:px-6 sm:text-left lg:px-8">
+            © {new Date().getFullYear()} Taatom. All rights reserved.
+          </p>
+        </div>
       </footer>
     </section>
   );
