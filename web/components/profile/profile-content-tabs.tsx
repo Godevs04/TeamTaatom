@@ -3,8 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Bookmark, Copy, Eye, Images, Loader2, Lock, Play, Video } from "lucide-react";
-import { getPostById, getUserPosts, getUserShorts } from "../../lib/api";
+import { Bookmark, Clapperboard, Copy, Eye, Images, Loader2, Lock, Play, Video } from "lucide-react";
+import { getPostById, getUserLongVideos, getUserPosts, getUserShorts } from "../../lib/api";
 import { getSavedPostIds } from "../../lib/utils";
 import { formatViewCount } from "../../lib/number-format";
 import { cn } from "../../lib/utils";
@@ -12,7 +12,7 @@ import { useMounted } from "../../hooks/use-mounted";
 import { Skeleton } from "../ui/skeleton";
 import type { Post } from "../../types/post";
 
-export type ProfileTab = "posts" | "shorts" | "saved";
+export type ProfileTab = "posts" | "shorts" | "videos" | "saved";
 type SavedSubTab = "posts" | "shorts";
 
 const PAGE_SIZE = 24;
@@ -79,6 +79,91 @@ function GridTile({
         {formatViewCount(post.viewsCount)}
       </span>
     </Link>
+  );
+}
+
+function formatDuration(seconds?: number | null): string {
+  if (seconds == null || !Number.isFinite(Number(seconds)) || Number(seconds) <= 0) return "";
+  const s = Math.floor(Number(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function timeAgo(iso?: string): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diff) || diff < 0) return "";
+  const units: Array<[number, string]> = [
+    [365 * 86400000, "year"],
+    [30 * 86400000, "month"],
+    [7 * 86400000, "week"],
+    [86400000, "day"],
+    [3600000, "hour"],
+    [60000, "minute"],
+  ];
+  for (const [ms, label] of units) {
+    const n = Math.floor(diff / ms);
+    if (n >= 1) return `${n} ${label}${n === 1 ? "" : "s"} ago`;
+  }
+  return "Just now";
+}
+
+/** Long-video row (mobile ProfileLongVideoRow): 16:9 thumbnail, title, views · age. */
+function VideoRow({ video }: { video: Post }) {
+  const mounted = useMounted();
+  const thumb = video.thumbnailUrl || video.imageUrl || "";
+  const duration = formatDuration(video.durationSeconds);
+  const processing = video.status === "processing" || video.status === "pending";
+  const views = Number(video.viewsCount ?? 0) || 0;
+  return (
+    <Link
+      href={`/watch/${video._id}`}
+      className="group flex gap-3 rounded-2xl p-1.5 transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800/50"
+    >
+      <div className="relative aspect-video w-[44%] shrink-0 overflow-hidden rounded-xl bg-slate-200 dark:bg-zinc-800">
+        {thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center text-slate-400">
+            <Clapperboard className="h-7 w-7" />
+          </span>
+        )}
+        {processing || duration ? (
+          <span className="absolute bottom-1.5 right-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+            {processing ? "Processing" : duration}
+          </span>
+        ) : null}
+      </div>
+      <div className="min-w-0 flex-1 py-0.5">
+        <p className="line-clamp-2 text-[14px] font-semibold leading-5 text-slate-900 group-hover:underline dark:text-zinc-50">
+          {video.caption || "Untitled video"}
+        </p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+          {formatViewCount(views)} {views === 1 ? "view" : "views"}
+          {mounted && video.createdAt ? ` · ${timeAgo(video.createdAt)}` : ""}
+        </p>
+      </div>
+    </Link>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex gap-3 p-1.5">
+          <Skeleton className="aspect-video w-[44%] rounded-xl" />
+          <div className="flex-1 space-y-2 py-1">
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -205,6 +290,14 @@ export function ProfileContentTabs({
     enabled: canViewPosts && tab === "shorts",
   });
 
+  const videosQ = useInfiniteQuery({
+    queryKey: ["user-long-videos", userId],
+    queryFn: ({ pageParam }) => getUserLongVideos(userId, pageParam, PAGE_SIZE),
+    initialPageParam: 1,
+    getNextPageParam: (last, all) => (last.hasMore ? all.length + 1 : undefined),
+    enabled: canViewPosts && tab === "videos",
+  });
+
   const savedQ = useQuery({
     queryKey: ["profile-saved", userId],
     queryFn: async () => {
@@ -218,8 +311,10 @@ export function ProfileContentTabs({
   const tabs = [
     { id: "posts" as const, label: "Posts", icon: Images },
     { id: "shorts" as const, label: "Shorts", icon: Video },
+    { id: "videos" as const, label: "Videos", icon: Clapperboard },
     ...(isOwnProfile ? [{ id: "saved" as const, label: "Saved", icon: Bookmark }] : []),
   ];
+  const videos = React.useMemo(() => videosQ.data?.pages.flatMap((p) => p.videos) ?? [], [videosQ.data]);
 
   const posts = React.useMemo(
     () => (postsQ.data?.pages.flatMap((p) => p.posts ?? []) ?? []).filter((p) => !isShortPost(p)),
@@ -280,6 +375,23 @@ export function ProfileContentTabs({
         </div>
         {shortsQ.hasNextPage ? (
           <LoadMoreSentinel onVisible={() => void shortsQ.fetchNextPage()} loading={shortsQ.isFetchingNextPage} />
+        ) : null}
+      </>
+    );
+  } else if (tab === "videos") {
+    body = videosQ.isPending ? (
+      <ListSkeleton />
+    ) : videos.length === 0 ? (
+      <EmptyState label="No videos yet" />
+    ) : (
+      <>
+        <div className="space-y-1">
+          {videos.map((video) => (
+            <VideoRow key={video._id} video={video} />
+          ))}
+        </div>
+        {videosQ.hasNextPage ? (
+          <LoadMoreSentinel onVisible={() => void videosQ.fetchNextPage()} loading={videosQ.isFetchingNextPage} />
         ) : null}
       </>
     );

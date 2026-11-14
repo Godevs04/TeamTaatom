@@ -9,7 +9,9 @@ import { blobToImageFile, getCroppedImageBlob } from "../../lib/image-crop";
 import { cn } from "../../lib/utils";
 import { toast } from "sonner";
 
-const ASPECT_PRESETS: { id: string; label: string; value: number }[] = [
+export type AspectPreset = { id: string; label: string; value: number };
+
+const ASPECT_PRESETS: AspectPreset[] = [
   { id: "4-5", label: "4:5 · Feed", value: 4 / 5 },
   { id: "1-1", label: "1:1", value: 1 },
   { id: "3-4", label: "3:4", value: 3 / 4 },
@@ -22,8 +24,10 @@ type ImageCropModalProps = {
   imageSrc: string | null;
   baseFileName: string;
   onClose: () => void;
-  onApply: (file: File) => void;
+  onApply: (file: File, aspect: number) => void;
   title?: string;
+  presets?: AspectPreset[];
+  defaultAspectId?: string;
 };
 
 export function ImageCropModal({
@@ -33,11 +37,14 @@ export function ImageCropModal({
   onClose,
   onApply,
   title = "Crop photo",
+  presets = ASPECT_PRESETS,
+  defaultAspectId,
 }: ImageCropModalProps) {
+  const initialAspectId = defaultAspectId ?? presets[0]?.id ?? "4-5";
   const [crop, setCrop] = React.useState({ x: 0, y: 0 });
   const [zoom, setZoom] = React.useState(1);
-  const [aspectId, setAspectId] = React.useState<string>("4-5");
-  const aspect = ASPECT_PRESETS.find((p) => p.id === aspectId)?.value ?? 4 / 5;
+  const [aspectId, setAspectId] = React.useState<string>(initialAspectId);
+  const aspect = presets.find((p) => p.id === aspectId)?.value ?? presets[0]?.value ?? 4 / 5;
   const [croppedAreaPixels, setCroppedAreaPixels] = React.useState<Area | null>(null);
   const [applying, setApplying] = React.useState(false);
   const applyingRef = React.useRef(false);
@@ -46,10 +53,10 @@ export function ImageCropModal({
     if (open) {
       setCrop({ x: 0, y: 0 });
       setZoom(1);
-      setAspectId("4-5");
+      setAspectId(initialAspectId);
       setCroppedAreaPixels(null);
     }
-  }, [open, imageSrc]);
+  }, [open, imageSrc, initialAspectId]);
 
   const onCropComplete = React.useCallback((_area: Area, areaPx: Area) => {
     setCroppedAreaPixels(areaPx);
@@ -62,7 +69,7 @@ export function ImageCropModal({
     try {
       const blob = await getCroppedImageBlob(imageSrc, croppedAreaPixels);
       const file = blobToImageFile(blob, baseFileName);
-      onApply(file);
+      onApply(file, aspect);
       onClose();
     } catch {
       toast.error("Could not crop this image. Try another photo.");
@@ -70,7 +77,7 @@ export function ImageCropModal({
       applyingRef.current = false;
       setApplying(false);
     }
-  }, [imageSrc, croppedAreaPixels, baseFileName, onApply, onClose]);
+  }, [imageSrc, croppedAreaPixels, baseFileName, onApply, onClose, aspect]);
 
   /** W-03: Escape closes; Enter applies when focus isn’t on button / text-like input / zoom slider. */
   React.useEffect(() => {
@@ -174,7 +181,7 @@ export function ImageCropModal({
                     Aspect ratio
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {ASPECT_PRESETS.map((p) => (
+                    {presets.map((p) => (
                       <button
                         key={p.id}
                         type="button"

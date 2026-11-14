@@ -28,6 +28,7 @@ import {
   getDefaultPostShareUrl,
 } from "../../lib/post-share-chat";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
+import { patchPostInLists } from "../../lib/post-list-queries";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -135,8 +136,14 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
    * already succeeded and the count is only telemetry.
    */
   const trackShare = React.useCallback(() => {
-    void incrementShareCount(post._id).catch(() => {});
-  }, [post._id]);
+    void incrementShareCount(post._id)
+      .then((res) => {
+        if (typeof res?.sharesCount === "number") {
+          patchPostInLists(qc, post._id, { sharesCount: res.sharesCount });
+        }
+      })
+      .catch(() => {});
+  }, [post._id, qc]);
 
   const sendMutation = useMutation({
     mutationFn: (target: { kind: "user" | "room"; id: string }) => {

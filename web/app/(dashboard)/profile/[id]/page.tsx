@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 
 function parseTab(raw: string | string[] | undefined): ProfileTab {
   const value = Array.isArray(raw) ? raw[0] : raw;
-  return value === "shorts" || value === "saved" ? value : "posts";
+  return value === "shorts" || value === "videos" || value === "saved" ? value : "posts";
 }
 
 /**

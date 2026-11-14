@@ -48,7 +48,7 @@ export default function SavedPostsPage() {
         </p>
       </div>
 
-      {!mounted ? (
+      {!mounted || postsQ.isPending ? (
         <div className="grid gap-8 xl:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-80 rounded-3xl" />
@@ -85,12 +85,6 @@ export default function SavedPostsPage() {
             </Link>
           </div>
         </Card>
-      ) : postsQ.isLoading ? (
-        <div className="grid gap-8 xl:grid-cols-2">
-          {Array.from({ length: Math.min(savedIds.length, 6) }).map((_, i) => (
-            <Skeleton key={i} className="h-80 rounded-3xl" />
-          ))}
-        </div>
       ) : savedIds.length > 0 && posts.length === 0 ? (
         <Card className="rounded-2xl border border-slate-200/80 p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
           <p className="text-sm text-slate-500 dark:text-zinc-400">Saved posts could not be loaded.</p>

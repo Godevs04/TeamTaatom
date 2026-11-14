@@ -4,7 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getNotifications, markAllNotificationsAsRead } from "../../../lib/api";
-import { groupNotificationsByTime, getNotificationLink } from "../../../lib/notifications";
+import { groupNotificationsByTime, getNotificationLink, isCommentMention } from "../../../lib/notifications";
+import { contentNoun } from "../../../lib/content-routes";
 import { subscribeSocket, unsubscribeSocket } from "../../../lib/socket";
 import type { Notification, NotificationResponse, NotificationType } from "../../../types/notification";
 import { Button } from "../../../components/ui/button";
@@ -21,20 +22,33 @@ function actorName(n: Notification): string {
   return (fromUser && (fromUser.fullName || fromUser.username)) || "Someone";
 }
 
-function actionCopy(type: NotificationType | undefined): string {
-  switch (type) {
+function actionCopy(n: Notification): string {
+  const noun = contentNoun(n.post?.type || n.metadata?.postType);
+  switch (n.type) {
     case "like":
-      return "liked your post";
+      return `liked your ${noun}`;
     case "comment":
-      return "commented on your post";
+      return `commented on your ${noun}`;
     case "follow":
       return "started following you";
     case "follow_request":
       return "requested to follow you";
     case "follow_approved":
+    case "follow_request_accepted":
       return "approved your follow request";
+    case "follow_request_rejected":
+      return "declined your follow request";
     case "post_mention":
-      return "mentioned you in a post";
+      return isCommentMention(n) ? "mentioned you in a comment" : `mentioned you in a ${noun}`;
+    case "subscription_active":
+      return "subscribed to your Connect page";
+    case "route_access_request":
+      return "requested access to your route";
+    case "route_access_approved":
+    case "route_access_accepted":
+      return "approved your route access request";
+    case "route_access_rejected":
+      return "declined your route access request";
     default:
       return "sent you a notification";
   }
@@ -57,6 +71,9 @@ function TypeGlyph({ type }: { type?: NotificationType }) {
         </span>
       );
     case "follow_approved":
+    case "follow_request_accepted":
+    case "route_access_approved":
+    case "route_access_accepted":
       return (
         <span className={cn(wrap, "bg-emerald-500")}>
           <UserCheck className="h-2.5 w-2.5" />
@@ -144,7 +161,7 @@ function NotificationRow({ n, onOpenRequest }: { n: Notification; onOpenRequest:
           ) : (
             <>
               <span className="font-semibold text-slate-900 dark:text-zinc-50">{name}</span>{" "}
-              {actionCopy(n.type)}
+              {actionCopy(n)}
             </>
           )}
         </p>

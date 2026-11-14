@@ -36,18 +36,18 @@ export function setLikedPostIds(ids: string[]): void {
   }
 }
 
-/** Merge persisted liked IDs into posts so UI shows correct heart and count. */
+/**
+ * Fill in the heart from persisted liked IDs only when the server didn't say.
+ * The server's likesCount already includes the viewer's like, so it is never bumped here.
+ */
 export function mergeLikedIntoPosts<T extends { _id: string; isLiked?: boolean; likesCount?: number }>(
   posts: T[],
   likedIds: string[]
 ): T[] {
   const set = new Set(likedIds);
   return posts.map((p) => {
-    const locallyLiked = set.has(p._id);
-    const isLiked = p.isLiked ?? locallyLiked;
-    const likesCount =
-      locallyLiked && !p.isLiked ? Math.max(1, (p.likesCount ?? 0) + 1) : p.likesCount;
-    return { ...p, isLiked, likesCount };
+    if (typeof p.isLiked === "boolean") return p;
+    return { ...p, isLiked: set.has(p._id) };
   });
 }
 

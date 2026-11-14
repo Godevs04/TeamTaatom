@@ -71,6 +71,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
+        presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
@@ -126,6 +127,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
+        presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         selectionLimit: remaining,

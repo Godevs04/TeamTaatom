@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   toggleLike,
   deletePost,
+  deleteLongVideo,
   archivePost,
   hidePost,
   toggleComments,
@@ -45,11 +46,20 @@ type FeedData = {
 
 type SavedPostsCache = { posts: Post[]; savedIds: string[] };
 
+/** Infinite lists rendered with PostCard: the photo feed and the Videos (watch) tab. */
+const CARD_LIST_KEYS = [["feed"], ["watch"]] as const;
+
 function patchAllFeedQueries(
   qc: ReturnType<typeof useQueryClient>,
   updater: (old: FeedData | undefined) => FeedData | undefined
 ) {
-  qc.setQueriesData<FeedData>({ queryKey: ["feed"] }, updater);
+  for (const queryKey of CARD_LIST_KEYS) {
+    qc.setQueriesData<FeedData>({ queryKey }, updater);
+  }
+}
+
+function snapshotFeedQueries(qc: ReturnType<typeof useQueryClient>) {
+  return CARD_LIST_KEYS.flatMap((queryKey) => qc.getQueriesData<FeedData>({ queryKey }));
 }
 
 function patchSavedPostsForLike(
@@ -98,7 +108,7 @@ export function PostCard({
   }, [menuOpen]);
 
   const removeFromFeed = () => {
-    qc.setQueriesData<FeedData>({ queryKey: ["posts", "feed"] }, (old) => {
+    patchAllFeedQueries(qc, (old) => {
       if (!old?.pages) return old;
       return {
         ...old,
@@ -116,9 +126,10 @@ export function PostCard({
 
   const handleDelete = async () => {
     setMenuOpen(false);
+    const isVideo = post.type === "long_video";
     const ok = await confirm({
-      title: "Delete Post",
-      description: "Are you sure you want to delete this post? This action cannot be undone.",
+      title: isVideo ? "Delete Video" : "Delete Post",
+      description: `Are you sure you want to delete this ${isVideo ? "video" : "post"}? This action cannot be undone.`,
       confirmText: "Delete",
       variant: "destructive",
     });
@@ -126,8 +137,9 @@ export function PostCard({
 
     setMenuLoading(true);
     try {
-      await deletePost(post._id);
-      toast.success("Post deleted");
+      if (isVideo) await deleteLongVideo(post._id);
+      else await deletePost(post._id);
+      toast.success(isVideo ? "Video deleted" : "Post deleted");
       removeFromFeed();
     } catch (e) {
       toast.error(getFriendlyErrorMessage(e));
@@ -294,8 +306,9 @@ export function PostCard({
     mutationFn: () => toggleLike(post._id),
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: ["feed"] });
+      await qc.cancelQueries({ queryKey: ["watch"] });
       await qc.cancelQueries({ queryKey: ["saved-posts"] });
-      const previousFeeds = qc.getQueriesData<FeedData>({ queryKey: ["feed"] });
+      const previousFeeds = snapshotFeedQueries(qc);
       const previousSaved = qc.getQueriesData<SavedPostsCache>({ queryKey: ["saved-posts"] });
 
       const applyOptimisticToggle = (p: Post): Post => {

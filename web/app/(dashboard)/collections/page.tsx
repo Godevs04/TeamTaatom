@@ -10,16 +10,17 @@ import { Library, Plus, ImageIcon } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
 
 export default function CollectionsPage() {
-  const { user } = useAuth();
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { user, isLoading: authLoading } = useAuth();
+  const { data, isLoading: collectionsLoading, isError, refetch } = useQuery({
     queryKey: ["collections", user?._id],
     queryFn: () => getCollections(user?._id),
     enabled: !!user?._id,
   });
+  const isLoading = authLoading || collectionsLoading;
 
   const collections = data?.collections ?? [];
 
-  if (!user) {
+  if (!user && !authLoading) {
     return (
       <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
         <p className="text-slate-600 dark:text-zinc-400">Sign in to view your collections.</p>

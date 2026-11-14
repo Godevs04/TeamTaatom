@@ -1720,6 +1720,7 @@ export default function PostScreen() {
       let result;
       try {
         result = await ImagePicker.launchImageLibraryAsync({
+          presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
           mediaTypes: ['images'],
           allowsMultipleSelection: true,
           selectionLimit: 10,
@@ -1884,6 +1885,7 @@ export default function PostScreen() {
       let result;
       try {
         result = await ImagePicker.launchImageLibraryAsync({
+          presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
           mediaTypes: ['images'],
           allowsMultipleSelection: true,
           selectionLimit: 10 - selectedImages.length,
@@ -2012,6 +2014,7 @@ export default function PostScreen() {
       let result;
       try {
         result = await ImagePicker.launchImageLibraryAsync({
+          presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
           mediaTypes: ['videos'],
           allowsEditing: true,
           aspect: [9, 16], // Vertical aspect ratio for shorts
