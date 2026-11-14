@@ -55,6 +55,8 @@ import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import ShortsCard from '../../components/shorts/ShortsCard';
+import ProfileLongVideoRow from '../../components/longVideo/ProfileLongVideoRow';
+import { getUserLongVideos } from '../../services/longVideos';
 import FastImage from '../../components/ui/FastImage';
 
 
@@ -303,6 +305,14 @@ export default function ProfileScreen() {
     });
   }, []);
 
+  const [userLongVideos, setRawUserLongVideos] = useState<PostType[]>([]);
+  const setUserLongVideos = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawUserLongVideos((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
+
   const [postsPage, setPostsPage] = useState(1);
   const [hasMorePosts, setHasMorePosts] = useState(true);
   const [loadingMorePosts, setLoadingMorePosts] = useState(false);
@@ -323,7 +333,7 @@ export default function ProfileScreen() {
     });
   }, []);
   const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'saved'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'videos' | 'saved'>('posts');
   const [activeSavedSubTab, setActiveSavedSubTab] = useState<'posts' | 'shorts'>('posts');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -376,6 +386,11 @@ export default function ProfileScreen() {
   const pendingScrollRestoreRef = useRef<boolean>(false);
   // Remember where the posts/shorts/saved tabs sit, so tab switches don't feel like a jump
   const tabsOffsetRef = useRef<number>(0);
+  const listHeightRef = useRef<number>(0);
+  // Offset to re-apply after the list remounts (grid <-> videos list changes numColumns).
+  const pendingTabOffsetRef = useRef<number | null>(null);
+  // Keeps a short tab tall enough that the tab bar stays where the user tapped it.
+  const [tabMinContentHeight, setTabMinContentHeight] = useState(0);
   
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
@@ -438,11 +453,12 @@ export default function ProfileScreen() {
   const activeListData = useMemo(() => {
     if (activeTab === 'posts') return posts;
     if (activeTab === 'shorts') return userShorts;
+    if (activeTab === 'videos') return userLongVideos;
     if (activeTab === 'saved') {
       return activeSavedSubTab === 'posts' ? savedPosts : savedShorts;
     }
     return [];
-  }, [activeTab, activeSavedSubTab, posts, userShorts, savedPosts, savedShorts]);
+  }, [activeTab, activeSavedSubTab, posts, userShorts, userLongVideos, savedPosts, savedShorts]);
 
   const loadUnreadCount = useCallback(async () => {
     try {
@@ -535,11 +551,13 @@ export default function ProfileScreen() {
       // If we are in background focus refresh and already have posts, only fetch profile info to avoid wiping pagination
       const shouldSkipPosts = isBackground && !forceRefresh && postsRef.current.length > 0;
 
-      const [profileResult, userPosts, shortsResp, travelMapResult] = await Promise.allSettled([
+      const [profileResult, userPosts, shortsResp, travelMapResult, longVideosResp] = await Promise.allSettled([
         getProfile(userData._id),
         shouldSkipPosts ? Promise.resolve({ posts: postsRef.current, totalPosts: postsRef.current.length }) : getUserPosts(userData._id, 1, 18),
         shouldSkipPosts ? Promise.resolve({ shorts: userShortsRef.current }) : getUserShorts(userData._id, 1, 100),
-        shouldSkipPosts ? Promise.resolve(null) : getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
+        shouldSkipPosts ? Promise.resolve(null) : getTravelMapData(userData._id).catch(() => null), // Don't fail if this fails
+        // Always refetched so a just-published video shows up on return
+        getUserLongVideos(userData._id, 1, 50),
       ]);
       
       if (!isMountedRef.current) return;
@@ -640,6 +658,12 @@ export default function ProfileScreen() {
       
       if (shortsResp.status === 'fulfilled' && !shouldSkipPosts) {
         setUserShorts(sortByCreatedDesc(shortsResp.value.shorts || []));
+      }
+
+      if (longVideosResp.status === 'fulfilled') {
+        setUserLongVideos(longVideosResp.value.videos);
+      } else {
+        logger.error('Failed to fetch user long videos:', longVideosResp.reason);
       }
       
       // OPTIMIZATION: Load saved IDs and unread count in parallel (non-blocking)
@@ -1056,6 +1080,7 @@ export default function ProfileScreen() {
         setSavedPosts(prev => prev.filter(p => normalizeId(p._id) !== normalizeId(postId)));
         setUserShorts(prev => prev.filter(s => normalizeId(s._id) !== normalizeId(postId)));
         setSavedShorts(prev => prev.filter(s => normalizeId(s._id) !== normalizeId(postId)));
+        setUserLongVideos(prev => prev.filter(v => normalizeId(v._id) !== normalizeId(postId)));
         
         // Refresh profile data (like postsCount) without wiping current posts list pagination
         void loadUserData(true, false);
@@ -1515,6 +1540,16 @@ export default function ProfileScreen() {
     );
   };
 
+  const openLongVideo = useCallback((video: PostType) => {
+    router.push(`/watch/${video._id}` as any);
+  }, [router]);
+
+  const longVideoRowColors = useMemo(() => ({
+    text: profileTheme.textPrimary,
+    meta: profileTheme.textSecondary,
+    placeholder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+  }), [profileTheme.textPrimary, profileTheme.textSecondary, isDark]);
+
   const renderProfileItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
     if (activeTab === 'posts') {
       const post = item;
@@ -1650,6 +1685,16 @@ export default function ProfileScreen() {
           profileTheme={profileTheme}
         />
       );
+    } else if (activeTab === 'videos') {
+      return (
+        <View style={{ backgroundColor: profileTheme.glassCardBg }}>
+          <ProfileLongVideoRow
+            video={item}
+            onPress={openLongVideo}
+            colors={longVideoRowColors}
+          />
+        </View>
+      );
     } else if (activeTab === 'saved') {
       if (activeSavedSubTab === 'posts') {
         const imageUrl = (item as any).imageUrl && !isVideoUrl((item as any).imageUrl, (item as any).videoUrl) ? (item as any).imageUrl : 
@@ -1718,7 +1763,7 @@ export default function ProfileScreen() {
       }
     }
     return null;
-  }, [activeTab, activeSavedSubTab, selectedItemIds, isSelectionMode, user?._id, profileTheme, theme, router]);
+  }, [activeTab, activeSavedSubTab, selectedItemIds, isSelectionMode, user?._id, profileTheme, theme, router, openLongVideo, longVideoRowColors]);
 
   if (loading || checkingUser) {
     return (
@@ -1897,10 +1942,23 @@ export default function ProfileScreen() {
       <FlatList
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 80, minHeight: tabMinContentHeight },
+        ]}
         data={activeListData}
-        numColumns={3}
-        key={`${activeTab}_${activeSavedSubTab}`}
+        numColumns={activeTab === 'videos' ? 1 : 3}
+        // FlatList cannot change numColumns in place; only the videos list needs a remount.
+        key={activeTab === 'videos' ? 'profile-list' : 'profile-grid'}
+        onLayout={(event) => {
+          listHeightRef.current = event.nativeEvent.layout.height;
+        }}
+        onContentSizeChange={() => {
+          const offset = pendingTabOffsetRef.current;
+          if (offset == null) return;
+          pendingTabOffsetRef.current = null;
+          scrollViewRef.current?.scrollToOffset({ offset, animated: false });
+        }}
         keyExtractor={(item) => item._id}
         renderItem={renderProfileItem}
         onEndReached={() => {
@@ -1971,7 +2029,7 @@ export default function ProfileScreen() {
                 }}
               >
                 <View style={[styles.pillTabsContainer, { backgroundColor: profileTheme.pillTabsBg, borderColor: isDark ? 'rgba(255,255,255,0.08)' : profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
-                  {(['posts','shorts','saved'] as const).map(tab => (
+                  {(['posts','shorts','videos','saved'] as const).map(tab => (
                     <Pressable 
                       key={tab} 
                       style={[
@@ -1983,6 +2041,12 @@ export default function ProfileScreen() {
                         if (isFetchingRef.current && activeTab !== tab) {
                           logger.debug('Tab switch blocked - fetch in progress');
                           return;
+                        }
+                        if (activeTab === tab) return;
+                        const offset = scrollPositionRef.current;
+                        setTabMinContentHeight(offset + listHeightRef.current);
+                        if ((tab === 'videos') !== (activeTab === 'videos')) {
+                          pendingTabOffsetRef.current = offset;
                         }
                         setIsSelectionMode(false);
                         setSelectedItemIds([]);
@@ -1998,16 +2062,19 @@ export default function ProfileScreen() {
                         />
                       )}
                       <Ionicons 
-                        name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
-                        size={18} 
+                        name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : tab==='videos' ? 'film-outline' : 'bookmark-outline'} 
+                        size={16} 
                         color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
                         style={{ zIndex: 1 }}
                       />
-                      <Text style={[
-                        styles.pillTabText, 
-                        { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
-                      ]}>
-                        {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.pillTabText, 
+                          { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
+                        ]}
+                      >
+                        {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : tab === 'videos' ? 'Videos' : 'Saved'}
                       </Text>
                     </Pressable>
                   ))}
@@ -2023,7 +2090,11 @@ export default function ProfileScreen() {
                         styles.savedSubTab,
                         activeSavedSubTab === subTab && { overflow: 'hidden' }
                       ]}
-                      onPress={() => setActiveSavedSubTab(subTab)}
+                      onPress={() => {
+                        if (activeSavedSubTab === subTab) return;
+                        setTabMinContentHeight(scrollPositionRef.current + listHeightRef.current);
+                        setActiveSavedSubTab(subTab);
+                      }}
                     >
                       {activeSavedSubTab === subTab && (
                         <LinearGradient
@@ -2052,7 +2123,11 @@ export default function ProfileScreen() {
             </View>
           </>
         }
-        columnWrapperStyle={[styles.postsGridWrapper, { backgroundColor: profileTheme.glassCardBg }]}
+        columnWrapperStyle={
+          activeTab === 'videos'
+            ? undefined
+            : [styles.postsGridWrapper, { backgroundColor: profileTheme.glassCardBg }]
+        }
         ListFooterComponent={
           <>
             {activeTab === 'posts' && loadingMorePosts && (
@@ -2083,7 +2158,7 @@ export default function ProfileScreen() {
           <View style={{ backgroundColor: profileTheme.glassCardBg, paddingVertical: 40, alignItems: 'center' }}>
             <Ionicons name="images-outline" size={48} color={profileTheme.textSecondary} style={{ marginBottom: 12, opacity: 0.5 }} />
             <Text style={{ color: profileTheme.textSecondary, fontSize: 15, fontFamily: getFontFamily('500') }}>
-              {activeTab === 'posts' ? 'No posts yet' : activeTab === 'shorts' ? 'No shorts yet' : 'No saved items'}
+              {activeTab === 'posts' ? 'No posts yet' : activeTab === 'shorts' ? 'No shorts yet' : activeTab === 'videos' ? 'No videos yet' : 'No saved items'}
             </Text>
           </View>
         }
@@ -2972,9 +3047,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
     paddingVertical: 9,
-    paddingHorizontal: 12,
+    paddingHorizontal: 6,
     borderRadius: 19,
     overflow: 'hidden',
   },

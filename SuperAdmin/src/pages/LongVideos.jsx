@@ -45,6 +45,8 @@ const formatDuration = (seconds) => {
   return `${m}:${String(sec).padStart(2, '0')}`
 }
 
+const formatCount = (value) => (Number(value) || 0).toLocaleString()
+
 const DetailRow = ({ label, value }) => (
   <div className="py-2 border-b border-gray-100 last:border-0">
     <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-0.5">{label}</div>
@@ -186,7 +188,7 @@ const LongVideos = () => {
     setSaving(true)
     try {
       await deleteLongVideo(deleteTarget._id)
-      toast.success('Video deactivated')
+      toast.success('Video deleted')
       setDeleteTarget(null)
       loadVideos()
     } catch (error) {
@@ -399,6 +401,8 @@ const LongVideos = () => {
                     <TableHead>Title</TableHead>
                     <TableHead>Creator</TableHead>
                     <TableHead>Duration</TableHead>
+                    <TableHead className="text-right">Views</TableHead>
+                    <TableHead className="text-right">Likes</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -406,13 +410,13 @@ const LongVideos = () => {
                 <TableBody>
                   {loading && videos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-10 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-10 text-gray-500">
                         Loading…
                       </TableCell>
                     </TableRow>
                   ) : videos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-10 text-gray-500">
+                      <TableCell colSpan={8} className="text-center py-10 text-gray-500">
                         No uploaded videos yet
                       </TableCell>
                     </TableRow>
@@ -441,6 +445,12 @@ const LongVideos = () => {
                         <TableCell className="text-sm text-gray-600">
                           {formatDuration(row.durationSeconds)}
                         </TableCell>
+                        <TableCell className="text-sm text-gray-900 text-right tabular-nums">
+                          {formatCount(row.viewsCount ?? row.views)}
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600 text-right tabular-nums">
+                          {formatCount(row.likesCount)}
+                        </TableCell>
                         <TableCell>
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -463,6 +473,7 @@ const LongVideos = () => {
                               type="button"
                               onClick={() => handleToggleActive(row)}
                               className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                              title={row.isActive ? 'Deactivate (hide from Videos)' : 'Activate'}
                             >
                               {row.isActive ? (
                                 <PowerOff className="w-4 h-4" />
@@ -474,6 +485,7 @@ const LongVideos = () => {
                               type="button"
                               onClick={() => setDeleteTarget(row)}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                              title="Delete permanently"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -715,15 +727,18 @@ const LongVideos = () => {
 
       <Modal isOpen={!!deleteTarget} onClose={() => !saving && setDeleteTarget(null)}>
         <ModalHeader onClose={() => !saving && setDeleteTarget(null)}>
-          Deactivate video?
+          Delete video permanently?
         </ModalHeader>
         <ModalContent>
           <p className="text-sm text-gray-600">
-            Hide{' '}
             <span className="font-medium text-gray-900">
-              {deleteTarget?.caption || 'this video'}
+              {deleteTarget?.caption || 'This video'}
             </span>{' '}
-            from the Videos tab.
+            and its file, thumbnail, comments, and likes will be removed for everyone. This cannot be
+            undone.
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            To only hide it from the Videos tab, use the deactivate button instead.
           </p>
         </ModalContent>
         <ModalFooter>
@@ -740,7 +755,7 @@ const LongVideos = () => {
             disabled={saving}
             className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg disabled:opacity-50"
           >
-            {saving ? 'Removing…' : 'Deactivate'}
+            {saving ? 'Deleting…' : 'Delete permanently'}
           </button>
         </ModalFooter>
       </Modal>

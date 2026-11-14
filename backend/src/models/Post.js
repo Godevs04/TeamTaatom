@@ -57,6 +57,12 @@ const postSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  /** Width / height of a creator-cropped long-video thumbnail (e.g. 1.7778 for 16:9). */
+  thumbnailAspectRatio: {
+    type: Number,
+    required: false,
+    default: undefined,
+  },
   cloudinaryPublicId: {
     type: String,
     required: false

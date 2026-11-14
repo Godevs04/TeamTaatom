@@ -2,6 +2,16 @@ import api from './api';
 import { NotificationResponse, MarkAsReadResponse } from '../types/notification';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
+import { contentNoun, contentRoute, refId } from '../utils/contentRoutes';
+
+/** Route for a notification about a post, short or long video; null when the content is gone. */
+const notificationContentRoute = (notification: any, openComments: boolean) => {
+  const postId = refId(notification.postId) || refId(notification.post);
+  if (!postId) return null;
+  const postType = notification.post?.type || notification.postType;
+  const ownerId = refId(notification.post?.user) || notification.postOwnerId || null;
+  return { path: contentRoute(postId, postType, ownerId, { openComments }), noun: contentNoun(postType) };
+};
 
 // Get notifications
 export const getNotifications = async (page: number = 1, limit: number = 20): Promise<NotificationResponse> => {
@@ -64,48 +74,31 @@ export const handleNotificationClick = async (notification: any): Promise<{
     // Determine navigation based on notification type
     switch (notification.type) {
       case 'like':
-        // Navigate to the liked post or short
-        if (notification.postId || notification.post?._id) {
-          const postId = notification.postId || notification.post?._id;
-          const postType = notification.post?.type;
-          return {
-            success: true,
-            message: postType === 'short' ? 'Navigating to liked short...' : 'Navigating to liked post...',
-            shouldNavigate: true,
-            navigationPath: postType === 'short'
-              ? `/(tabs)/shorts?shortId=${postId}`
-              : `/post/${postId}`,
-          };
-        }
-        // Post was deleted
-        return {
-          success: true,
-          message: 'This post is no longer available.',
-          shouldNavigate: false,
-          contentUnavailable: true
-        };
-        
       case 'comment':
-        // Navigate to the commented post or short
-        if (notification.postId || notification.post?._id) {
-          const postId = notification.postId || notification.post?._id;
-          const postType = notification.post?.type;
+      case 'mention':
+      case 'post_mention':
+      case 'share': {
+        const openComments =
+          notification.type === 'comment' ||
+          (notification.type === 'post_mention' &&
+            !!(notification.comment || notification.commentId || notification.metadata?.text != null));
+        const route = notificationContentRoute(notification, openComments);
+        if (route) {
           return {
             success: true,
-            message: postType === 'short' ? 'Navigating to commented short...' : 'Navigating to commented post...',
+            message: `Opening ${route.noun}...`,
             shouldNavigate: true,
-            navigationPath: postType === 'short'
-              ? `/(tabs)/shorts?shortId=${postId}`
-              : `/post/${postId}`,
+            navigationPath: route.path,
           };
         }
-        // Post was deleted
+        // Content was deleted
         return {
           success: true,
-          message: 'This post is no longer available.',
+          message: 'This content is no longer available.',
           shouldNavigate: false,
           contentUnavailable: true
         };
+      }
         
       case 'follow':
         // Navigate to user profile
@@ -219,58 +212,15 @@ export const handleNotificationClick = async (notification: any): Promise<{
           shouldNavigate: false
         };
         
-      case 'mention':
-        // Navigate to the post or short where user was mentioned
-        if (notification.postId || notification.post?._id) {
-          const postId = notification.postId || notification.post?._id;
-          const postType = notification.post?.type;
+      default: {
+        // For unknown notification types, navigate by content type if available
+        const route = notificationContentRoute(notification, false);
+        if (route) {
           return {
             success: true,
-            message: 'Navigating to post...',
+            message: `Opening ${route.noun}...`,
             shouldNavigate: true,
-            navigationPath: postType === 'short'
-              ? `/(tabs)/shorts?shortId=${postId}`
-              : `/post/${postId}`,
-          };
-        }
-        return {
-          success: true,
-          message: 'The post you were mentioned in has been deleted.',
-          shouldNavigate: false
-        };
-        
-      case 'share':
-        // Navigate to the shared post or short
-        if (notification.postId || notification.post?._id) {
-          const postId = notification.postId || notification.post?._id;
-          const postType = notification.post?.type;
-          return {
-            success: true,
-            message: 'Navigating to shared post...',
-            shouldNavigate: true,
-            navigationPath: postType === 'short'
-              ? `/(tabs)/shorts?shortId=${postId}`
-              : `/post/${postId}`,
-          };
-        }
-        return {
-          success: true,
-          message: 'The shared post has been deleted by the user.',
-          shouldNavigate: false
-        };
-        
-      default:
-        // For unknown notification types, navigate by post type if available
-        if (notification.postId || notification.post?._id) {
-          const postId = notification.postId || notification.post?._id;
-          const postType = notification.post?.type;
-          return {
-            success: true,
-            message: 'Navigating to post...',
-            shouldNavigate: true,
-            navigationPath: postType === 'short'
-              ? `/(tabs)/shorts?shortId=${postId}`
-              : `/post/${postId}`,
+            navigationPath: route.path,
           };
         }
         if (notification.fromUserId || notification.fromUser?._id) {
@@ -288,6 +238,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
           message: 'Notification processed successfully.',
           shouldNavigate: false
         };
+      }
     }
   } catch (error: any) {
     logger.error('handleNotificationClick', error);

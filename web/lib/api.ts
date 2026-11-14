@@ -389,14 +389,23 @@ export async function getVideoCreatorStatus(): Promise<VideoCreatorStatus> {
 
 /** Mirrors mobile services/longVideos.uploadLongVideo (multipart: video + optional image). */
 export async function uploadLongVideo(
-  params: { video: File; caption?: string; durationSeconds?: number; thumbnail?: File | null },
+  params: {
+    video: File;
+    caption?: string;
+    durationSeconds?: number;
+    thumbnail?: File | null;
+    thumbnailAspectRatio?: number | null;
+  },
   onUploadProgress?: (pct: number) => void
 ) {
   const form = new FormData();
   form.append("video", params.video, params.video.name || "long-video.mp4");
   if (params.caption) form.append("caption", params.caption);
   if (params.durationSeconds != null) form.append("durationSeconds", String(params.durationSeconds));
-  if (params.thumbnail) form.append("image", params.thumbnail, params.thumbnail.name || "thumb.jpg");
+  if (params.thumbnail) {
+    form.append("image", params.thumbnail, params.thumbnail.name || "thumb.jpg");
+    if (params.thumbnailAspectRatio) form.append("thumbnailAspectRatio", String(params.thumbnailAspectRatio));
+  }
   const res = await api.post("/long-videos", form, {
     headers: { "Content-Type": undefined } as unknown as Record<string, string>,
     timeout: 10 * 60 * 1000,
@@ -631,6 +640,27 @@ export async function getLongVideos(params?: { page?: number; limit?: number }) 
       limit: data.pagination?.limit ?? params?.limit ?? 15,
     } as PaginationOffset,
   };
+}
+
+/** Profile "Videos" tab: one creator's uploaded long videos, newest first. */
+export async function getUserLongVideos(userId: string, page = 1, limit = 20) {
+  const res = await api.get(`/long-videos/user/${userId}`, { params: { page, limit } });
+  const data = res.data as {
+    videos?: Post[];
+    posts?: Post[];
+    pagination?: { page?: number; hasMore?: boolean; total?: number };
+  };
+  return {
+    videos: data.videos ?? data.posts ?? [],
+    hasMore: !!data.pagination?.hasMore,
+    total: data.pagination?.total ?? 0,
+  };
+}
+
+/** Owner-only permanent delete (removes the stored video, not just the post row). */
+export async function deleteLongVideo(id: string) {
+  const res = await api.delete(`/long-videos/${id}`);
+  return res.data as { id?: string };
 }
 
 export async function getLongVideoById(id: string) {

@@ -27,6 +27,7 @@ export interface Notification {
     imageUrl: string;
     caption?: string;
     type?: string;
+    user?: string;
   };
   comment?: {
     _id: string;

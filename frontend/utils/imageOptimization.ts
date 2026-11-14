@@ -152,6 +152,33 @@ export const processImageToAspect = async (
     target = { w: 1080, h: 1920 };
   }
 
+  return cropToTarget(imageUri, target, transform, 1.0);
+};
+
+/**
+ * Crop an image to any width/height `ratio` (e.g. 16/9 for a YouTube-style thumbnail),
+ * applying the cropper's pinch + pan. The longer output edge is `longEdge` pixels.
+ */
+export const cropImageToRatio = async (
+  imageUri: string,
+  ratio: number,
+  transform?: UserCropTransform,
+  longEdge = 1280
+): Promise<string> => {
+  const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9;
+  const target =
+    safeRatio >= 1
+      ? { w: longEdge, h: Math.round(longEdge / safeRatio) }
+      : { w: Math.round(longEdge * safeRatio), h: longEdge };
+  return cropToTarget(imageUri, target, transform, 0.9);
+};
+
+const cropToTarget = async (
+  imageUri: string,
+  target: { w: number; h: number },
+  transform: UserCropTransform | undefined,
+  compress: number
+): Promise<string> => {
   const src = await ImageManipulator.manipulateAsync(imageUri, [], {
     format: ImageManipulator.SaveFormat.JPEG,
   });
@@ -162,8 +189,9 @@ export const processImageToAspect = async (
   const userScale = Math.max(1, transform?.userScale ?? 1);
   const finalScale = coverScale * userScale;
 
-  const scaledW = Math.round(src.width * finalScale);
-  const scaledH = Math.round(src.height * finalScale);
+  // Rounding must never leave the scaled image a pixel smaller than the crop box.
+  const scaledW = Math.max(target.w, Math.round(src.width * finalScale));
+  const scaledH = Math.max(target.h, Math.round(src.height * finalScale));
 
   // Default center-crop origin.
   let originX = Math.max(0, Math.round((scaledW - target.w) / 2));
@@ -187,7 +215,7 @@ export const processImageToAspect = async (
       { resize: { width: scaledW, height: scaledH } },
       { crop: { originX, originY, width: target.w, height: target.h } },
     ],
-    { compress: 1.0, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+    { compress, format: ImageManipulator.SaveFormat.JPEG, base64: false }
   );
 
   return result.uri;

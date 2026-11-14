@@ -10,11 +10,13 @@ import { trackPostView } from '../../services/analytics';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { createLogger } from '../../utils/logger';
 import { savedEvents, normalizeId } from '../../utils/savedEvents';
+import { contentRoute, refId } from '../../utils/contentRoutes';
 
 const logger = createLogger('PostDetail');
 
 export default function PostDetail() {
-  const { id } = useLocalSearchParams();
+  const { id, comments } = useLocalSearchParams();
+  const openComments = comments === '1';
   const router = useRouter();
   const { mode } = useTheme();
   const isDark = mode === 'dark';
@@ -45,9 +47,10 @@ export default function PostDetail() {
           router.back();
           return;
         }
-        // Deep link: Watch videos open the embed player screen
-        if (response.post.type === 'long_video') {
-          router.replace(`/watch/${response.post._id}` as any);
+        // Videos and shorts have their own players; links to /post/:id are forwarded there
+        const ownerId = refId(response.post.user);
+        if (response.post.type === 'long_video' || (response.post.type === 'short' && ownerId)) {
+          router.replace(contentRoute(String(response.post._id), response.post.type, ownerId, { openComments }) as any);
           return;
         }
         let postData = response.post;
@@ -83,7 +86,7 @@ export default function PostDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, openComments]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -175,6 +178,7 @@ export default function PostDetail() {
           isCurrentlyVisible={true} 
           onRefresh={fetchPost}
           onPress={() => {}}
+          autoOpenComments={openComments}
         />
       </ScrollView>
     </SafeAreaView>

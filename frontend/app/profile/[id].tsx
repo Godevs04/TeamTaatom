@@ -36,6 +36,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import FastImage from '../../components/ui/FastImage';
 import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
 import ShortsCard from '../../components/shorts/ShortsCard';
+import ProfileLongVideoRow from '../../components/longVideo/ProfileLongVideoRow';
+import { getUserLongVideos } from '../../services/longVideos';
+import type { PostType } from '../../types/post';
 import { formatViewCount } from '../../utils/numberFormat';
 
 
@@ -110,7 +113,11 @@ export default function UserProfileScreen() {
   const [followRequestSent, setFollowRequestSent] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userShorts, setUserShorts] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
+  const [userLongVideos, setUserLongVideos] = useState<PostType[]>([]);
+  const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'videos'>('posts');
+  // Keeps a short tab tall enough that the tab bar stays where the user tapped it.
+  const [tabMinContentHeight, setTabMinContentHeight] = useState(0);
+  const scrollViewHeightRef = useRef(0);
   const [loadingShorts, setLoadingShorts] = useState(false);
   const [postsPage, setPostsPage] = useState(1);
   const [hasMorePosts, setHasMorePosts] = useState(true);
@@ -250,6 +257,16 @@ export default function UserProfileScreen() {
       };
     }
   }, [isDark]);
+
+  const longVideoRowColors = useMemo(() => ({
+    text: profileTheme.textPrimary,
+    meta: profileTheme.textSecondary,
+    placeholder: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+  }), [profileTheme.textPrimary, profileTheme.textSecondary, isDark]);
+
+  const openLongVideo = useCallback((video: PostType) => {
+    router.push(`/watch/${video._id}` as any);
+  }, [router]);
 
   // Animation for stat cards with enhanced glass effect
   const StatCard = ({ 
@@ -435,12 +452,20 @@ export default function UserProfileScreen() {
           setLoadingShorts(true);
           
           // Fetch posts with pagination and shorts in parallel
-          const [postsResult, shortsResult] = await Promise.allSettled([
+          const [postsResult, shortsResult, longVideosResult] = await Promise.allSettled([
             // Fetch first page of posts
             api.get(`/api/v1/posts/user/${id}?page=1&limit=18`),
             // Fetch shorts in parallel
-            getUserShorts(id as string, 1, 100)
+            getUserShorts(id as string, 1, 100),
+            getUserLongVideos(id as string, 1, 50),
           ]);
+
+          if (longVideosResult.status === 'fulfilled') {
+            setUserLongVideos(savedEvents.filterDeleted(longVideosResult.value.videos));
+          } else {
+            logger.error('Error fetching long videos:', longVideosResult.reason);
+            setUserLongVideos([]);
+          }
           
           // Handle posts result
           if (postsResult.status === 'fulfilled') {
@@ -484,6 +509,7 @@ export default function UserProfileScreen() {
         if (!shouldSkipPosts) {
           userProfile.posts = [];
           setUserShorts([]);
+          setUserLongVideos([]);
           updateProfileState(userProfile);
         }
       }
@@ -937,7 +963,10 @@ export default function UserProfileScreen() {
         ref={scrollViewRef}
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { minHeight: tabMinContentHeight }]}
+        onLayout={(event) => {
+          scrollViewHeightRef.current = event.nativeEvent.layout.height;
+        }}
         scrollEventThrottle={16}
         onScroll={({ nativeEvent }) => {
           const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
@@ -1288,50 +1317,42 @@ export default function UserProfileScreen() {
           >
             {/* Tabs */}
             <View style={styles.postsTabsSection}>
-              <Pressable
-                style={[
-                  styles.pillTab,
-                  activeTab === 'posts' && styles.pillTabActive
-                ]}
-                onPress={() => setActiveTab('posts')}
-              >
-                {activeTab === 'posts' && (
-                  <ExpoLinearGradient
-                    colors={['#1C73B4', '#50C878']}
-                    style={StyleSheet.absoluteFill}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                  />
-                )}
-                <Text style={[
-                  styles.pillTabText,
-                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
-                ]}>
-                  Posts
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.pillTab,
-                  activeTab === 'shorts' && styles.pillTabActive
-                ]}
-                onPress={() => setActiveTab('shorts')}
-              >
-                {activeTab === 'shorts' && (
-                  <ExpoLinearGradient
-                    colors={['#1C73B4', '#50C878']}
-                    style={StyleSheet.absoluteFill}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                  />
-                )}
-                <Text style={[
-                  styles.pillTabText,
-                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
-                ]}>
-                  Shorts
-                </Text>
-              </Pressable>
+              {([
+                { key: 'posts', label: 'Posts' },
+                { key: 'shorts', label: 'Shorts' },
+                { key: 'videos', label: 'Videos' },
+              ] as const).map(({ key, label }) => (
+                <Pressable
+                  key={key}
+                  style={[
+                    styles.pillTab,
+                    activeTab === key && styles.pillTabActive
+                  ]}
+                  onPress={() => {
+                    if (activeTab === key) return;
+                    setTabMinContentHeight(scrollPositionRef.current + scrollViewHeightRef.current);
+                    setActiveTab(key);
+                  }}
+                >
+                  {activeTab === key && (
+                    <ExpoLinearGradient
+                      colors={['#1C73B4', '#50C878']}
+                      style={StyleSheet.absoluteFill}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    />
+                  )}
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.pillTabText,
+                      { color: activeTab === key ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
 
             {/* Tab Content Container */}
@@ -1415,6 +1436,28 @@ export default function UserProfileScreen() {
               ) : null
               }
             </View>
+
+            {activeTab === 'videos' && (
+              userLongVideos.length > 0 ? (
+                <View>
+                  {userLongVideos.map((video) => (
+                    <ProfileLongVideoRow
+                      key={video._id}
+                      video={video}
+                      onPress={openLongVideo}
+                      colors={longVideoRowColors}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="film-outline" size={40} color={profileTheme.textSecondary} />
+                  <Text style={[styles.emptyText, { color: profileTheme.textSecondary }]}>
+                    No videos yet
+                  </Text>
+                </View>
+              )
+            )}
           </CloudGlassSurface>
         )}
 
@@ -1938,13 +1981,12 @@ const styles = StyleSheet.create({
   },
   pillTab: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: 'transparent',
     overflow: 'hidden',
     alignItems: 'center',
-    minWidth: 100,
   },
   pillTabActive: {
   },

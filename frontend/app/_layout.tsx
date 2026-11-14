@@ -12,6 +12,7 @@ import { PROFILE_ONBOARDING_VERSION } from '../constants/profileOnboarding';
 import { updateFCMPushToken, saveExpoPushToken } from '../services/profile';
 import { fcmService } from '../services/fcm';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
+import { contentRoute } from '../utils/contentRoutes';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
 import { AlertProvider, useAlert } from '../context/AlertContext';
@@ -105,6 +106,49 @@ if (Platform.OS !== 'web') {
   });
 }
 
+const POST_NOTIFICATION_TYPES = new Set(['like', 'comment', 'mention', 'post_mention', 'share', 'trip_created', 'trip_approved']);
+const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_request', 'follow_approved']);
+
+/** Maps a push notification's data payload (Expo or FCM) to the in-app route it should open. */
+function notificationTargetPath(data: Record<string, unknown> | undefined | null): string | null {
+  if (!data) return null;
+  const str = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+  let metadata: Record<string, any> | undefined;
+  if (data.metadata) {
+    try {
+      metadata = typeof data.metadata === 'string' ? JSON.parse(data.metadata) : (data.metadata as Record<string, any>);
+    } catch (e) {
+      logger.error('Failed to parse push notification metadata:', e);
+    }
+  }
+
+  const type = str(data.type);
+  const screen = str(data.screen) || str(data.path) || str(data.url);
+  const postId = str(data.postId) || str(data.post_id) || str(data.entityId);
+  const userId =
+    str(data.userId) || str(data.user_id) || str(data.profileId) || str(data.profile_id) ||
+    str(data.fromUserId) || str(data.senderId);
+  const chatWith = str(data.chatWith);
+  const chatId = str(data.chatId);
+  const connectPageId =
+    str(data.connectPageId) || str(metadata?.connectPageId) ||
+    (type === 'subscription_active' ? str(data.entityId) : null);
+
+  if (chatWith) return `/chat/thread?userId=${encodeURIComponent(chatWith)}`;
+  if (chatId) return `/chat/thread?chatId=${encodeURIComponent(chatId)}`;
+  // The server's screen already accounts for content type (watch / shorts / post); '/home' is its "unknown" fallback
+  if (screen && screen !== '/home') return screen.startsWith('/') ? screen : `/${screen}`;
+  if (type === 'subscription_active' && connectPageId) return `/connect/page/${connectPageId}`;
+  if (postId && type && POST_NOTIFICATION_TYPES.has(type)) {
+    return contentRoute(postId, str(data.postType), str(data.postOwnerId), { openComments: type === 'comment' });
+  }
+  if (userId && type && PROFILE_NOTIFICATION_TYPES.has(type)) return `/profile/${userId}`;
+  if (postId) return contentRoute(postId, str(data.postType), str(data.postOwnerId));
+  if (userId) return `/profile/${userId}`;
+  return screen;
+}
+
 function RootLayoutInner() {
   const [fontsLoaded, fontError] = useFonts({
     ...Ionicons.font,
@@ -121,7 +165,19 @@ function RootLayoutInner() {
   const segments = useSegments();
   const previousPathnameRef = useRef<string | null>(null);
   const pendingDeepLinkRef = useRef<string | null>(null);
-  const pendingNotificationRef = useRef<Notifications.NotificationResponse | null>(null);
+  // True once the signed-in startup redirect has run. Until then, a push from a
+  // deep link or notification tap would be overwritten by the replace to home,
+  // so targets are queued in pendingDeepLinkRef for that redirect to use instead.
+  const startupNavDoneRef = useRef(false);
+  const handledNotificationIdsRef = useRef<Set<string>>(new Set());
+
+  const openOrQueueRoute = useCallback((target: string) => {
+    if (startupNavDoneRef.current) {
+      router.push(target as any);
+    } else {
+      pendingDeepLinkRef.current = target;
+    }
+  }, [router]);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
@@ -203,13 +259,7 @@ function RootLayoutInner() {
       }
 
       logger.debug('[DeepLinking] Parsed deep link target:', targetPath);
-
-      if (isAuthenticated) {
-        router.push(targetPath as any);
-      } else {
-        logger.debug('[DeepLinking] Queueing deep link until auth resolves:', targetPath);
-        pendingDeepLinkRef.current = targetPath;
-      }
+      openOrQueueRoute(targetPath);
     } catch (err) {
       logger.error('[DeepLinking] Error handling deep link:', err);
     }
@@ -756,6 +806,8 @@ function RootLayoutInner() {
 
         if (needsProfileOnboarding && !onOnboardingRoute && !isOnAuthScreen) {
           logger.debug('[Navigation] Profile onboarding required', { profileVersion });
+          pendingDeepLinkRef.current = null;
+          startupNavDoneRef.current = true;
           router.replace('/onboarding/welcome');
           return;
         }
@@ -763,12 +815,19 @@ function RootLayoutInner() {
         // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
         if (isOnValidRoute && !isOnAuthScreen) {
           logger.debug('[Navigation] Already on valid route, skipping navigation', { currentPath, segments });
+          startupNavDoneRef.current = true;
+          if (pendingDeepLinkRef.current) {
+            const target = pendingDeepLinkRef.current;
+            pendingDeepLinkRef.current = null;
+            router.push(target as any);
+          }
           return;
         }
         // Allow logged-in users to stay on the password-change flow
         // (Settings → Change Password routes them to /(auth)/forgot).
         if (isOnPasswordChangeScreen) {
           logger.debug('[Navigation] On password-change screen, skipping redirect to home');
+          startupNavDoneRef.current = true;
           return;
         }
 
@@ -783,17 +842,21 @@ function RootLayoutInner() {
 
         // Only navigate to home if we're not already on a valid route
         if (!isOnValidRoute) {
+          startupNavDoneRef.current = true;
           if (pendingDeepLinkRef.current) {
             const target = pendingDeepLinkRef.current;
             pendingDeepLinkRef.current = null;
             logger.debug('[Navigation] User authenticated, redirecting to pending deep link:', target);
-            router.replace(target as any);
+            // Home goes underneath so Back from the opened screen doesn't exit the app.
+            router.replace('/(tabs)/home');
+            router.push(target as any);
           } else {
             logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });
             router.replace('/(tabs)/home');
           }
         }
       } else if (isAuthenticated === false && !sessionExpired) {
+        startupNavDoneRef.current = false;
         // If already on auth screen, don't navigate (prevents flash during refresh)
         if (isOnAuthScreen) {
           logger.debug('[Navigation] Already on auth screen, skipping navigation');
@@ -823,6 +886,7 @@ function RootLayoutInner() {
           logger.debug('[Navigation] Auth check failed but stored data exists, not navigating to signin');
         }
       } else if (sessionExpired) {
+        startupNavDoneRef.current = false;
         // Session expired - navigate to signin
         if (!isOnAuthScreen) {
           logger.debug('[Navigation] Session expired, navigating to signin');
@@ -867,17 +931,8 @@ function RootLayoutInner() {
               if (process.env.NODE_ENV === 'development') {
                 logger.debug('FCM Notification opened with data:', data);
               }
-              const screen = data?.screen || data?.path || data?.url;
-              const postId = data?.postId || data?.post_id;
-              const targetUserId = data?.userId || data?.user_id || data?.profileId || data?.profile_id || data?.senderId;
-              
-              if (screen && typeof screen === 'string') {
-                router.push(screen as any);
-              } else if (postId && typeof postId === 'string') {
-                router.push(`/post/${postId}` as any);
-              } else if (targetUserId && typeof targetUserId === 'string') {
-                router.push(`/profile/${targetUserId}` as any);
-              }
+              const target = notificationTargetPath(data);
+              if (target) openOrQueueRoute(target);
             });
           } catch (fcmErr) {
             logger.warn('FCM fallback initialization skipped:', fcmErr);
@@ -894,94 +949,28 @@ function RootLayoutInner() {
       }
     }
 
-    // Set up Expo Push notification tap response listener (Android & iOS)
-    const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (process.env.NODE_ENV === 'development') {
-        logger.debug('Expo Push Notification response received:', data);
-      }
-      const screen = data?.screen || data?.path || data?.url;
-      const postId = data?.postId || data?.post_id || data?.entityId;
-      const targetUserId = data?.userId || data?.user_id || data?.profileId || data?.profile_id || data?.senderId;
-
-      if (screen && typeof screen === 'string') {
-        router.push(screen as any);
-      } else if (postId && typeof postId === 'string') {
-        router.push(`/post/${postId}` as any);
-      } else if (targetUserId && typeof targetUserId === 'string') {
-        router.push(`/profile/${targetUserId}` as any);
-      }
-    });
-
     if (isAuthenticated) {
       registerPushToken();
     }
-
-    return () => {
-      responseSubscription.remove();
-    };
   }, [isAuthenticated]);
 
   const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {
     try {
+      // The cold-start lookup and the live listener can both report the same tap.
+      const tapId = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+      if (handledNotificationIdsRef.current.has(tapId)) return;
+      handledNotificationIdsRef.current.add(tapId);
+
       const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
-      if (!data) return;
-      
       logger.debug('Push notification response received:', data);
-
-      if (!isAuthenticated) {
-        logger.debug('App not authenticated yet. Queuing notification action.');
-        pendingNotificationRef.current = response;
-        return;
-      }
-
-      const type = data.type;
-      const screen = data.screen || data.path || data.url;
-      const postId = data.postId || data.post_id || data.entityId;
-      const userId = data.userId || data.user_id || data.profileId || data.profile_id || data.fromUserId || data.senderId;
-      const chatWith = data.chatWith;
-      const chatId = data.chatId;
-
-      let parsedMetadata: Record<string, any> | undefined;
-      if (data.metadata) {
-        try {
-          parsedMetadata = typeof data.metadata === 'string' ? JSON.parse(data.metadata) : data.metadata as Record<string, any>;
-        } catch (e) {
-          logger.error('Failed to parse push notification metadata:', e);
-        }
-      }
-
-      const connectPageId = data.connectPageId || parsedMetadata?.connectPageId || (type === 'subscription_active' ? data.entityId : undefined);
-
-      if (chatWith) {
-        logger.debug('Routing to direct chat with user:', chatWith);
-        router.push({ pathname: '/chat/thread', params: { userId: String(chatWith) } } as any);
-      } else if (chatId) {
-        logger.debug('Routing to chat room/group:', chatId);
-        router.push({ pathname: '/chat/thread', params: { chatId: String(chatId) } } as any);
-      } else if (type === 'subscription_active' && connectPageId) {
-        logger.debug('Routing to subscription connect page:', connectPageId);
-        router.push(`/connect/page/${connectPageId}` as any);
-      } else if (postId && typeof postId === 'string' && (type === 'like' || type === 'comment' || type === 'mention' || type === 'share' || type === 'trip_created' || type === 'trip_approved')) {
-        logger.debug('Routing to post detail:', postId);
-        router.push(`/post/${postId}` as any);
-      } else if (userId && typeof userId === 'string' && (type === 'follow' || type === 'follow_request' || type === 'follow_approved')) {
-        logger.debug('Routing to profile:', userId);
-        router.push(`/profile/${userId}` as any);
-      } else if (screen && typeof screen === 'string') {
-        logger.debug('Routing to screen path:', screen);
-        router.push(screen as any);
-      } else if (postId && typeof postId === 'string') {
-        logger.debug('Fallback routing to post detail:', postId);
-        router.push(`/post/${postId}` as any);
-      } else if (userId && typeof userId === 'string') {
-        logger.debug('Fallback routing to profile:', userId);
-        router.push(`/profile/${userId}` as any);
-      }
+      const target = notificationTargetPath(data);
+      if (!target) return;
+      logger.debug('Routing notification tap to:', target);
+      openOrQueueRoute(target);
     } catch (err) {
       logger.error('Error handling notification response:', err);
     }
-  }, [isAuthenticated, router]);
+  }, [openOrQueueRoute]);
 
   // When user taps a push notification: navigate to screen, path, url, or post details (both iOS & Android)
   useEffect(() => {
@@ -999,15 +988,6 @@ function RootLayoutInner() {
 
     return () => subscription.remove();
   }, [handleNotificationResponse]);
-
-  // Process queued notifications once authenticated
-  useEffect(() => {
-    if (isAuthenticated && pendingNotificationRef.current) {
-      logger.debug('Processing pending queued notification after authentication');
-      handleNotificationResponse(pendingNotificationRef.current);
-      pendingNotificationRef.current = null;
-    }
-  }, [isAuthenticated, handleNotificationResponse]);
 
   // Handle app state changes to maintain authentication (mobile only)
   useEffect(() => {

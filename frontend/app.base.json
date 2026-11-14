@@ -49,7 +49,7 @@
           "tel",
           "sms"
         ],
-        "NSPrivacyPolicyURL": "https://api.taatom.com/policies/privacy",
+        "NSPrivacyPolicyURL": "https://taatom.com/policies/privacy",
         "UISupportedInterfaceOrientations": [
           "UIInterfaceOrientationPortrait",
           "UIInterfaceOrientationLandscapeLeft",

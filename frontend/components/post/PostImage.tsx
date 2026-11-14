@@ -13,7 +13,8 @@ import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
 import { Audio } from '../../utils/expoAv';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS, withSpring } from 'react-native-reanimated';
+import ReAnimated, { useAnimatedStyle, runOnJS } from 'react-native-reanimated';
+import { usePinchZoom } from './usePinchZoom';
 import MaskedView from '../ui/MaskedView';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -73,36 +74,40 @@ export const getImageAspectRatio = (post: any): number => {
 
 interface CarouselItemProps {
   item: string;
-  index: number;
-  currentImageIndex: number;
-  scale: any;
-  focalX: any;
-  focalY: any;
-  composedGesture: any;
-  animatedImageStyle: any;
+  isActive: boolean;
   containerWidth: number;
+  containerHeight: number;
   filter?: string;
   heartScale: Animated.Value;
   heartOpacity: Animated.Value;
+  onSingleTap: () => void;
+  onDoubleTap: () => void;
+  onZoomChange: (isZooming: boolean) => void;
 }
 
 const CarouselItem = React.memo(({
   item,
-  index,
-  currentImageIndex,
-  scale,
-  focalX,
-  focalY,
-  composedGesture,
-  animatedImageStyle,
+  isActive,
   containerWidth,
+  containerHeight,
   filter,
   heartScale,
   heartOpacity,
+  onSingleTap,
+  onDoubleTap,
+  onZoomChange,
 }: CarouselItemProps) => {
   const [hasError, setHasError] = useState(false);
   const [isImageLoading, setIsImageLoading] = useState(true);
   const { theme } = useTheme();
+  const { gesture, animatedStyle, scale } = usePinchZoom({
+    width: containerWidth,
+    height: containerHeight,
+    enabled: isActive,
+    onZoomChange,
+    onSingleTap,
+    onDoubleTap,
+  });
 
   const [prevItem, setPrevItem] = useState(item);
   if (item !== prevItem) {
@@ -111,24 +116,16 @@ const CarouselItem = React.memo(({
     setIsImageLoading(true);
   }
 
-  useEffect(() => {
-    setHasError(false);
-    setIsImageLoading(true);
-  }, [item]);
-
   const slideContainerStyle = useAnimatedStyle(() => {
-    const isActive = index === currentImageIndex;
     const isZooming = scale.value > 1.01;
     return {
-      overflow: (isActive && isZooming) ? 'visible' : 'hidden',
-      zIndex: (isActive && isZooming) ? 999 : 1,
+      overflow: isZooming ? 'visible' : 'hidden',
+      zIndex: isZooming ? 999 : 1,
     };
   });
 
-  const isActive = index === currentImageIndex;
-
   return (
-    <GestureDetector gesture={isActive ? composedGesture : Gesture.Tap()}>
+    <GestureDetector gesture={gesture}>
       <ReAnimated.View
         style={[
           { width: containerWidth, height: '100%', position: 'relative' },
@@ -150,12 +147,7 @@ const CarouselItem = React.memo(({
             </TouchableOpacity>
           </View>
         ) : (
-          <ReAnimated.View
-            style={[
-              StyleSheet.absoluteFill,
-              isActive ? animatedImageStyle : null,
-            ]}
-          >
+          <ReAnimated.View style={[StyleSheet.absoluteFill, animatedStyle]}>
             <ExpoImage
               source={{
                 uri: applyCloudinaryFilter(item, filter),
@@ -486,16 +478,9 @@ function PostImage({
   };
 
   const aspectRatioValue = getAspectRatio();
-
-  // Pinch-to-zoom shared values
-  const scale = useSharedValue<number>(1);
-  const originX = useSharedValue<number>(0);
-  const originY = useSharedValue<number>(0);
-  const focalX = useSharedValue<number>(0);
-  const focalY = useSharedValue<number>(0);
+  const containerHeight = aspectRatioValue ? containerWidth / aspectRatioValue : containerWidth;
 
   // Reset React state during render when FlashList recycles the cell (avoids one-frame stale UI).
-  // Reanimated shared values must NOT be written here — that triggers strict-mode warnings.
   const [prevPostId, setPrevPostId] = useState(post._id);
   if (post._id !== prevPostId) {
     setPrevPostId(post._id);
@@ -505,126 +490,64 @@ function PostImage({
     setIsImageLoading(true);
   }
 
+  const onZoomStateChangeRef = useRef(onZoomStateChange);
   useEffect(() => {
-    scale.value = 1;
-    originX.value = 0;
-    originY.value = 0;
-    focalX.value = 0;
-    focalY.value = 0;
-  }, [post._id, scale, originX, originY, focalX, focalY]);
+    onZoomStateChangeRef.current = onZoomStateChange;
+  }, [onZoomStateChange]);
 
-  const pinchGesture = Gesture.Pinch()
-    .onStart((e) => {
-      runOnJS(setIsZoomed)(true);
-      runOnJS(setScrollEnabled)(false);
-      originX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
-      originY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
-      focalX.value = originX.value;
-      focalY.value = originY.value;
-      if (onZoomStateChange) {
-        runOnJS(onZoomStateChange)(true);
-      }
-    })
-    .onUpdate((e) => {
-      // Only process pinch updates if 2 fingers are touching to prevent focal jumps on iOS
-      if (e.numberOfPointers === 2) {
-        const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
-        scale.value = Math.max(1, Math.min(currentScale, 5));
-        focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : originX.value;
-        focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : originY.value;
-      }
-    })
-    .onEnd(() => {
-      scale.value = withSpring(1);
-      focalX.value = withSpring(originX.value);
-      focalY.value = withSpring(originY.value);
-      runOnJS(setIsZoomed)(false);
-      runOnJS(setScrollEnabled)(true);
-      if (onZoomStateChange) {
-        runOnJS(onZoomStateChange)(false);
-      }
-    });
+  const handleZoomChange = useCallback((zooming: boolean) => {
+    setIsZoomed(zooming);
+    setScrollEnabled(!zooming);
+    onZoomStateChangeRef.current?.(zooming);
+  }, []);
 
-  // Composed Gestures
-  const composedGesture = Gesture.Simultaneous(
-    pinchGesture,
-    Gesture.Exclusive(doubleTapGesture, singleTapGesture)
-  );
+  const {
+    gesture: singleImageGesture,
+    animatedStyle: singleImageZoomStyle,
+    reset: resetSingleImageZoom,
+  } = usePinchZoom({
+    width: containerWidth,
+    height: containerHeight,
+    enabled: true,
+    onZoomChange: handleZoomChange,
+    onSingleTap: onPress,
+    onDoubleTap: triggerDoubleTapLike,
+  });
+
+  useEffect(() => {
+    resetSingleImageZoom();
+  }, [post._id, resetSingleImageZoom]);
 
   const listComposedGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
-
-  const animatedImageStyle = useAnimatedStyle(() => {
-    // Null reference and bounds guard
-    const s = (scale.value && !isNaN(scale.value) && isFinite(scale.value)) ? scale.value : 1;
-    const ox = (originX.value && !isNaN(originX.value) && isFinite(originX.value)) ? originX.value : 0;
-    const oy = (originY.value && !isNaN(originY.value) && isFinite(originY.value)) ? originY.value : 0;
-    const fx = (focalX.value && !isNaN(focalX.value) && isFinite(focalX.value)) ? focalX.value : 0;
-    const fy = (focalY.value && !isNaN(focalY.value) && isFinite(focalY.value)) ? focalY.value : 0;
-
-    const width = containerWidth;
-    const height = aspectRatioValue ? (containerWidth / aspectRatioValue) : containerWidth;
-    const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : containerWidth;
-
-    // The shift caused by moving your fingers
-    const px = fx - ox;
-    const py = fy - oy;
-
-    // Center-relative focal point offset
-    const rawFocalXOffset = width / 2 - ox;
-    const rawFocalYOffset = safeHeight / 2 - oy;
-
-    const focalXOffset = (!isNaN(rawFocalXOffset) && isFinite(rawFocalXOffset)) ? rawFocalXOffset : 0;
-    const focalYOffset = (!isNaN(rawFocalYOffset) && isFinite(rawFocalYOffset)) ? rawFocalYOffset : 0;
-
-    return {
-      transform: [
-        { translateX: px },
-        { translateY: py },
-        { translateX: focalXOffset },
-        { translateY: focalYOffset },
-        { scale: s },
-        { translateX: -focalXOffset },
-        { translateY: -focalYOffset },
-      ] as any,
-    };
-  });
-
-  const containerAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      overflow: scale.value > 1.01 ? 'visible' : 'hidden',
-      zIndex: scale.value > 1.01 ? 999 : 1,
-    };
-  });
-
-  const indicatorsAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: withSpring(scale.value > 1.01 ? 0 : 1, { damping: 15 }),
-    };
-  });
 
   const carouselKeyExtractor = useCallback((_: string, index: number) => index.toString(), []);
 
   const renderCarouselItem = useCallback(({ item, index }: { item: string; index: number }) => (
     <CarouselItem
       item={item}
-      index={index}
-      currentImageIndex={currentImageIndex}
-      scale={scale}
-      focalX={focalX}
-      focalY={focalY}
-      composedGesture={composedGesture}
-      animatedImageStyle={animatedImageStyle}
+      isActive={index === currentImageIndex}
       containerWidth={containerWidth}
+      containerHeight={containerHeight}
       filter={post.filter}
       heartScale={heartScale}
       heartOpacity={heartOpacity}
+      onSingleTap={onPress}
+      onDoubleTap={triggerDoubleTapLike}
+      onZoomChange={handleZoomChange}
     />
-  ), [currentImageIndex, scale, focalX, focalY, composedGesture, animatedImageStyle, containerWidth, post.filter, heartScale, heartOpacity]);
+  ), [currentImageIndex, containerWidth, containerHeight, post.filter, heartScale, heartOpacity, onPress, triggerDoubleTapLike, handleZoomChange]);
 
   if (!imageUri) return null;
 
   return (
-    <ReAnimated.View onLayout={handleLayout} style={[styles.imageContainer, { aspectRatio: aspectRatioValue }, containerAnimatedStyle]}>
+    <View
+      onLayout={handleLayout}
+      style={[
+        styles.imageContainer,
+        { aspectRatio: aspectRatioValue },
+        isZoomed && styles.imageContainerZoomed,
+      ]}
+    >
       {imageLoading && (
         <View style={styles.imageLoader} pointerEvents="none">
           <LoadingGlobe color={theme.colors.primary} size="large" />
@@ -651,9 +574,6 @@ function PostImage({
                 onMomentumScrollEnd={(event) => {
                   const index = Math.round(event.nativeEvent.contentOffset.x / containerWidth);
                   setCurrentImageIndex(index);
-                  scale.value = 1;
-                  focalX.value = 0;
-                  focalY.value = 0;
                   setScrollEnabled(true);
                 }}
                 renderItem={renderCarouselItem}
@@ -670,7 +590,7 @@ function PostImage({
               />
               
               {/* Image counter and dot indicators wrapped in animated view */}
-              <ReAnimated.View style={[StyleSheet.absoluteFill, indicatorsAnimatedStyle]} pointerEvents="none">
+              <View style={[StyleSheet.absoluteFill, isZoomed && styles.hidden]} pointerEvents="none">
                 {/* Image counter */}
                 <View style={styles.imageCounter}>
                   <Text style={styles.imageCounterText}>
@@ -694,11 +614,11 @@ function PostImage({
                     />
                   ))}
                 </View>
-              </ReAnimated.View>
+              </View>
             </View>
           ) : (
-            <GestureDetector gesture={composedGesture}>
-              <ReAnimated.View style={[StyleSheet.absoluteFill, animatedImageStyle]}>
+            <GestureDetector gesture={singleImageGesture}>
+              <ReAnimated.View style={[StyleSheet.absoluteFill, singleImageZoomStyle]}>
                 <ExpoImage
                   source={{
                     uri: applyCloudinaryFilter(imageUri, post.filter),
@@ -823,7 +743,7 @@ function PostImage({
           </View>
         </TouchableOpacity>
       )}
-    </ReAnimated.View>
+    </View>
   );
 }
 
@@ -837,6 +757,13 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     overflow: 'hidden',
     backgroundColor: '#000',
+  },
+  imageContainerZoomed: {
+    overflow: 'visible',
+    zIndex: 999,
+  },
+  hidden: {
+    opacity: 0,
   },
   imageLoader: {
     position: 'absolute',

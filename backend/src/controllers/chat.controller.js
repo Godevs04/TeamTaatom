@@ -8,9 +8,19 @@ const logger = require('../utils/logger');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
+const { sendNotificationToUser } = require('../utils/sendNotification');
 
-// Use dynamic import for fetch to handle CommonJS compatibility
-const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
+/** Push body for a chat message: the text, or a label for what was attached. */
+const messagePushPreview = (text, attachments) => {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (clean) return clean.length > 120 ? `${clean.slice(0, 119)}…` : clean;
+  const first = Array.isArray(attachments) ? attachments[0] : null;
+  if (!first) return 'Sent a message';
+  if (first.type === 'image') return '📷 Sent a photo';
+  if (first.type === 'video') return '🎥 Sent a video';
+  if (first.type === 'post' || first.type === 'shared_post') return 'Shared a post';
+  return '📎 Sent an attachment';
+};
 
 /**
  * Refresh signed download URLs for chat attachments before sending them to the
@@ -836,7 +846,7 @@ exports.sendMessageToRoom = async (req, res) => {
     // Push notifications to other participants
     try {
       const otherParticipantIds = participantIds.filter(p => p !== userId.toString());
-      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken mutedChats').lean();
+      const recipients = await User.find({ _id: { $in: otherParticipantIds } }).select('mutedChats').lean();
 
       // Get page name for notification title
       let pageName = 'Group Chat';
@@ -845,25 +855,20 @@ exports.sendMessageToRoom = async (req, res) => {
         if (page) pageName = page.name;
       }
 
+      const roomPreview = `${req.user.fullName || 'Someone'}: ${messagePushPreview(text, attachments)}`;
       for (const recipient of recipients) {
         if (isChatMuted(recipient, chatIdStr)) continue;
-        if (recipient.expoPushToken) {
-          try {
-            await fetch('https://exp.host/--/api/v2/push/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                to: recipient.expoPushToken,
-                sound: 'default',
-                title: pageName,
-                body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
-                data: { chatId: chatIdStr, type: 'connect_page', screen: `/chat/thread?chatId=${chatIdStr}` },
-              }),
-            });
-          } catch (pushErr) {
-            logger.error('[sendMessageToRoom] Push notification failed for', recipient._id, pushErr);
-          }
-        }
+        sendNotificationToUser({
+          userId: recipient._id.toString(),
+          title: pageName,
+          body: roomPreview,
+          data: {
+            type: 'message',
+            chatId: chatIdStr,
+            entityId: chatIdStr,
+            senderId: userId.toString(),
+          },
+        }).catch((pushErr) => logger.error('[sendMessageToRoom] Push notification failed for', recipient._id, pushErr));
       }
     } catch (pushError) {
       logger.error('[sendMessageToRoom] Push notifications error:', pushError);
@@ -1438,28 +1443,22 @@ exports.sendMessage = async (req, res) => {
 
     // Send push notification to recipient
     try {
-      const recipient = await User.findById(otherUserId).select('expoPushToken mutedChats');
-      if (recipient && recipient.expoPushToken && !isChatMuted(recipient, chat._id) && fetch && typeof fetch === 'function') {
-        logger.debug('Sending push notification...');
-        await fetch('https://exp.host/--/api/v2/push/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: recipient.expoPushToken,
-            sound: 'default',
-            title: 'New Message',
-            body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
-            data: { chatWith: userId, screen: `/chat/thread?userId=${userId}` }
-          })
-        });
-        logger.debug('Push notification sent successfully');
+      const recipient = await User.findById(otherUserId).select('mutedChats').lean();
+      if (recipient && !isChatMuted(recipient, chat._id)) {
+        sendNotificationToUser({
+          userId: otherUserId.toString(),
+          title: req.user.fullName || 'New Message',
+          body: messagePushPreview(text, attachments),
+          data: {
+            type: 'message',
+            chatWith: userId.toString(),
+            chatId: chat._id.toString(),
+            entityId: chat._id.toString(),
+            senderId: userId.toString(),
+          },
+        }).catch((err) => logger.error('Failed to send push notification:', err));
       } else {
-        logger.debug('Push notification skipped:', {
-          hasRecipient: !!recipient, 
-          hasToken: !!recipient?.expoPushToken, 
-          hasFetch: !!fetch,
-          fetchType: typeof fetch 
-        });
+        logger.debug('Push notification skipped: recipient missing or chat muted');
       }
     } catch (err) {
       logger.error('Failed to send push notification:', err);

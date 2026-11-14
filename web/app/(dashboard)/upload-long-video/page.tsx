@@ -5,11 +5,43 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, Film, Loader2, Lock, UploadCloud, X } from "lucide-react";
+import { Camera, Check, Film, ImagePlus, Loader2, Lock, UploadCloud, X } from "lucide-react";
 import { getVideoCreatorStatus, uploadLongVideo } from "../../../lib/api";
 import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import { Button } from "../../../components/ui/button";
+import { ImageCropModal, type AspectPreset } from "../../../components/create/image-crop-modal";
 import { cn } from "../../../lib/utils";
+
+/** Same ratios as mobile THUMBNAIL_RATIOS (hooks/useLongVideoUpload.ts). */
+const THUMBNAIL_RATIOS: AspectPreset[] = [
+  { id: "16:9", label: "16:9 · Widescreen", value: 16 / 9 },
+  { id: "4:3", label: "4:3 · Classic", value: 4 / 3 },
+  { id: "1:1", label: "1:1 · Square", value: 1 },
+  { id: "4:5", label: "4:5 · Portrait", value: 4 / 5 },
+  { id: "9:16", label: "9:16 · Vertical", value: 9 / 16 },
+];
+
+type Thumbnail = { file: File; previewUrl: string; aspect: number };
+
+/** Grabs the frame currently shown in a <video> as an object URL (JPEG). */
+function captureFrame(el: HTMLVideoElement): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!el.videoWidth || !el.videoHeight) {
+      resolve(null);
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = el.videoWidth;
+    canvas.height = el.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      resolve(null);
+      return;
+    }
+    ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : null), "image/jpeg", 0.92);
+  });
+}
 
 /** Same limits as mobile hooks/useLongVideoUpload.ts */
 const LONG_VIDEO_MAX_DURATION_SEC = 60 * 60;
@@ -48,7 +80,11 @@ type Picked = { file: File; previewUrl: string; duration?: number };
 export default function UploadLongVideoPage() {
   const router = useRouter();
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const thumbInputRef = React.useRef<HTMLInputElement>(null);
+  const previewRef = React.useRef<HTMLVideoElement>(null);
   const [video, setVideo] = React.useState<Picked | null>(null);
+  const [thumbnail, setThumbnail] = React.useState<Thumbnail | null>(null);
+  const [cropSource, setCropSource] = React.useState<string | null>(null);
   const [caption, setCaption] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
@@ -62,6 +98,41 @@ export default function UploadLongVideoPage() {
       if (video) URL.revokeObjectURL(video.previewUrl);
     };
   }, [video]);
+
+  React.useEffect(() => {
+    return () => {
+      if (thumbnail) URL.revokeObjectURL(thumbnail.previewUrl);
+    };
+  }, [thumbnail]);
+
+  React.useEffect(() => {
+    return () => {
+      if (cropSource) URL.revokeObjectURL(cropSource);
+    };
+  }, [cropSource]);
+
+  const grabCurrentFrame = async () => {
+    const el = previewRef.current;
+    if (!el) return;
+    el.pause();
+    const url = await captureFrame(el);
+    if (!url) {
+      toast.error("Play the video to the frame you want, then try again.");
+      return;
+    }
+    setCropSource(url);
+  };
+
+  const onPickThumbnail = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+    setCropSource(URL.createObjectURL(file));
+  };
 
   const stepIndex = uploadedId || uploading ? 2 : video ? 1 : 0;
 
@@ -91,7 +162,13 @@ export default function UploadLongVideoPage() {
     setProgress(0);
     try {
       const post = await uploadLongVideo(
-        { video: video.file, caption: caption.trim(), durationSeconds: video.duration },
+        {
+          video: video.file,
+          caption: caption.trim(),
+          durationSeconds: video.duration,
+          thumbnail: thumbnail?.file ?? null,
+          thumbnailAspectRatio: thumbnail?.aspect ?? null,
+        },
         setProgress
       );
       setProgress(100);
@@ -173,7 +250,13 @@ export default function UploadLongVideoPage() {
         <div className="space-y-4">
           {video ? (
             <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-black dark:border-zinc-800">
-              <video src={video.previewUrl} controls playsInline className="aspect-video w-full object-contain" />
+              <video
+                ref={previewRef}
+                src={video.previewUrl}
+                controls
+                playsInline
+                className="aspect-video w-full object-contain"
+              />
               <div className="flex items-center justify-between bg-white px-4 py-2 text-sm dark:bg-zinc-900">
                 <span className="flex min-w-0 items-center gap-2 text-slate-700 dark:text-zinc-200">
                   <Film className="h-4 w-4 shrink-0" />
@@ -184,7 +267,10 @@ export default function UploadLongVideoPage() {
               {!uploading ? (
                 <button
                   type="button"
-                  onClick={() => setVideo(null)}
+                  onClick={() => {
+                    setVideo(null);
+                    setThumbnail(null);
+                  }}
                   className="absolute right-3 top-3 rounded-full bg-black/60 p-1.5 text-white hover:bg-black/80"
                   aria-label="Remove video"
                 >
@@ -204,6 +290,60 @@ export default function UploadLongVideoPage() {
             </button>
           )}
           <input ref={inputRef} type="file" accept="video/*" className="hidden" onChange={onPick} />
+          <input ref={thumbInputRef} type="file" accept="image/*" className="hidden" onChange={onPickThumbnail} />
+
+          {video ? (
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 dark:border-zinc-800/80 dark:bg-zinc-900/90">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Thumbnail</p>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400">
+                    {thumbnail ? "Custom thumbnail selected" : "Auto-generated if you skip this"}
+                  </p>
+                </div>
+                {thumbnail ? (
+                  <div className="relative h-14 shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-zinc-800" style={{ aspectRatio: String(thumbnail.aspect) }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={thumbnail.previewUrl} alt="Selected thumbnail" className="h-full w-full object-cover" />
+                    {!uploading ? (
+                      <button
+                        type="button"
+                        onClick={() => setThumbnail(null)}
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                        aria-label="Remove thumbnail"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-xl"
+                  onClick={() => void grabCurrentFrame()}
+                  disabled={uploading}
+                >
+                  <Camera className="h-4 w-4" />
+                  Use current frame
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-xl"
+                  onClick={() => thumbInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  Upload image
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {video ? (
             <div>
@@ -249,6 +389,19 @@ export default function UploadLongVideoPage() {
           </div>
         </div>
       )}
+
+      <ImageCropModal
+        open={!!cropSource}
+        imageSrc={cropSource}
+        baseFileName="long-video-thumbnail"
+        title="Frame your thumbnail"
+        presets={THUMBNAIL_RATIOS}
+        defaultAspectId="16:9"
+        onClose={() => setCropSource(null)}
+        onApply={(file, aspect) => {
+          setThumbnail({ file, previewUrl: URL.createObjectURL(file), aspect });
+        }}
+      />
     </div>
   );
 }

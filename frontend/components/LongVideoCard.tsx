@@ -11,8 +11,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import CloudGlassSurface from './cloud/CloudGlassSurface';
+import { formatViewCount } from '../utils/numberFormat';
 
-function formatDuration(seconds?: number | null): string {
+export function formatDuration(seconds?: number | null): string {
   if (seconds == null || Number.isNaN(Number(seconds))) return '';
   const s = Math.max(0, Math.floor(Number(seconds)));
   const h = Math.floor(s / 3600);
@@ -31,7 +32,12 @@ function LongVideoCard({ post }: LongVideoCardProps) {
   const { isDark, theme } = useTheme();
   const thumb = post.thumbnailUrl || post.imageUrl || post.mediaUrl;
   const duration = formatDuration(post.durationSeconds);
+  const thumbRatio = Number(post.thumbnailAspectRatio) || 0;
+  const letterbox = thumbRatio > 0 && Math.abs(thumbRatio - 16 / 9) > 0.05;
   const title = post.caption || 'Watch';
+  const channel = post.user?.fullName || post.youtubeChannelTitle || '';
+  const views = post.viewsCount ?? (post as any).views ?? 0;
+  const viewsLabel = `${formatViewCount(views)} ${views === 1 ? 'view' : 'views'}`;
 
   const colors = useMemo(
     () => ({
@@ -52,7 +58,13 @@ function LongVideoCard({ post }: LongVideoCardProps) {
     >
       <CloudGlassSurface borderRadius={20} blur={false} style={styles.surface}>
         <View style={styles.thumbWrap}>
-          {thumb ? (
+          {thumb && letterbox ? (
+            <>
+              <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={24} />
+              <View style={[StyleSheet.absoluteFill, styles.letterboxDim]} />
+              <Image source={{ uri: thumb }} style={styles.thumb} resizeMode="contain" />
+            </>
+          ) : thumb ? (
             <Image source={{ uri: thumb }} style={styles.thumb} resizeMode="cover" />
           ) : (
             <View style={[styles.thumb, styles.thumbPlaceholder, { backgroundColor: theme.colors.border }]} />
@@ -72,16 +84,10 @@ function LongVideoCard({ post }: LongVideoCardProps) {
           <Text style={[styles.title, { color: colors.title }]} numberOfLines={2}>
             {title}
           </Text>
-          {!!post.user?.fullName && (
-            <Text style={[styles.channel, { color: colors.meta }]} numberOfLines={1}>
-              {post.user.fullName}
-            </Text>
-          )}
-          {!!post.youtubeChannelTitle && !post.user?.fullName && (
-            <Text style={[styles.channel, { color: colors.meta }]} numberOfLines={1}>
-              {post.youtubeChannelTitle}
-            </Text>
-          )}
+          <Text style={[styles.channel, { color: colors.meta }]} numberOfLines={1}>
+            {channel ? `${channel} · ` : ''}
+            {viewsLabel}
+          </Text>
         </View>
       </CloudGlassSurface>
     </TouchableOpacity>
@@ -105,6 +111,9 @@ const styles = StyleSheet.create({
   thumb: {
     width: '100%',
     height: '100%',
+  },
+  letterboxDim: {
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   thumbPlaceholder: {
     alignItems: 'center',

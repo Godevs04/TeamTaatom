@@ -177,7 +177,7 @@ const ContentCard = memo(({
             <span>{item.location?.address || item.location || 'Location not specified'}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span>{Array.isArray(item.likes) ? item.likes.length : 0} likes</span>
+            <span>{item.likesCount || 0} likes</span>
             <span>{Array.isArray(item.comments) ? item.comments.length : 0} comments</span>
           </div>
           <div className="text-xs text-gray-500">
@@ -1312,7 +1312,7 @@ const TravelContent = () => {
                   </div>
                   <div className="bg-gray-50 p-3 rounded-lg">
                     <label className="font-medium text-gray-700 block mb-1">Likes</label>
-                    <p className="text-gray-900 text-lg">{Array.isArray(selectedContent.likes) ? selectedContent.likes.length : 0}</p>
+                    <p className="text-gray-900 text-lg">{selectedContent.likesCount || 0}</p>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-lg">
                     <label className="font-medium text-gray-700 block mb-1">Comments</label>

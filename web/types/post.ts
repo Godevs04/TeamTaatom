@@ -46,6 +46,9 @@ export type Post = {
   youtubeChannelTitle?: string | null;
   durationSeconds?: number | null;
   source?: "upload" | "youtube" | null;
+  /** Upload pipeline state for videos: pending / processing / active / failed / removed */
+  status?: string;
+  thumbnailAspectRatio?: number | null;
   user: User;
 
   // social
@@ -54,6 +57,7 @@ export type Post = {
   likesCount?: number;
   commentsCount?: number;
   viewsCount?: number;
+  sharesCount?: number;
   /** Post owner has turned commenting off */
   commentsDisabled?: boolean;
 

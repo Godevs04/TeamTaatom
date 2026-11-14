@@ -169,6 +169,7 @@ interface PhotoCardProps {
   shouldPreload?: boolean;
   showBookmark?: boolean; // Show/hide bookmark button
   hideShareCount?: boolean;
+  autoOpenComments?: boolean; // Open the comments sheet once on mount (e.g. from a comment notification)
 }
 
 function PhotoCard({
@@ -180,6 +181,7 @@ function PhotoCard({
   shouldPreload = false,
   showBookmark = true,
   hideShareCount = true,
+  autoOpenComments = false,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
   const { theme, isDark } = useTheme();
@@ -211,6 +213,10 @@ function PhotoCard({
   // update only post.commentsCount, so the list must not be reset from the (older) feed
   // copy of post.comments then, or the comments added since disappear.
   const syncedPostCommentsRef = useRef(post.comments);
+  const [sharesCount, setSharesCount] = useState(post.sharesCount || 0);
+  useEffect(() => {
+    setSharesCount(post.sharesCount || 0);
+  }, [post.sharesCount]);
   const [commentsCount, setCommentsCount] = useState(() => {
     const local = savedEvents.getCommentsCount(post._id);
     if (local === undefined && post._id) {
@@ -496,6 +502,11 @@ function PhotoCard({
               setCommentsCount(data.commentsCount);
             }
             break;
+          case 'share':
+            if (data && typeof data.sharesCount === 'number') {
+              setSharesCount(data.sharesCount);
+            }
+            break;
         }
       }
     });
@@ -530,6 +541,7 @@ function PhotoCard({
     const finalCommentsCount = localCommentsCount !== undefined ? localCommentsCount : savedEvents.getCommentsCount(post._id);
     setCommentsCount(finalCommentsCount !== undefined ? finalCommentsCount : (post.commentsCount || (post.comments ? post.comments.length : 0)));
     setIsSaved(isSavedSync(post._id));
+    setSharesCount(post.sharesCount || 0);
     setCommentsDisabled((post as any).commentsDisabled || false);
     setEditCaption(post.caption || '');
     setImageError(!post.imageUrl && (!post.images || post.images.length === 0));
@@ -904,6 +916,13 @@ function PhotoCard({
     setShowCommentModal(true);
   }, [currentUser, showCustomAlertMessage]);
 
+  const autoOpenedCommentsRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenComments || autoOpenedCommentsRef.current || post.commentsDisabled) return;
+    autoOpenedCommentsRef.current = true;
+    void handleOpenComments();
+  }, [autoOpenComments, post.commentsDisabled, handleOpenComments]);
+
   const handleDeletePost = useCallback(async () => {
     let activeUser = currentUser;
     if (!activeUser) {
@@ -1256,7 +1275,7 @@ function PhotoCard({
         likesCount={likesCount} 
         postId={post._id}
         commentsCount={commentsCount}
-        sharesCount={hideShareCount ? undefined : (post.sharesCount || 0)}
+        sharesCount={hideShareCount ? undefined : sharesCount}
         onCommentsPress={handleOpenComments}
         onSharesPress={handleShareClick}
       />

@@ -120,6 +120,7 @@ export default function CreateConnectPageScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
+        presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: type === 'profile' ? [1, 1] : [16, 9],

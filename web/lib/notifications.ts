@@ -1,4 +1,5 @@
 import type { Notification } from "../types/notification";
+import { contentHref, contentNoun, refId } from "./content-routes";
 
 export type NotificationSection = { title: string; data: Notification[] };
 
@@ -43,22 +44,45 @@ export function groupNotificationsByTime(notifications: Notification[]): Notific
   return sections;
 }
 
+/** True when a comment notification is really an @mention inside a comment. */
+export function isCommentMention(n: Notification): boolean {
+  return n.type === "post_mention" && !!(n.comment || n.metadata?.commentId || n.metadata?.text);
+}
+
 export function getNotificationLink(n: Notification): { href: string; label: string } | null {
-  const fromId = n.fromUser && typeof n.fromUser === "object" && "_id" in n.fromUser ? (n.fromUser as { _id: string })._id : null;
-  const postId = n.post && typeof n.post === "object" && "_id" in n.post ? (n.post as { _id: string })._id : null;
+  const fromId = refId(n.fromUser);
+  const postId = refId(n.post);
+  const postType = n.post?.type || n.metadata?.postType || null;
+  const ownerId = refId(n.post?.user) || n.metadata?.postOwnerId || null;
 
   switch (n.type) {
     case "like":
     case "comment":
     case "post_mention":
-      if (postId) return { href: `/feed?postId=${postId}`, label: "View post" };
-      return null;
+      if (!postId) return null;
+      return {
+        href: contentHref(postId, postType, ownerId, {
+          openComments: n.type === "comment" || isCommentMention(n),
+        }),
+        label: `View ${contentNoun(postType)}`,
+      };
     case "follow":
     case "follow_approved":
+    case "follow_request_accepted":
+    case "route_access_approved":
       if (fromId) return { href: `/profile/${fromId}`, label: "View profile" };
       return null;
     case "follow_request":
+    case "follow_request_rejected":
+    case "route_access_accepted":
+    case "route_access_rejected":
       return null;
+    case "route_access_request":
+      return { href: "/settings/route-access-requests", label: "Review request" };
+    case "subscription_active": {
+      const pageId = n.metadata?.connectPageId;
+      return pageId ? { href: `/connect/page/${pageId}`, label: "Open page" } : null;
+    }
     case "creator_program":
       return { href: "/creator-monetization", label: "Open Creator Dashboard" };
     default:

@@ -322,6 +322,11 @@ const userSchema = new mongoose.Schema({
         days: {
           type: [String],
           default: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        },
+        // IANA zone of the device that saved the schedule; start/end times are in this zone
+        timezone: {
+          type: String,
+          default: null
         }
       }
     },

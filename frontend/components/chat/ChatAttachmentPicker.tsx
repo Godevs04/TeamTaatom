@@ -54,6 +54,7 @@ const ChatAttachmentPicker: React.FC<ChatAttachmentPickerProps> = ({
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
+        presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
         mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsMultipleSelection: true,
         selectionLimit: 5,

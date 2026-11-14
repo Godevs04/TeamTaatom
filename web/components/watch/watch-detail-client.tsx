@@ -3,9 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Share2 } from "lucide-react";
-import { getLongVideoById } from "../../lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Share2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { deleteLongVideo, getLongVideoById } from "../../lib/api";
+import { invalidatePostListQueries } from "../../lib/post-list-queries";
+import { useAuth } from "../../context/auth-context";
+import { useConfirm } from "../../context/confirm-context";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import type { AdSlot } from "../../lib/long-video-ad-schedule";
 import type { Post } from "../../types/post";
@@ -20,6 +24,7 @@ import { ExpandableText } from "../ui/expandable-text";
 import { canShowWatchAdBreak, getAdSenseWatchBreakSlot } from "../../lib/adsense";
 import { AdSenseUnit } from "../ads/adsense-unit";
 import { ContentViewPing } from "../content-view-ping";
+import { formatViewCount } from "../../lib/number-format";
 
 function formatDuration(seconds?: number | null): string {
   if (seconds == null || Number.isNaN(Number(seconds))) return "";
@@ -43,12 +48,17 @@ function normalizeWatchPost(raw: Post): Post {
     mediaUrl: playable || raw.mediaUrl || "",
     thumbnailUrl: raw.thumbnailUrl || raw.imageUrl,
     imageUrl: raw.imageUrl || raw.thumbnailUrl,
+    viewsCount: Number(raw.viewsCount ?? (raw as Post & { views?: number }).views ?? 0) || 0,
   };
 }
 
 export function WatchDetailClient({ id }: { id: string }) {
   const router = useRouter();
+  const qc = useQueryClient();
+  const { user: currentUser } = useAuth();
+  const confirm = useConfirm();
   const [shareOpen, setShareOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
   const q = useQuery({
     queryKey: ["long-video", id],
@@ -60,6 +70,41 @@ export function WatchDetailClient({ id }: { id: string }) {
     () => (q.data ? normalizeWatchPost(q.data) : null),
     [q.data]
   );
+  const postId = post?._id;
+
+  // The comments section only exists once the video has loaded, so the browser's own
+  // #comments jump (from a comment notification) lands before it renders.
+  React.useEffect(() => {
+    if (!postId || typeof window === "undefined" || window.location.hash !== "#comments") return;
+    const timer = window.setTimeout(() => {
+      document.getElementById("comments")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [postId]);
+
+  const isOwner = !!currentUser?._id && !!post?.user?._id && currentUser._id === post.user._id;
+
+  const handleDelete = async () => {
+    if (!post || deleting) return;
+    const ok = await confirm({
+      title: "Delete Video",
+      description: "Are you sure you want to delete this video? This action cannot be undone.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteLongVideo(post._id);
+      toast.success("Video deleted");
+      qc.removeQueries({ queryKey: ["long-video", id] });
+      invalidatePostListQueries(qc);
+      router.replace("/feed?tab=watch");
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+      setDeleting(false);
+    }
+  };
 
   const videoUrl = post?.videoUrl || post?.mediaUrl || "";
   const posterUrl = post?.thumbnailUrl || post?.imageUrl || undefined;
@@ -118,14 +163,27 @@ export function WatchDetailClient({ id }: { id: string }) {
           <p className="text-[10px] font-extrabold tracking-[0.16em] text-primary">VIDEOS</p>
           <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-50">Now playing</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShareOpen(true)}
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          aria-label="Share video"
-        >
-          <Share2 className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+              aria-label="Delete video"
+            >
+              <Trash2 className="h-5 w-5" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 hover:bg-slate-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            aria-label="Share video"
+          >
+            <Share2 className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       {videoUrl ? (
@@ -156,6 +214,9 @@ export function WatchDetailClient({ id }: { id: string }) {
             Untitled journey
           </h1>
         )}
+        <p className="mt-1.5 text-sm font-semibold text-slate-500 dark:text-zinc-400">
+          {formatViewCount(post.viewsCount)} {post.viewsCount === 1 ? "view" : "views"}
+        </p>
 
         <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/50">
           <Link

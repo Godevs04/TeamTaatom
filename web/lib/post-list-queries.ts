@@ -13,6 +13,8 @@ import type { QueryClient } from "@tanstack/react-query";
  */
 export const POST_LIST_QUERY_KEYS: readonly (readonly string[])[] = [
   ["feed"],
+  ["watch"],
+  ["user-long-videos"],
   ["saved-posts"],
   ["hashtag-posts"],
 ];
@@ -27,5 +29,36 @@ export const POST_LIST_QUERY_KEYS: readonly (readonly string[])[] = [
 export function invalidatePostListQueries(qc: QueryClient) {
   for (const queryKey of POST_LIST_QUERY_KEYS) {
     void qc.invalidateQueries({ queryKey });
+  }
+}
+
+type PostLike = { _id: string } & Record<string, unknown>;
+type PagedPosts = { pages: Array<{ posts?: PostLike[]; videos?: PostLike[] } & Record<string, unknown>> };
+
+/**
+ * Patch one post wherever it is cached (infinite lists and flat { posts } caches)
+ * without a refetch — for counters the server returns directly, like sharesCount.
+ */
+export function patchPostInLists(qc: QueryClient, postId: string, patch: Record<string, unknown>) {
+  const mapList = (list?: PostLike[]) => list?.map((p) => (p._id === postId ? { ...p, ...patch } : p));
+  for (const queryKey of POST_LIST_QUERY_KEYS) {
+    qc.setQueriesData<unknown>({ queryKey }, (old: unknown) => {
+      if (!old || typeof old !== "object") return old;
+      if ("pages" in old && Array.isArray((old as PagedPosts).pages)) {
+        const paged = old as PagedPosts;
+        return {
+          ...paged,
+          pages: paged.pages.map((page) => ({
+            ...page,
+            ...(page.posts ? { posts: mapList(page.posts) } : {}),
+            ...(page.videos ? { videos: mapList(page.videos) } : {}),
+          })),
+        };
+      }
+      if ("posts" in old && Array.isArray((old as { posts: unknown }).posts)) {
+        return { ...(old as object), posts: mapList((old as { posts: PostLike[] }).posts) };
+      }
+      return old;
+    });
   }
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Music, X } from "lucide-react";
+import { Loader2, Music, Pause, Play, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getTaatomSongs, type TaatomSong } from "@/lib/api";
@@ -19,6 +20,55 @@ export function SongPickerModal({
   const [debounced, setDebounced] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [songs, setSongs] = React.useState<TaatomSong[]>([]);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const [playingId, setPlayingId] = React.useState<string | null>(null);
+
+  const stopPreview = React.useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    setPlayingId(null);
+  }, []);
+
+  // One shared element so only one preview is ever audible, released with the modal.
+  React.useEffect(() => {
+    if (!open) return;
+    const audio = new Audio();
+    audio.preload = "none";
+    const onEnded = () => setPlayingId(null);
+    audio.addEventListener("ended", onEnded);
+    audioRef.current = audio;
+    return () => {
+      audio.removeEventListener("ended", onEnded);
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      audioRef.current = null;
+      setPlayingId(null);
+    };
+  }, [open]);
+
+  const togglePreview = (song: TaatomSong) => {
+    const audio = audioRef.current;
+    const url = song.s3Url || song.cloudinaryUrl;
+    if (!audio || !url) return;
+    if (playingId === song._id) {
+      stopPreview();
+      return;
+    }
+    audio.src = url;
+    audio.currentTime = 0;
+    setPlayingId(song._id);
+    audio.play().catch((err: unknown) => {
+      // AbortError: a newer preview (or stop) replaced this one before it started.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setPlayingId((current) => (current === song._id ? null : current));
+      toast.error("Couldn't play this preview.");
+    });
+  };
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 320);
@@ -69,11 +119,22 @@ export function SongPickerModal({
           )}
           <ul className="space-y-1">
             {songs.map((s) => (
-              <li key={s._id}>
+              <li key={s._id} className="flex items-center gap-1">
+                {s.s3Url || s.cloudinaryUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => togglePreview(s)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-primary transition hover:bg-primary/10"
+                    aria-label={playingId === s._id ? `Pause ${s.title}` : `Preview ${s.title}`}
+                  >
+                    {playingId === s._id ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50 dark:hover:bg-zinc-800/90"
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50 dark:hover:bg-zinc-800/90"
                   onClick={() => {
+                    stopPreview();
                     onSelect(s);
                     onClose();
                   }}

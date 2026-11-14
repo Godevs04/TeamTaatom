@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const Post = require('../models/Post');
 const Like = require('../models/Like');
 const User = require('../models/User');
+const Follow = require('../models/Follow');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { getRequestHost } = require('../utils/requestHost');
@@ -18,7 +19,10 @@ const {
 const { triggerTranscode } = require('../services/videoTranscode');
 const { buildLongVideoAdSchedule } = require('../services/longVideoAdSchedule');
 const { findRecentView, LONG_VIDEO_VIEW_WINDOW_MS } = require('../services/viewWindow');
-const { deleteCacheByPattern } = require('../utils/cache');
+const { deleteCache, deleteCacheByPattern, CacheKeys } = require('../utils/cache');
+const { cascadeDeletePost } = require('../utils/cascadeDelete');
+const { getFollowers } = require('../utils/socketBus');
+const { getIO } = require('../socket');
 
 const LONG_VIDEO = 'long_video';
 const MAX_DURATION_SECONDS = 60 * 60;
@@ -39,6 +43,7 @@ function serializeLongVideo(doc, { liked = false, includeComments = false } = {}
     title: o.caption || '',
     durationSeconds,
     thumbnailUrl: o.thumbnailUrl || null,
+    thumbnailAspectRatio: o.thumbnailAspectRatio || null,
     imageUrl: o.thumbnailUrl || o.imageUrl || null,
     mediaUrl: o.videoUrl || o.mediaUrl || o.thumbnailUrl || o.imageUrl || null,
     videoUrl: o.videoUrl || null,
@@ -50,6 +55,7 @@ function serializeLongVideo(doc, { liked = false, includeComments = false } = {}
     likesCount: o.likesCount || 0,
     sharesCount: o.sharesCount || 0,
     views: o.views || 0,
+    viewsCount: o.views || 0,
     commentsCount: comments.length || o.commentsCount || 0,
     commentsDisabled: !!o.commentsDisabled,
     user: o.user,
@@ -310,6 +316,12 @@ async function createLongVideoUpload(req, res) {
     const storageKeys = [videoStorageKey];
     if (thumbnailStorageKey) storageKeys.push(thumbnailStorageKey);
 
+    const requestedThumbRatio = Number(req.body?.thumbnailAspectRatio);
+    const thumbnailAspectRatio =
+      thumbnailUrl && Number.isFinite(requestedThumbRatio) && requestedThumbRatio >= 0.5 && requestedThumbRatio <= 2.5
+        ? Math.round(requestedThumbRatio * 10000) / 10000
+        : undefined;
+
     const post = await Post.create({
       _id: postId,
       user: req.user._id,
@@ -318,6 +330,7 @@ async function createLongVideoUpload(req, res) {
       source: 'upload',
       durationSeconds: durationSeconds ?? null,
       thumbnailUrl: thumbnailUrl || undefined,
+      thumbnailAspectRatio,
       imageUrl: thumbnailUrl || undefined,
       videoUrl: uploadResult.url,
       storageKey: videoStorageKey,
@@ -483,6 +496,26 @@ async function listUserLongVideos(req, res) {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 15, 1), 50);
     const skip = (page - 1) * limit;
+    const emptyPage = {
+      videos: [],
+      posts: [],
+      pagination: { page, limit, total: 0, totalPages: 1, hasMore: false },
+    };
+
+    const owner = await User.findById(userId).select('settings.privacy.profileVisibility').lean();
+    if (!owner) {
+      return sendError(res, 'RES_3002', 'User not found');
+    }
+    const isOwnProfile = req.user ? String(req.user._id) === String(userId) : false;
+    const visibility = owner.settings?.privacy?.profileVisibility || 'public';
+    if (!isOwnProfile && (visibility === 'followers' || visibility === 'private')) {
+      const isFollowing = req.user
+        ? await Follow.exists({ follower: req.user._id, following: userId })
+        : false;
+      if (!isFollowing) {
+        return sendSuccess(res, 200, 'User videos fetched', emptyPage);
+      }
+    }
 
     const match = {
       type: LONG_VIDEO,
@@ -600,14 +633,77 @@ async function updateLongVideo(req, res) {
   }
 }
 
-async function deleteLongVideo(req, res) {
+/**
+ * Permanently remove a long video: storage objects, related records, pending transcode, then the post.
+ */
+async function removeLongVideoPermanently(post) {
+  const postId = post._id;
+  const ownerId = post.user.toString();
+
   try {
+    await mongoose.model('TranscodeJob').deleteMany({ post: postId });
+  } catch (e) {
+    logger.warn('Failed to clear transcode jobs for deleted long video', { postId: String(postId), error: e.message });
+  }
+
+  await cascadeDeletePost(postId, post);
+  await Post.findByIdAndDelete(postId);
+
+  deleteCache(CacheKeys.post(String(postId))).catch(() => {});
+  deleteCacheByPattern('posts:*');
+  deleteCacheByPattern(`user:${ownerId}:posts:*`);
+
+  const io = getIO();
+  if (io) {
+    const nsp = io.of('/app');
+    const followers = await getFollowers(ownerId).catch(() => []);
+    const audience = [ownerId, ...followers];
+    nsp.emitInvalidateFeed(audience);
+    nsp.emitInvalidateProfile(ownerId);
+    nsp.emitEvent('post:deleted', audience, { postId });
+  }
+}
+
+/** DELETE /api/v1/long-videos/:id — the creator deletes their own video */
+async function deleteOwnLongVideo(req, res) {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return sendError(res, 'RES_3001', 'Long video not found');
+    }
     const post = await Post.findOne({ _id: req.params.id, type: LONG_VIDEO });
     if (!post) return sendError(res, 'RES_3001', 'Long video not found');
-    post.isActive = false;
-    post.status = 'removed';
-    await post.save();
-    return sendSuccess(res, 200, 'Long video deactivated', { video: serializeLongVideo(post) });
+    if (post.user.toString() !== req.user._id.toString()) {
+      return sendError(res, 'AUTH_1006', 'You can only delete your own videos');
+    }
+
+    await removeLongVideoPermanently(post);
+    logger.info(`Long video ${post._id} deleted by owner ${req.user._id}`);
+    return sendSuccess(res, 200, 'Video deleted', { id: post._id });
+  } catch (error) {
+    logger.error('deleteOwnLongVideo error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to delete video');
+  }
+}
+
+/** DELETE /api/v1/superadmin/long-videos/:id — permanent removal by an admin */
+async function deleteLongVideo(req, res) {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return sendError(res, 'RES_3001', 'Long video not found');
+    }
+    const post = await Post.findOne({ _id: req.params.id, type: LONG_VIDEO });
+    if (!post) return sendError(res, 'RES_3001', 'Long video not found');
+
+    await removeLongVideoPermanently(post);
+    logger.info(`Long video ${post._id} deleted by admin ${req.superAdmin?._id || 'unknown'}`);
+
+    if (typeof req.superAdmin?.logSecurityEvent === 'function') {
+      Promise.resolve(
+        req.superAdmin.logSecurityEvent('content_deleted', `Deleted long video: ${post._id}`, req.ip, req.get('User-Agent'), true)
+      ).catch(() => {});
+    }
+
+    return sendSuccess(res, 200, 'Long video deleted', { id: post._id });
   } catch (error) {
     logger.error('deleteLongVideo error:', error);
     return sendError(res, 'SRV_6001', 'Failed to delete long video');
@@ -623,5 +719,6 @@ module.exports = {
   getLongVideoAdmin,
   updateLongVideo,
   deleteLongVideo,
+  deleteOwnLongVideo,
   serializeLongVideo,
 };

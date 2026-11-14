@@ -22,7 +22,7 @@ import AlertService from '../services/alertService';
 import { useTheme } from '../context/ThemeContext';
 import { useIsFocused } from 'expo-router';
 import logger from '../utils/logger';
-import { Audio, type AvSound } from '../utils/expoAv';
+import { createSongSound, type SongSound } from '../utils/expoAudioSound';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -264,7 +264,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [dragType, setDragType] = useState<'start' | 'end' | 'both' | null>(null);
   const [limitState, setLimitState] = useState<'normal' | 'approachingMin' | 'atMinimum' | 'atMaximum'>('normal');
   const [dragTime, setDragTime] = useState(0);
-  const soundRef = useRef<AvSound | null>(null);
+  const soundRef = useRef<SongSound | null>(null);
   const timelineWidthRef = useRef<number>(SCREEN_WIDTH - 64);
   const timelineLayoutRef = useRef<{ x: number; width: number } | null>(null);
   const lastDragXRef = useRef<number | null>(null);
@@ -281,7 +281,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const isPlayingRef = useRef<boolean>(false);
   // Single in-flight guard for the play/pause toggle so a rapid double-tap
   // doesn't fire setPositionAsync + playAsync concurrently with a pending
-  // pauseAsync against the same Audio.Sound (which expo-av handles
+  // pauseAsync against the same sound (which the native player handles
   // erratically on Android).
   const playToggleInFlightRef = useRef<boolean>(false);
   const trimGrantRef = useRef<{ startTime: number; endTime: number } | null>(null);
@@ -522,16 +522,15 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         soundRef.current = null;
       }
 
-      const { sound, status } = await Audio.Sound.createAsync(
-        { uri: song.s3Url },
-        {
-          shouldPlay: false,
-          progressUpdateIntervalMillis: 200, // Update every 200ms for smooth looping
-          isLooping: false // We handle looping manually to respect startTime/endTime
-        },
-        null,
-        Platform.OS === 'ios' ? false : true // Use downloadFirst on Android to prevent signed S3 URL streaming issues
-      );
+      const sound = await createSongSound(song.s3Url, {
+        shouldPlay: false,
+        isLooping: false, // We handle looping manually to respect startTime/endTime
+        isMuted: false,
+        volume: 1,
+        positionMillis: 0,
+        downloadFirst: Platform.OS === 'android', // Signed S3 URLs stream unreliably on Android
+      });
+      const status = await sound.getStatusAsync();
 
       if (requestId !== loadRequestIdRef.current) {
         await sound.unloadAsync().catch(() => {});
@@ -629,7 +628,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     if (!currentSong) return;
     // Reject re-entry: a double-tap on the toggle within ~50ms would
     // otherwise queue pauseAsync + playAsync (or vice-versa) on the same
-    // expo-av Audio.Sound, which on Android sometimes leaves the player
+    // sound, which on Android sometimes leaves the player
     // in a stuck state where neither button matches the audio state.
     if (playToggleInFlightRef.current) return;
     playToggleInFlightRef.current = true;

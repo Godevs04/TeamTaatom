@@ -27,6 +27,8 @@ import { theme } from '../constants/theme';
 import logger from '../utils/logger';
 import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../components/ImageEditModal';
 import { getApiUrl } from '../utils/config';
+import { contentNoun } from '../utils/contentRoutes';
+import * as ExpoNotifications from 'expo-notifications';
 
 const resolvePhotoUrl = (url?: string | null): string | undefined => {
   if (!url) return undefined;
@@ -183,6 +185,9 @@ export default function NotificationsScreen() {
       try {
         await markAllNotificationsAsRead();
         setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+        if (Platform.OS !== 'web') {
+          ExpoNotifications.setBadgeCountAsync(0).catch(() => {});
+        }
       } catch (err) {
         logger.error('Failed to auto-clear notifications on mount:', err);
       }
@@ -440,7 +445,8 @@ export default function NotificationsScreen() {
     switch (type) {
       case 'like':
       case 'comment':
-        return '#FF3B30'; // Red color for likes and comments
+      case 'post_mention':
+        return '#FF3B30'; // Red color for likes, comments and mentions
       case 'follow':
       case 'follow_request':
       case 'follow_approved':
@@ -466,6 +472,8 @@ export default function NotificationsScreen() {
         return 'heart';
       case 'comment':
         return 'chatbubble';
+      case 'post_mention':
+        return 'at';
       case 'follow':
         return 'person-add';
       case 'follow_request':
@@ -493,12 +501,17 @@ export default function NotificationsScreen() {
   const getNotificationMessage = (notification: Notification) => {
     const { type, fromUser, metadata } = notification;
     const userName = fromUser?.fullName || 'Someone';
+    const noun = contentNoun(notification.post?.type);
 
     switch (type) {
       case 'like':
-        return `${userName} liked your post`;
+        return `${userName} liked your ${noun}`;
       case 'comment':
-        return `${userName} commented on your post`;
+        return `${userName} commented on your ${noun}`;
+      case 'post_mention':
+        return notification.comment || metadata?.text != null
+          ? `${userName} mentioned you in a comment`
+          : `${userName} mentioned you in a ${noun}`;
       case 'follow':
         return `${userName} started following you`;
       case 'follow_request':

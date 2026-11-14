@@ -26,7 +26,7 @@ export type SongStatus = {
   error?: unknown;
 };
 
-let audioModeReady: Promise<void> | null = null;
+let audioModeInFlight: Promise<void> | null = null;
 
 // Every player created here that has not been released. Only one song may be audible:
 // callers can lose track of a player (a stale Shorts load, a status read while
@@ -44,18 +44,19 @@ function pauseOtherPlayers(current: AudioPlayer) {
   });
 }
 
+// Re-applied before every play: expo-av, expo-video and the image picker share the iOS
+// audio session and can leave it on a category that the silent switch mutes.
 function ensurePlaybackMode(): Promise<void> {
-  if (!audioModeReady) {
-    audioModeReady = setAudioModeAsync({
+  if (!audioModeInFlight) {
+    audioModeInFlight = setAudioModeAsync({
       playsInSilentMode: true,
       interruptionMode: "mixWithOthers",
       shouldPlayInBackground: false,
-    }).catch((error) => {
-      audioModeReady = null;
-      throw error;
+    }).finally(() => {
+      audioModeInFlight = null;
     });
   }
-  return audioModeReady;
+  return audioModeInFlight;
 }
 
 function statusOf(player: AudioPlayer, overrides: Partial<SongStatus> = {}): SongStatus {
@@ -95,10 +96,16 @@ export async function createSongSound(
     isMuted: boolean;
     volume: number;
     positionMillis: number;
+    downloadFirst?: boolean;
   }
 ): Promise<SongSound> {
   await ensurePlaybackMode();
-  const player = createAudioPlayer({ uri }, { updateInterval: 150 });
+  // keepAudioSessionActive: by default expo-audio deactivates the shared session on
+  // every pause, which silences other players that believe the session is still active.
+  const player = createAudioPlayer(
+    { uri },
+    { updateInterval: 150, keepAudioSessionActive: true, downloadFirst: options.downloadFirst }
+  );
   livePlayers.add(player);
   let released = false;
   let statusCallback: ((status: SongStatus) => void) | null = null;
@@ -148,6 +155,8 @@ export async function createSongSound(
 
   const handle: SongSound = {
     async playAsync() {
+      if (released) return statusOf(player, { isLoaded: false, isPlaying: false });
+      await ensurePlaybackMode().catch(() => {});
       if (released) return statusOf(player, { isLoaded: false, isPlaying: false });
       pauseOtherPlayers(player);
       player.play();

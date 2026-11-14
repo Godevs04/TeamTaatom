@@ -202,7 +202,7 @@ export default function ContentBlockBuilder({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { Alert.alert('Permission Denied', 'We need photo library access.'); return; }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+      const result = await ImagePicker.launchImageLibraryAsync({ presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN, mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
       if (!result.canceled && result.assets[0]) {
         const localUri = result.assets[0].uri;
         if (pageId) {
@@ -221,7 +221,7 @@ export default function ContentBlockBuilder({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { Alert.alert('Permission Denied', 'We need photo library access.'); return; }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+      const result = await ImagePicker.launchImageLibraryAsync({ presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN, mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
       if (!result.canceled && result.assets[0]) {
         const localUri = result.assets[0].uri;
         if (pageId) {
@@ -242,7 +242,7 @@ export default function ContentBlockBuilder({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { Alert.alert('Permission Denied', 'We need photo library access.'); return; }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], allowsEditing: true, quality: 0.7, videoMaxDuration: 60 });
+      const result = await ImagePicker.launchImageLibraryAsync({ presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN, mediaTypes: ['videos'], allowsEditing: true, quality: 0.7, videoMaxDuration: 60 });
       if (!result.canceled && result.assets[0]) {
         onChange([...blocks, { type: 'video', content: result.assets[0].uri, order: blocks.length }]);
       }
@@ -253,7 +253,7 @@ export default function ContentBlockBuilder({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { Alert.alert('Permission Denied', 'We need photo library access.'); return; }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], allowsEditing: true, quality: 0.7, videoMaxDuration: 60 });
+      const result = await ImagePicker.launchImageLibraryAsync({ presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN, mediaTypes: ['videos'], allowsEditing: true, quality: 0.7, videoMaxDuration: 60 });
       if (!result.canceled && result.assets[0]) {
         const updated = blocks.map((b, i) => i === index ? { ...b, type: 'video' as const, content: result.assets[0].uri } : b);
         onChange(updated);

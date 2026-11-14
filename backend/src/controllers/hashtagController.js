@@ -1,5 +1,6 @@
 const Hashtag = require('../models/Hashtag');
 const Post = require('../models/Post');
+const Like = require('../models/Like');
 const logger = require('../utils/logger');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
@@ -178,6 +179,14 @@ const getHashtagPosts = async (req, res) => {
 
     // Add isLiked field if user is authenticated and optimize image URLs
     const userId = req.user?._id?.toString();
+    const likedPostIds = new Set();
+    if (userId && postsWithFreshUrls.length > 0) {
+      const likes = await Like.find({
+        user: userId,
+        post: { $in: postsWithFreshUrls.map(p => p._id) }
+      }).select('post').lean();
+      likes.forEach(l => likedPostIds.add(l.post.toString()));
+    }
     const postsWithLikeStatus = postsWithFreshUrls.map(post => {
       let optimizedImageUrl = post.imageUrl;
       if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
@@ -197,9 +206,7 @@ const getHashtagPosts = async (req, res) => {
         }
       }
 
-      const isLiked = userId && post.likes 
-        ? post.likes.some(like => like.toString() === userId)
-        : false;
+      const isLiked = likedPostIds.has(post._id.toString());
 
       const postOwnerId = post.user?._id?.toString();
       const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
@@ -212,7 +219,7 @@ const getHashtagPosts = async (req, res) => {
         location: hideLocation ? null : post.location,
         detectedPlace: hideLocation ? null : post.detectedPlace,
         user: userWithoutSettings,
-        likesCount: typeof post.likesCount === 'number' ? post.likesCount : (post.likes ? post.likes.length : 0),
+        likesCount: typeof post.likesCount === 'number' ? post.likesCount : 0,
         commentsCount: typeof post.commentsCount === 'number' ? post.commentsCount : (Array.isArray(post.comments) ? post.comments.length : 0)
       };
     });
