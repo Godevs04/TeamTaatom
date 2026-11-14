@@ -270,6 +270,17 @@ export function ProfileContentTabs({
     initialTab === "saved" && !isOwnProfile ? "posts" : initialTab
   );
   const [savedSub, setSavedSub] = React.useState<SavedSubTab>("posts");
+  const bodyRef = React.useRef<HTMLDivElement | null>(null);
+  const [bodyMinHeight, setBodyMinHeight] = React.useState(0);
+
+  // A shorter tab would shrink the page and the browser would clamp the scroll,
+  // so keep the content at least down to the current bottom of the viewport.
+  const changeTab = (next: ProfileTab) => {
+    if (next === tab) return;
+    const top = bodyRef.current?.getBoundingClientRect().top;
+    if (typeof top === "number") setBodyMinHeight(Math.max(0, window.innerHeight - top));
+    setTab(next);
+  };
 
   const postsQ = useInfiniteQuery({
     queryKey: ["profile-posts", userId],
@@ -430,8 +441,10 @@ export function ProfileContentTabs({
 
   return (
     <section className="space-y-3">
-      <PillTabs tabs={tabs} active={tab} onChange={setTab} />
-      {body}
+      <PillTabs tabs={tabs} active={tab} onChange={changeTab} />
+      <div ref={bodyRef} style={bodyMinHeight ? { minHeight: bodyMinHeight } : undefined}>
+        {body}
+      </div>
     </section>
   );
 }

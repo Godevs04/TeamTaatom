@@ -386,6 +386,11 @@ export default function ProfileScreen() {
   const pendingScrollRestoreRef = useRef<boolean>(false);
   // Remember where the posts/shorts/saved tabs sit, so tab switches don't feel like a jump
   const tabsOffsetRef = useRef<number>(0);
+  const listHeightRef = useRef<number>(0);
+  // Offset to re-apply after the list remounts (grid <-> videos list changes numColumns).
+  const pendingTabOffsetRef = useRef<number | null>(null);
+  // Keeps a short tab tall enough that the tab bar stays where the user tapped it.
+  const [tabMinContentHeight, setTabMinContentHeight] = useState(0);
   
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
@@ -1937,10 +1942,23 @@ export default function ProfileScreen() {
       <FlatList
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 80, minHeight: tabMinContentHeight },
+        ]}
         data={activeListData}
         numColumns={activeTab === 'videos' ? 1 : 3}
-        key={`${activeTab}_${activeSavedSubTab}`}
+        // FlatList cannot change numColumns in place; only the videos list needs a remount.
+        key={activeTab === 'videos' ? 'profile-list' : 'profile-grid'}
+        onLayout={(event) => {
+          listHeightRef.current = event.nativeEvent.layout.height;
+        }}
+        onContentSizeChange={() => {
+          const offset = pendingTabOffsetRef.current;
+          if (offset == null) return;
+          pendingTabOffsetRef.current = null;
+          scrollViewRef.current?.scrollToOffset({ offset, animated: false });
+        }}
         keyExtractor={(item) => item._id}
         renderItem={renderProfileItem}
         onEndReached={() => {
@@ -2024,6 +2042,12 @@ export default function ProfileScreen() {
                           logger.debug('Tab switch blocked - fetch in progress');
                           return;
                         }
+                        if (activeTab === tab) return;
+                        const offset = scrollPositionRef.current;
+                        setTabMinContentHeight(offset + listHeightRef.current);
+                        if ((tab === 'videos') !== (activeTab === 'videos')) {
+                          pendingTabOffsetRef.current = offset;
+                        }
                         setIsSelectionMode(false);
                         setSelectedItemIds([]);
                         setActiveTab(tab);
@@ -2066,7 +2090,11 @@ export default function ProfileScreen() {
                         styles.savedSubTab,
                         activeSavedSubTab === subTab && { overflow: 'hidden' }
                       ]}
-                      onPress={() => setActiveSavedSubTab(subTab)}
+                      onPress={() => {
+                        if (activeSavedSubTab === subTab) return;
+                        setTabMinContentHeight(scrollPositionRef.current + listHeightRef.current);
+                        setActiveSavedSubTab(subTab);
+                      }}
                     >
                       {activeSavedSubTab === subTab && (
                         <LinearGradient

@@ -115,6 +115,9 @@ export default function UserProfileScreen() {
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [userLongVideos, setUserLongVideos] = useState<PostType[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'videos'>('posts');
+  // Keeps a short tab tall enough that the tab bar stays where the user tapped it.
+  const [tabMinContentHeight, setTabMinContentHeight] = useState(0);
+  const scrollViewHeightRef = useRef(0);
   const [loadingShorts, setLoadingShorts] = useState(false);
   const [postsPage, setPostsPage] = useState(1);
   const [hasMorePosts, setHasMorePosts] = useState(true);
@@ -960,7 +963,10 @@ export default function UserProfileScreen() {
         ref={scrollViewRef}
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { minHeight: tabMinContentHeight }]}
+        onLayout={(event) => {
+          scrollViewHeightRef.current = event.nativeEvent.layout.height;
+        }}
         scrollEventThrottle={16}
         onScroll={({ nativeEvent }) => {
           const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
@@ -1322,7 +1328,11 @@ export default function UserProfileScreen() {
                     styles.pillTab,
                     activeTab === key && styles.pillTabActive
                   ]}
-                  onPress={() => setActiveTab(key)}
+                  onPress={() => {
+                    if (activeTab === key) return;
+                    setTabMinContentHeight(scrollPositionRef.current + scrollViewHeightRef.current);
+                    setActiveTab(key);
+                  }}
                 >
                   {activeTab === key && (
                     <ExpoLinearGradient
