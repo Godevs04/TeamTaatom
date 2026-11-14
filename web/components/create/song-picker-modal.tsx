@@ -62,8 +62,10 @@ export function SongPickerModal({
     audio.src = url;
     audio.currentTime = 0;
     setPlayingId(song._id);
-    audio.play().catch(() => {
-      setPlayingId(null);
+    audio.play().catch((err: unknown) => {
+      // AbortError: a newer preview (or stop) replaced this one before it started.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setPlayingId((current) => (current === song._id ? null : current));
       toast.error("Couldn't play this preview.");
     });
   };
