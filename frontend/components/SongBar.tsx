@@ -10,7 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from './ui/MaskedView';
-import { Audio, type AvSound } from '../utils/expoAv';
+import { createSongSound, type SongSound } from '../utils/expoAudioSound';
 import { useIsFocused } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { Song } from '../services/songs';
@@ -58,8 +58,7 @@ export const SongBar: React.FC<SongBarProps> = ({
 }) => {
   const { theme } = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
-  const soundRef = useRef<AvSound | null>(null);
-  const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const soundRef = useRef<SongSound | null>(null);
   const isMountedRef = useRef(true);
   const isFocused = useIsFocused();
 
@@ -68,7 +67,6 @@ export const SongBar: React.FC<SongBarProps> = ({
     if (!isFocused && isPlaying && soundRef.current) {
       soundRef.current.pauseAsync().catch(() => {});
       setIsPlaying(false);
-      if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
     }
   }, [isFocused, isPlaying]);
 
@@ -77,7 +75,6 @@ export const SongBar: React.FC<SongBarProps> = ({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
       if (soundRef.current) {
         soundRef.current.stopAsync().catch(() => {});
         soundRef.current.unloadAsync().catch(() => {});
@@ -92,10 +89,6 @@ export const SongBar: React.FC<SongBarProps> = ({
       const oldSound = soundRef.current;
       soundRef.current = null;
       setIsPlaying(false);
-      if (statusIntervalRef.current) {
-        clearInterval(statusIntervalRef.current);
-        statusIntervalRef.current = null;
-      }
       oldSound.stopAsync().catch(() => {});
       oldSound.unloadAsync().catch(() => {});
     }
@@ -107,25 +100,21 @@ export const SongBar: React.FC<SongBarProps> = ({
       if (isPlaying && soundRef.current) {
         await soundRef.current?.pauseAsync().catch(() => {});
         setIsPlaying(false);
-        if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
         return;
       }
 
       if (!soundRef.current) {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-          shouldDuckAndroid: true,
-          interruptionModeIOS: 0,
+        const sound = await createSongSound(song.s3Url, {
+          shouldPlay: true,
+          isLooping: false,
+          isMuted: false,
+          volume: 1,
+          positionMillis: 0,
+          downloadFirst: Platform.OS === 'android', // Signed S3 URLs stream unreliably on Android
         });
-
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: song.s3Url },
-          { shouldPlay: true, isLooping: false },
-          null,
-          Platform.OS === 'ios' ? false : true // Use downloadFirst on Android to prevent signed S3 URL streaming issues
-        );
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.didJustFinish && isMountedRef.current) setIsPlaying(false);
+        });
         soundRef.current = sound;
       } else {
         await soundRef.current?.setPositionAsync(0).catch(() => {});
@@ -133,18 +122,6 @@ export const SongBar: React.FC<SongBarProps> = ({
       }
 
       setIsPlaying(true);
-
-      // Poll status — stop at end of song
-      statusIntervalRef.current = setInterval(async () => {
-        if (!soundRef.current || !isMountedRef.current) return;
-        try {
-          const status = await soundRef.current?.getStatusAsync();
-          if (status && status.isLoaded && !status.isPlaying && status.didJustFinish) {
-            setIsPlaying(false);
-            if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
-          }
-        } catch (e) {}
-      }, 500);
     } catch (e) {
       console.error('[SongBar] playback error:', e);
     }

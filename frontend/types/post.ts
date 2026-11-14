@@ -9,6 +9,7 @@ export interface PostType {
   caption: string;
   imageUrl: string;
   thumbnailUrl?: string; // Thumbnail for video/short posts
+  thumbnailAspectRatio?: number | null; // Width/height of a creator-cropped long-video thumbnail
   images?: string[]; // Multiple images for carousel
   videoUrl?: string;
   mediaUrl?: string; // Virtual field from backend

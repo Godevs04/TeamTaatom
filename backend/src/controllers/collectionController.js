@@ -1,5 +1,6 @@
 const Collection = require('../models/Collection');
 const Post = require('../models/Post');
+const Like = require('../models/Like');
 const User = require('../models/User');
 const Activity = require('../models/Activity');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
@@ -148,7 +149,7 @@ const getCollection = async (req, res) => {
       .populate({
         path: 'posts',
         match: { isActive: true },
-        select: 'imageUrl images videoUrl caption type location likes comments createdAt user storageKey storageKeys thumbnailUrl isActive',
+        select: 'imageUrl images videoUrl caption type location likesCount comments createdAt user storageKey storageKeys thumbnailUrl isActive',
         populate: {
           path: 'user',
           select: 'fullName profilePic profilePicStorageKey username'
@@ -247,6 +248,15 @@ const getCollection = async (req, res) => {
     // Generate signed URLs for post authors' profile pictures and add like status
     const userId = req.user?._id?.toString();
     if (collection.posts && collection.posts.length > 0) {
+      const likedPostIds = new Set();
+      if (userId) {
+        const likes = await Like.find({
+          user: userId,
+          post: { $in: collection.posts.map(p => p._id) }
+        }).select('post').lean();
+        likes.forEach(l => likedPostIds.add(l.post.toString()));
+      }
+
       collection.posts = await Promise.all(collection.posts.map(async (post) => {
         if (post.user) {
           post.user.profilePic = await resolveProfilePic(post.user);
@@ -255,8 +265,8 @@ const getCollection = async (req, res) => {
         // Add like status
         return {
           ...post,
-          isLiked: userId && post.likes ? post.likes.some(like => like.toString() === userId) : false,
-          likesCount: post.likes ? post.likes.length : 0,
+          isLiked: likedPostIds.has(post._id.toString()),
+          likesCount: typeof post.likesCount === 'number' ? post.likesCount : 0,
           commentsCount: post.comments ? post.comments.length : 0
         };
       }));

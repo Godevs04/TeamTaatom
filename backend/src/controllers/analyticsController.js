@@ -1,7 +1,7 @@
 const AnalyticsEvent = require('../models/AnalyticsEvent');
 const ErrorLog = require('../models/ErrorLog');
 const logger = require('../utils/logger');
-const { viewCooldownFor, findRecentView } = require('../services/viewWindow');
+const { viewCooldownFor, findRecentView, claimViewSlot } = require('../services/viewWindow');
 
 // @desc    Track analytics events
 // @route   POST /analytics/events
@@ -50,9 +50,19 @@ const trackEvents = async (req, res) => {
                 windowMs: cooldownPeriod,
                 before: event.timestamp,
               });
-              let shouldIncrement = true;
-
-              if (existingView) {
+              let shouldIncrement = !existingView;
+              if (shouldIncrement) {
+                const claimed = await claimViewSlot({
+                  postId,
+                  userId: event.userId,
+                  sessionId: event.sessionId,
+                  windowMs: cooldownPeriod,
+                });
+                if (claimed === false) {
+                  shouldIncrement = false;
+                  logger.info(`[VIEW TRACKING] Duplicate concurrent view for post ${postId} skipped.`);
+                }
+              } else {
                 shouldIncrement = false;
                 const identity = event.userId ? `User ${event.userId}` : `Session ${event.sessionId}`;
                 const hours = cooldownPeriod / (60 * 60 * 1000);

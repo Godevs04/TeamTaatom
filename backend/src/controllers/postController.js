@@ -26,6 +26,18 @@ const { startTranscodeWorker, triggerTranscode } = require('../services/videoTra
 // Start MongoDB-backed transcoding worker
 startTranscodeWorker();
 
+/** What notifications call a piece of content: "your video", "your short", "your post". */
+const contentNoun = (postType) => {
+  if (postType === 'long_video') return 'video';
+  if (postType === 'short') return 'short';
+  return 'post';
+};
+
+const notificationPreview = (text, max = 80) => {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+};
+
 const getProto = (req) => {
   const forwardedProto = req.headers['x-forwarded-proto'];
   if (forwardedProto) {
@@ -1439,6 +1451,20 @@ const createPost = async (req, res) => {
                 post: post._id,
                 metadata: { caption: caption ? caption.substring(0, 100) : '' }
               });
+              sendNotificationToUser({
+                userId: mentionedUserId.toString(),
+                title: req.user.fullName || 'You were mentioned',
+                body: `${req.user.fullName || 'Someone'} mentioned you in a ${contentNoun(post.type)}`,
+                data: {
+                  type: 'post_mention',
+                  postId: post._id.toString(),
+                  postType: post.type,
+                  postOwnerId: req.user._id.toString(),
+                  entityId: post._id.toString(),
+                  fromUserId: req.user._id.toString(),
+                  senderId: req.user._id.toString()
+                }
+              }).catch(err => logger.error('Error sending push notification for post mention:', err));
             }
           } catch (error) {
             logger.error(`Error creating mention notification:`, error);
@@ -1615,8 +1641,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
                   fullName: 1, 
                   username: 1,
                   profilePic: 1,
-                  profilePicStorageKey: 1,
-                  followers: currentUserId ? { $cond: [{ $eq: ['$_id', currentUserId] }, '$followers', []] } : []
+                  profilePicStorageKey: 1
                 } 
               }
             ]
@@ -1703,34 +1728,59 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
               else: null
             }
           },
-          likesCount: { $size: { $ifNull: ['$likes', []] } },
+          // Likes live in the Like collection with a counter on the post; the embedded
+          // `likes` array is legacy and no longer updated
+          likesCount: { $ifNull: ['$likesCount', 0] },
           commentsCount: { $size: { $ifNull: ['$comments', []] } },
-          viewsCount: { $ifNull: ['$views', 0] },
-          isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false,
-          isFollowing: currentUserId && { $in: [currentUserId, { $ifNull: ['$user.followers', []] }] } || false
+          viewsCount: { $ifNull: ['$views', 0] }
         }
       },
+      ...(currentUserId ? [
+        {
+          $lookup: {
+            from: 'likes',
+            let: { postId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$post', '$$postId'] },
+                      { $eq: ['$user', currentUserId] }
+                    ]
+                  }
+                }
+              },
+              { $limit: 1 }
+            ],
+            as: 'viewerLike'
+          }
+        },
+        { $addFields: { isLiked: { $gt: [{ $size: '$viewerLike' }, 0] } } }
+      ] : [
+        { $addFields: { isLiked: false } }
+      ]),
       {
         $project: {
           commentUsers: 0,
           songData: 0,
-          'user.followers': 0 // Remove followers array from response
+          viewerLike: 0
           // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, thumbnailUrl, etc.)
         }
       }
     ]);
 
+    // Every short here has the same owner, so one follow lookup covers the page
+    const viewerFollowsOwner = currentUserId
+      ? !!(await Follow.exists({ follower: currentUserId, following: userIdObj }))
+      : false;
+
     // Generate signed URLs for profile pictures and short thumbnails
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       if (short.user) {
         short.user.profilePic = await resolveProfilePic(short.user);
-        // Add follow check using Follow.exists
-        if (currentUserId) {
-          short.isFollowing = !!(await Follow.exists({ follower: currentUserId, following: short.user._id }));
-        } else {
-          short.isFollowing = false;
-        }
       }
+      short.isFollowing = viewerFollowsOwner;
 
       // Generate signed URL for song if present (same logic as getShorts)
       if (short.song?.songId) {
@@ -2421,7 +2471,7 @@ const getUserPosts = async (req, res) => {
 // @access  Private
 const toggleLike = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).select('user').lean();
+    const post = await Post.findById(req.params.id).select('user type').lean();
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
@@ -2549,8 +2599,16 @@ const toggleLike = async (req, res) => {
       if (finalIsLiked) {
         await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
         
-        // Create notification for like (only if it's not the user's own post)
-        if (post.user.toString() !== req.user._id.toString()) {
+        // Create notification for like (only if it's not the user's own post).
+        // Unlike + like again must not re-notify, so one notification per liker per post.
+        const isOwnPost = post.user.toString() === req.user._id.toString();
+        const alreadyNotified = !isOwnPost && await Notification.exists({
+          type: 'like',
+          fromUser: req.user._id,
+          toUser: post.user,
+          post: post._id
+        });
+        if (!isOwnPost && !alreadyNotified) {
           try {
             logger.debug('🔔 Creating like notification:', {
               fromUser: req.user._id,
@@ -2570,11 +2628,13 @@ const toggleLike = async (req, res) => {
             // Send push notification
             sendNotificationToUser({
               userId: post.user.toString(),
-              title: 'New Like',
-              body: `${req.user.fullName} liked your post`,
+              title: req.user.fullName || 'New Like',
+              body: `${req.user.fullName || 'Someone'} liked your ${contentNoun(post.type)}`,
               data: {
                 type: 'like',
                 postId: post._id.toString(), // Frontend expects postId
+                postType: post.type,
+                postOwnerId: post.user.toString(),
                 entityId: post._id.toString(), // Keep for backward compatibility
                 fromUserId: req.user._id.toString(), // Frontend expects fromUserId
                 senderId: req.user._id.toString() // Keep for backward compatibility
@@ -2731,13 +2791,19 @@ const addComment = async (req, res) => {
             });
 
             // Send push notification for mention
+            const mentionPreview = notificationPreview(text);
             await sendNotificationToUser({
               userId: mentionedUserId.toString(),
-              title: 'You were mentioned',
-              body: `${req.user.fullName} mentioned you in a comment`,
+              title: req.user.fullName || 'You were mentioned',
+              body: mentionPreview
+                ? `Mentioned you in a comment: ${mentionPreview}`
+                : `${req.user.fullName || 'Someone'} mentioned you in a comment`,
               data: {
                 type: 'post_mention',
                 postId: post._id.toString(), // Frontend expects postId
+                postType: post.type,
+                postOwnerId: post.user._id.toString(),
+                commentId: newComment._id.toString(),
                 entityId: post._id.toString(), // Keep for backward compatibility
                 fromUserId: req.user._id.toString(), // Frontend expects fromUserId
                 senderId: req.user._id.toString(), // Keep for backward compatibility
@@ -2772,13 +2838,18 @@ const addComment = async (req, res) => {
         logger.debug('✅ Comment notification created successfully:', notification._id);
 
         // Send push notification in background (non-blocking)
+        const commentPreview = notificationPreview(text);
         sendNotificationToUser({
           userId: post.user._id.toString(),
-          title: 'New Comment',
-          body: `${req.user.fullName} commented on your post`,
+          title: req.user.fullName || 'New Comment',
+          body: commentPreview
+            ? `Commented on your ${contentNoun(post.type)}: ${commentPreview}`
+            : `${req.user.fullName || 'Someone'} commented on your ${contentNoun(post.type)}`,
           data: {
             type: 'comment',
             postId: post._id.toString(), // Frontend expects postId
+            postType: post.type,
+            postOwnerId: post.user._id.toString(),
             entityId: post._id.toString(), // Keep for backward compatibility
             fromUserId: req.user._id.toString(), // Frontend expects fromUserId
             senderId: req.user._id.toString() // Keep for backward compatibility

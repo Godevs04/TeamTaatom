@@ -542,6 +542,8 @@ export default function HomeScreen() {
     };
   }, [setPosts]);
   const [loading, setLoading] = useState(true);
+  // True once a page-1 request for the current tab has finished; the empty state waits for it.
+  const [feedSettled, setFeedSettled] = useState(false);
   const [isPaginating, setIsPaginating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -593,6 +595,9 @@ export default function HomeScreen() {
   // switch never gets blocked by a previous tab's still-running request) but
   // de-duplicate concurrent first-page fetches WITHIN the same tab.
   const fetchingTabsRef = useRef<Set<HomeTab>>(new Set());
+  // A duplicate page-1 call awaits the running request instead of returning early;
+  // returning early let callers clear the loader while the list was still empty.
+  const firstPageInFlightRef = useRef<Map<HomeTab, Promise<void>>>(new Map());
   const isPaginatingRef = useRef(false);
   
   // View tracking de-duplication: track last viewed post ID and timestamp
@@ -725,6 +730,7 @@ export default function HomeScreen() {
     // the tab that asked for it. Tab switches mid-flight produce stale responses
     // that must be discarded (otherwise friends data lands in popular cache, etc).
     const requestFeedMode = feedMode;
+    let resolveFirstPage: (() => void) | null = null;
 
     // Request guards. Tab switches must be allowed to fetch even while a
     // previous tab's request is still in flight — fetchingTabsRef is keyed
@@ -739,10 +745,16 @@ export default function HomeScreen() {
       setIsPaginating(true);
     } else {
       if (fetchingTabsRef.current.has(requestFeedMode)) {
-        logger.debug('Refresh blocked: same-tab refresh already in progress', requestFeedMode);
-        return;
+        logger.debug('Refresh joined: same-tab refresh already in progress', requestFeedMode);
+        return firstPageInFlightRef.current.get(requestFeedMode);
       }
       fetchingTabsRef.current.add(requestFeedMode);
+      firstPageInFlightRef.current.set(
+        requestFeedMode,
+        new Promise<void>((resolve) => {
+          resolveFirstPage = resolve;
+        })
+      );
     }
 
     const showSkeleton = pageNum === 1 && postsRef.current.length === 0;
@@ -966,10 +978,15 @@ export default function HomeScreen() {
         setIsPaginating(false);
       } else {
         fetchingTabsRef.current.delete(requestFeedMode);
+        firstPageInFlightRef.current.delete(requestFeedMode);
+        if (feedModeRef.current === requestFeedMode) {
+          setFeedSettled(true);
+        }
       }
       if (showSkeleton && feedModeRef.current === requestFeedMode) {
         setLoading(false);
       }
+      (resolveFirstPage as (() => void) | null)?.();
     }
   }, [isOnline, feedMode, mergeLikedIntoPosts, params.postId]);
 
@@ -1198,6 +1215,7 @@ export default function HomeScreen() {
       } catch (error) {
         logger.error('Error loading initial data', error);
         setIsError(true);
+        if (feedModeRef.current === requestFeedMode) setFeedSettled(true);
         hasInitializedRef.current = false; // Allow retry
       } finally {
         // Only clear the loader if this run is still the current tab's run.
@@ -1511,6 +1529,7 @@ export default function HomeScreen() {
       setPage(cached.page);
       setHasMore(cached.hasMore);
       setLoading(false);
+      setFeedSettled(true);
       hasInitializedRef.current = true;
     } else {
       // No cache yet for this tab — clear stale content from the previous tab
@@ -1520,6 +1539,7 @@ export default function HomeScreen() {
       setPage(1);
       setHasMore(true);
       setLoading(true);
+      setFeedSettled(false);
       hasInitializedRef.current = false;
     }
 
@@ -2008,7 +2028,7 @@ export default function HomeScreen() {
                 </View>
               }
               ListEmptyComponent={
-                (loading || refreshing) ? (
+                (loading || refreshing || !feedSettled) ? (
                   <View style={styles.emptyLoadingContainer}>
                     <LoadingGlobe color={theme.colors.primary} size="large" />
                   </View>

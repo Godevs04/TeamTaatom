@@ -310,6 +310,31 @@ const setCache = async (key, value, ttl = CACHE_TTL.POST) => {
 };
 
 /**
+ * Atomically claim `key` for `ttlMs` (Redis SET NX PX).
+ * @returns {Promise<boolean|null>} true if claimed, false if already held, null if the store errored
+ */
+const claimKey = async (key, ttlMs) => {
+  if (redisClient && isRedisConnected) {
+    try {
+      const result = await redisClient.set(key, '1', 'PX', ttlMs, 'NX');
+      return result === 'OK';
+    } catch (err) {
+      reportRedisError({ module: moduleForKey(key), operation: 'claim' }, err);
+      return null;
+    }
+  }
+
+  const existing = memoryStore.get(key);
+  if (existing && (!existing.expiry || Date.now() <= existing.expiry)) return false;
+  if (memoryStore.size >= MAX_MEMORY_KEYS) {
+    const oldestKey = memoryStore.keys().next().value;
+    if (oldestKey) memoryStore.delete(oldestKey);
+  }
+  memoryStore.set(key, { value: '1', expiry: Date.now() + ttlMs });
+  return true;
+};
+
+/**
  * Delete cached value
  * @param {string} key - Cache key
  * @returns {Promise<boolean>} - Returns true if deleted
@@ -466,6 +491,7 @@ module.exports = {
   setCache,
   deleteCache,
   deleteCacheByPattern,
+  claimKey,
   cacheWrapper,
   invalidateShortsFeedCache,
   CacheKeys,

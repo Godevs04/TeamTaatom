@@ -23,6 +23,7 @@ import {
   LONG_VIDEO_MAX_SIZE_MB,
   useLongVideoUpload,
 } from '../hooks/useLongVideoUpload';
+import LongVideoThumbnailPicker from '../components/longVideo/LongVideoThumbnailPicker';
 
 const STEPS = [
   { id: 'select', label: 'Select' },
@@ -124,8 +125,17 @@ export default function UploadLongVideoScreen() {
     pickVideo,
     clearVideo,
     publish,
+    frames,
+    framesLoading,
+    customThumbUri,
+    thumbnail,
+    selectFrame,
+    setThumbnailRatio,
+    setThumbnailTransform,
+    pickCustomThumbnail,
     close,
   } = useLongVideoUpload();
+  const previewUri = thumbnail?.sourceUri || frames[0] || video?.uri;
 
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -280,7 +290,9 @@ export default function UploadLongVideoScreen() {
               >
                 {video ? (
                   <View style={styles.previewWrap}>
-                    <Image source={{ uri: video.uri }} style={styles.previewImage} />
+                    {previewUri ? (
+                      <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="cover" />
+                    ) : null}
                     <LinearGradient
                       colors={['transparent', 'rgba(5,12,22,0.78)']}
                       style={styles.previewScrim}
@@ -369,6 +381,23 @@ export default function UploadLongVideoScreen() {
                 </Text>
               </View>
             </View>
+
+            {video ? (
+              <View style={styles.section}>
+                <LongVideoThumbnailPicker
+                  frames={frames}
+                  framesLoading={framesLoading}
+                  customThumbUri={customThumbUri}
+                  thumbnail={thumbnail}
+                  disabled={uploading}
+                  colors={colors}
+                  onSelectFrame={selectFrame}
+                  onSelectRatio={setThumbnailRatio}
+                  onTransformChange={setThumbnailTransform}
+                  onPickCustom={pickCustomThumbnail}
+                />
+              </View>
+            ) : null}
 
             {uploading ? (
               <View

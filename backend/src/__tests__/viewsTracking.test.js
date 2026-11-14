@@ -25,8 +25,10 @@ jest.mock('../utils/logger', () => ({
   warn: jest.fn(),
 }));
 
+const mockClaimKey = jest.fn();
 jest.mock('../utils/cache', () => ({
   deleteCache: jest.fn().mockResolvedValue(true),
+  claimKey: (...args) => mockClaimKey(...args),
   CacheKeys: {
     post: (id) => `post:${id}`
   }
@@ -44,6 +46,7 @@ describe('Views Cooldown & 2.5-Second Rule Tracking', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockClaimKey.mockResolvedValue(true);
     mockRes = {
       json: jest.fn(),
       status: jest.fn().mockReturnThis(),
@@ -152,6 +155,44 @@ describe('Views Cooldown & 2.5-Second Rule Tracking', () => {
     mockFindById.mockResolvedValue({ _id: mockPostId, type: 'long_video', views: 3 });
     // A view 9h ago falls outside the 8h query range, so the lookup finds nothing.
     mockFindOne.mockResolvedValue(null);
+
+    await trackEvents(
+      {
+        body: { events: [{ event: 'post_view', properties: { post_id: mockPostId }, timestamp: new Date() }] },
+        user: { id: '658428800000000000000002' },
+      },
+      mockRes
+    );
+
+    expect(mockAddView).toHaveBeenCalledWith(mockPostId);
+  });
+
+  it('does not count a concurrent duplicate view whose slot is already claimed', async () => {
+    const mockPostId = '658428800000000000000001';
+    const mockUserId = '658428800000000000000002';
+    mockInsertMany.mockResolvedValue([]);
+    mockFindById.mockResolvedValue({ _id: mockPostId, type: 'long_video', views: 3 });
+    mockFindOne.mockResolvedValue(null);
+    mockClaimKey.mockResolvedValue(false);
+
+    await trackEvents(
+      {
+        body: { events: [{ event: 'post_view', properties: { post_id: mockPostId }, timestamp: new Date() }] },
+        user: { id: mockUserId },
+      },
+      mockRes
+    );
+
+    expect(mockClaimKey).toHaveBeenCalledWith(`viewslot:${mockPostId}:u:${mockUserId}`, 8 * 60 * 60 * 1000);
+    expect(mockAddView).not.toHaveBeenCalled();
+  });
+
+  it('still counts the view when the slot store is unavailable', async () => {
+    const mockPostId = '658428800000000000000001';
+    mockInsertMany.mockResolvedValue([]);
+    mockFindById.mockResolvedValue({ _id: mockPostId, type: 'long_video', views: 3 });
+    mockFindOne.mockResolvedValue(null);
+    mockClaimKey.mockResolvedValue(null);
 
     await trackEvents(
       {

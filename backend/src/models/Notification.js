@@ -101,7 +101,7 @@ notificationSchema.statics.createNotification = async function(data) {
       // follow notification) is a safe no-op.
       const populated = await this.findById(notification._id)
         .populate('fromUser', 'fullName profilePic profilePicStorageKey email')
-        .populate('post', 'imageUrl caption storageKey storageKeys thumbnailUrl type')
+        .populate('post', 'imageUrl caption storageKey storageKeys thumbnailUrl type user')
         .populate('comment', 'text')
         .lean();
 
@@ -113,6 +113,7 @@ notificationSchema.statics.createNotification = async function(data) {
           fromUser: populated.fromUser,
           post: populated.post,
           comment: populated.comment,
+          metadata: populated.metadata,
           isRead: populated.isRead,
           createdAt: populated.createdAt,
         },
@@ -132,7 +133,7 @@ notificationSchema.statics.getUserNotifications = async function(userId, page = 
   
   const notifications = await this.find({ toUser: userId })
     .populate('fromUser', 'fullName profilePic profilePicStorageKey email')
-    .populate('post', 'imageUrl caption storageKey storageKeys thumbnailUrl type')
+    .populate('post', 'imageUrl caption storageKey storageKeys thumbnailUrl type user')
     .populate('comment', 'text')
     .sort({ createdAt: -1 })
     .skip(skip)

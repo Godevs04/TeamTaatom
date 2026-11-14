@@ -32,6 +32,15 @@ const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 
+/** IANA zone of this device, so the server can apply quiet hours in the user's local time. */
+const getDeviceTimezone = (): string | undefined => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 // Elegant font families
 const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
   if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -60,6 +69,7 @@ export default function NotificationsSettingsScreen() {
   
   const [pushPermissionStatus, setPushPermissionStatus] = useState<string>('unknown');
   const [quietHoursModalVisible, setQuietHoursModalVisible] = useState(false);
+  const timezoneBackfilledRef = useRef(false);
   const [quietHoursConfig, setQuietHoursConfig] = useState({
     enabled: false,
     startTime: '22:00',
@@ -217,15 +227,23 @@ export default function NotificationsSettingsScreen() {
 
   // Load quiet hours from settings
   useEffect(() => {
-    if (settings?.notifications?.quietHours) {
-      setQuietHoursConfig(settings.notifications.quietHours);
+    const saved = settings?.notifications?.quietHours;
+    if (!saved) return;
+    setQuietHoursConfig(saved);
+    // Schedules saved before timezones were stored can't be applied by the server until they have one
+    const timezone = getDeviceTimezone();
+    if (saved.enabled && !saved.timezone && timezone && !timezoneBackfilledRef.current) {
+      timezoneBackfilledRef.current = true;
+      updateSetting('notifications', 'quietHours', { ...saved, timezone }).catch((error: unknown) => {
+        logger.debug('Could not backfill quiet hours timezone', error);
+      });
     }
-  }, [settings?.notifications?.quietHours]);
+  }, [settings?.notifications?.quietHours, updateSetting]);
 
   // Save quiet hours
   const saveQuietHours = useCallback(async () => {
     try {
-      await updateSetting('notifications', 'quietHours', quietHoursConfig);
+      await updateSetting('notifications', 'quietHours', { ...quietHoursConfig, timezone: getDeviceTimezone() });
       setQuietHoursModalVisible(false);
       showAlert('Quiet hours updated successfully', 'Success', 'success');
     } catch (error: any) {
@@ -530,7 +548,7 @@ export default function NotificationsSettingsScreen() {
                 if (value) {
                   setQuietHoursModalVisible(true);
                 } else {
-                  handleUpdateSetting('quietHours', { ...quietHoursConfig, enabled: false });
+                  handleUpdateSetting('quietHours', { ...quietHoursConfig, enabled: false, timezone: getDeviceTimezone() });
                 }
               }}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}

@@ -27,6 +27,8 @@ export interface UserSettings {
       startTime: string;
       endTime: string;
       days: string[];
+      /** IANA timezone the start/end times are in (the device's zone when saved). */
+      timezone?: string | null;
     };
   };
   account: {

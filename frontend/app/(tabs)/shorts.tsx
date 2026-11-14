@@ -48,6 +48,7 @@ import { trackScreenView, trackEngagement } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
 import { GlassModal } from '../../components/ui/GlassModal';
 import { theme } from '../../constants/theme';
+import EmptyState from '../../components/ui/EmptyState';
 import { audioManager } from '../../utils/audioManager';
 import PostLocation from '../../components/post/PostLocation';
 import { geocodeAddress } from '../../utils/locationUtils';
@@ -227,6 +228,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [loading, setLoading] = useState(() => {
     return isGeneralFeed ? globalCachedShorts.length === 0 : true;
   });
+  // True once a load has finished; until then an empty list means "not loaded yet", not "no shorts".
+  const [shortsSettled, setShortsSettled] = useState(() => isGeneralFeed && globalCachedShorts.length > 0);
   const [isTransitionFinished, setIsTransitionFinished] = useState(false);
 
   useEffect(() => {
@@ -293,10 +296,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   });
 
   useEffect(() => {
-    const unsubscribeDelete = savedEvents.addPostActionListener((postId, action) => {
+    const unsubscribeDelete = savedEvents.addPostActionListener((postId, action, data) => {
       if (action === 'delete') {
         const normDeletedId = normalizeId(postId);
         setShorts(prev => prev.filter(s => normalizeId(s._id) !== normDeletedId));
+      } else if (action === 'share' && typeof data?.sharesCount === 'number') {
+        const normId = normalizeId(postId);
+        setShorts(prev => prev.map(s => (
+          normalizeId(s._id) === normId ? { ...s, sharesCount: data.sharesCount } : s
+        )));
       }
     });
     return () => {
@@ -1472,7 +1480,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       showError('Failed to load shorts');
     } finally {
       loadInFlightRef.current = Math.max(0, loadInFlightRef.current - 1);
-      setLoading(false);
+      // A silent refresh finishing first must not hide the loader of a load still running.
+      if (loadInFlightRef.current === 0) {
+        setLoading(false);
+        setShortsSettled(true);
+      }
     }
   }, [effectiveUserId, effectiveShortId, showError]);
 
@@ -1871,6 +1883,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         setSelectedShortId(null);
       });
   };
+
+  const openCommentsParam = normalizeSearchParam(params.comments as string | string[] | undefined) === '1';
+  const autoOpenedCommentsRef = useRef(false);
+  useEffect(() => {
+    if (!openCommentsParam || !effectiveShortId || autoOpenedCommentsRef.current) return;
+    const target = shorts.find((s) => String(s._id) === String(effectiveShortId));
+    if (!target || target.commentsDisabled) return;
+    autoOpenedCommentsRef.current = true;
+    handleComment(String(target._id));
+    // handleComment is recreated each render; this should only run once the short has loaded
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openCommentsParam, effectiveShortId, shorts]);
 
   const handleCommentAdded = (comment: any, meta?: { replaceId?: string }) => {
     upsertSelectedComment(comment, meta?.replaceId);
@@ -2518,7 +2542,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     minimumViewTime: 50, // Reduced from 100ms — faster visibility detection after snap
   }).current;
 
-  const showLoading = loading || !isTransitionFinished;
+  const showLoading = loading || !isTransitionFinished || (shorts.length === 0 && !shortsSettled);
 
   if (showLoading) {
     return (
@@ -2531,7 +2555,20 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }
 
   if (shorts.length === 0) {
-    return null;
+    return (
+      <ErrorBoundary level="route">
+        <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+          <EmptyState
+            icon="film-outline"
+            title={props.isSavedShorts ? 'No saved shorts' : 'No shorts yet'}
+            description="Check back soon for new shorts."
+            onAction={() => {
+              loadShortsRef.current?.();
+            }}
+          />
+        </View>
+      </ErrorBoundary>
+    );
   }
 
   return (

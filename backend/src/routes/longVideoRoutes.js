@@ -6,6 +6,7 @@ const {
   listLongVideos,
   getLongVideo,
   listUserLongVideos,
+  deleteOwnLongVideo,
 } = require('../controllers/longVideoController');
 
 const upload = multer({
@@ -27,5 +28,6 @@ router.post(
   createLongVideoUpload
 );
 router.get('/:id', authMiddleware, getLongVideo);
+router.delete('/:id', authMiddleware, deleteOwnLongVideo);
 
 module.exports = router;

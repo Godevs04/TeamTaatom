@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type SavedListener = () => void;
 type FeedInvalidateListener = () => void;
-type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete' | 'undelete', data?: any) => void;
+type PostAction = 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'share' | 'archive' | 'unarchive' | 'delete' | 'undelete';
+type PostActionListener = (postId: string, action: PostAction, data?: any) => void;
 
 export type FollowState = 'FOLLOWING' | 'REQUESTED' | 'NOT_FOLLOWING';
 export type FollowActionListener = (userId: string, followState: FollowState) => void;
@@ -140,7 +141,7 @@ class SavedEvents {
     });
   }
 
-  emitPostAction(postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete' | 'undelete', data?: any) {
+  emitPostAction(postId: string, action: PostAction, data?: any) {
     if (action === 'delete') {
       this.addDeletedPost(postId);
     } else if (action === 'undelete') {

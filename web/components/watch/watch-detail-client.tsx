@@ -20,6 +20,7 @@ import { ExpandableText } from "../ui/expandable-text";
 import { canShowWatchAdBreak, getAdSenseWatchBreakSlot } from "../../lib/adsense";
 import { AdSenseUnit } from "../ads/adsense-unit";
 import { ContentViewPing } from "../content-view-ping";
+import { formatViewCount } from "../../lib/number-format";
 
 function formatDuration(seconds?: number | null): string {
   if (seconds == null || Number.isNaN(Number(seconds))) return "";
@@ -43,6 +44,7 @@ function normalizeWatchPost(raw: Post): Post {
     mediaUrl: playable || raw.mediaUrl || "",
     thumbnailUrl: raw.thumbnailUrl || raw.imageUrl,
     imageUrl: raw.imageUrl || raw.thumbnailUrl,
+    viewsCount: Number(raw.viewsCount ?? (raw as Post & { views?: number }).views ?? 0) || 0,
   };
 }
 
@@ -156,6 +158,9 @@ export function WatchDetailClient({ id }: { id: string }) {
             Untitled journey
           </h1>
         )}
+        <p className="mt-1.5 text-sm font-semibold text-slate-500 dark:text-zinc-400">
+          {formatViewCount(post.viewsCount)} {post.viewsCount === 1 ? "view" : "views"}
+        </p>
 
         <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/50">
           <Link

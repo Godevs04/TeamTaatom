@@ -27,6 +27,7 @@ import api from '../services/api';
 import { incrementShareCount } from '../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import logger from '../utils/logger';
+import { savedEvents } from '../utils/savedEvents';
 import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from './ImageEditModal';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -225,7 +226,10 @@ export default function ShareModal({
   const trackShare = async () => {
     if (post?._id && !isJourneyShare) {
       try {
-        await incrementShareCount(post._id);
+        const { sharesCount } = await incrementShareCount(post._id);
+        if (typeof sharesCount === 'number') {
+          savedEvents.emitPostAction(post._id, 'share', { sharesCount });
+        }
       } catch (err) {
         logger.error('Failed to increment share count:', err);
       }

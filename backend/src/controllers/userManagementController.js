@@ -398,7 +398,7 @@ const exportUserData = async (req, res) => {
     // Get user's posts
     const Post = require('../models/Post');
     const posts = await Post.find({ user: userId, isActive: true })
-      .select('caption location createdAt updatedAt likes comments')
+      .select('caption location createdAt updatedAt likesCount comments')
       .lean();
 
     // Get user's collections
@@ -475,7 +475,7 @@ const exportUserData = async (req, res) => {
             longitude: Math.round(p.location.coordinates.longitude * 10) / 10 // Round to 1 decimal (~11km precision)
           } : null
         } : null,
-        likesCount: p.likes?.length || 0,
+        likesCount: p.likesCount || 0,
         commentsCount: p.comments?.length || 0,
         createdAt: p.createdAt,
         updatedAt: p.updatedAt

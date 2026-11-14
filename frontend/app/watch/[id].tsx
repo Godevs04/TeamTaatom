@@ -12,6 +12,8 @@ import {
   StatusBar,
   PanResponder,
   LayoutChangeEvent,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,9 +24,12 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import Video from '../../components/watch/WatchVideo';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useTheme } from '../../context/ThemeContext';
-import { getLongVideo } from '../../services/longVideos';
+import { getLongVideo, deleteLongVideo } from '../../services/longVideos';
+import { getUserFromStorage } from '../../services/auth';
 import { toggleLike } from '../../services/posts';
 import { trackPostView } from '../../services/analytics';
+import { realtimePostsService } from '../../services/realtimePosts';
+import { formatViewCount } from '../../utils/numberFormat';
 import PostComments from '../../components/post/PostComments';
 import ShareModal from '../../components/ShareModal';
 import { savedEvents, normalizeId } from '../../utils/savedEvents';
@@ -132,7 +137,7 @@ function ClockBar({
 }
 
 export default function WatchDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, comments: commentsParam } = useLocalSearchParams();
   const router = useRouter();
   const { mode, isDark } = useTheme();
   const dark = isDark || mode === 'dark';
@@ -143,7 +148,10 @@ export default function WatchDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [liking, setLiking] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const autoOpenedCommentsRef = useRef(false);
   const [showShare, setShowShare] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
   const [paused, setPaused] = useState(true);
   const [adBusy, setAdBusy] = useState(false);
@@ -239,6 +247,12 @@ export default function WatchDetailScreen() {
   useEffect(() => {
     fetchVideo();
   }, [fetchVideo]);
+
+  useEffect(() => {
+    if (commentsParam !== '1' || autoOpenedCommentsRef.current || !post || post.commentsDisabled) return;
+    autoOpenedCommentsRef.current = true;
+    setShowComments(true);
+  }, [commentsParam, post]);
 
   const schedule = useMemo(() => {
     const apiSchedule = (post as any)?.adSchedule;
@@ -360,6 +374,15 @@ export default function WatchDetailScreen() {
     return () => clearTimeout(timer);
   }, [post?._id]);
 
+  useEffect(() => {
+    if (!id) return;
+    const target = normalizeId(id);
+    return realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+      if (normalizeId(postId) !== target || typeof viewsCount !== 'number') return;
+      setPost((prev) => (prev && prev.viewsCount !== viewsCount ? { ...prev, viewsCount } : prev));
+    });
+  }, [id]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchVideo(true);
@@ -390,6 +413,49 @@ export default function WatchDetailScreen() {
       setLiking(false);
     }
   }, [post, liking]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUserFromStorage()
+      .then((user) => {
+        if (!cancelled) setCurrentUserId(user?._id ? String(user._id) : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isOwner =
+    !!post?.user?._id && !!currentUserId && normalizeId(post.user._id) === normalizeId(currentUserId);
+
+  const handleDelete = useCallback(() => {
+    if (!post || deleting) return;
+    Alert.alert(
+      'Delete video?',
+      'This permanently removes the video, its comments, and likes. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            setPaused(true);
+            try {
+              await deleteLongVideo(post._id);
+              // The post-action listener above navigates back; other screens drop the video too.
+              savedEvents.emitPostAction(post._id, 'delete');
+            } catch (e) {
+              logger.error('Delete long video failed', e);
+              Alert.alert('Delete failed', e instanceof Error ? e.message : 'Please try again.');
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [post, deleting]);
 
   const maybeFireMidroll = useCallback(
     async (t: number) => {
@@ -792,6 +858,22 @@ export default function WatchDetailScreen() {
                 Now playing
               </Text>
             </View>
+            {isOwner ? (
+              <Pressable
+                onPress={handleDelete}
+                disabled={deleting}
+                style={styles.iconBtn}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Delete video"
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color={colors.heart} />
+                ) : (
+                  <Ionicons name="trash-outline" size={21} color={colors.heart} />
+                )}
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => setShowShare(true)}
               style={styles.iconBtn}
@@ -922,6 +1004,9 @@ export default function WatchDetailScreen() {
 
           <Text style={[styles.title, { color: colors.text }]}>
             {post.caption || 'Untitled journey'}
+          </Text>
+          <Text style={[styles.viewsLine, { color: colors.meta }]}>
+            {formatViewCount(post.viewsCount)} {post.viewsCount === 1 ? 'view' : 'views'}
           </Text>
 
           <View style={[styles.creatorRow, { backgroundColor: colors.field, borderColor: colors.border }]}>
@@ -1446,6 +1531,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.4,
     lineHeight: 28,
+  },
+  viewsLine: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '600',
   },
   creatorRow: {
     marginTop: 14,

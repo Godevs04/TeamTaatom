@@ -178,7 +178,7 @@ const getProfile = async (req, res) => {
         type: { $in: ['photo', 'short'] },
         $or: [{ status: 'active' }, { status: { $exists: false } }]
       })
-        .select('location createdAt likes')
+        .select('location createdAt')
         .lean()
         .limit(1000), // Limit for performance
 

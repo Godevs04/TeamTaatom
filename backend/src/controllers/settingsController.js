@@ -104,6 +104,15 @@ const updateSettings = async (req, res) => {
         if (Array.isArray(settings.notifications.quietHours.days)) {
           validSettings['settings.notifications.quietHours.days'] = settings.notifications.quietHours.days;
         }
+        const { timezone } = settings.notifications.quietHours;
+        if (typeof timezone === 'string' && timezone.length <= 64) {
+          try {
+            new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+            validSettings['settings.notifications.quietHours.timezone'] = timezone;
+          } catch {
+            logger.warn('Ignoring invalid quiet hours timezone', { timezone });
+          }
+        }
       }
     }
 

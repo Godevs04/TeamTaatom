@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { uploadLongVideo } from '../services/longVideos';
+import { cropImageToRatio, type UserCropTransform } from '../utils/imageOptimization';
 import {
   getVideoCreatorStatus,
   type CreatorStatusResponse,
@@ -28,6 +30,33 @@ export type PickedLongVideo = {
 
 export type UploadStage = 'select' | 'details' | 'publishing';
 
+export type ThumbnailRatioId = '16:9' | '4:3' | '1:1' | '4:5' | '9:16';
+
+export const THUMBNAIL_RATIOS: { id: ThumbnailRatioId; label: string; value: number }[] = [
+  { id: '16:9', label: 'Widescreen', value: 16 / 9 },
+  { id: '4:3', label: 'Classic', value: 4 / 3 },
+  { id: '1:1', label: 'Square', value: 1 },
+  { id: '4:5', label: 'Portrait', value: 4 / 5 },
+  { id: '9:16', label: 'Vertical', value: 9 / 16 },
+];
+
+export const thumbnailRatioValue = (id: ThumbnailRatioId): number =>
+  THUMBNAIL_RATIOS.find((r) => r.id === id)?.value ?? 16 / 9;
+
+export type ThumbnailDraft = {
+  sourceUri: string;
+  source: 'frame' | 'custom';
+  ratioId: ThumbnailRatioId;
+  transform: UserCropTransform | null;
+};
+
+/** Fractions of the duration to sample auto thumbnails from, like YouTube's suggestions. */
+const FRAME_FRACTIONS = [0.05, 0.2, 0.35, 0.5, 0.65, 0.8];
+const FALLBACK_FRAME_TIMES_MS = [1000, 3000, 6000, 10000, 15000, 20000];
+
+const defaultRatioFor = (video: Pick<PickedLongVideo, 'width' | 'height'>): ThumbnailRatioId =>
+  video.width && video.height && video.height > video.width ? '9:16' : '16:9';
+
 export function formatLongVideoDuration(seconds?: number): string {
   if (seconds == null || Number.isNaN(seconds)) return '';
   const s = Math.max(0, Math.floor(seconds));
@@ -51,6 +80,11 @@ export function useLongVideoUpload() {
   const [progress, setProgress] = useState(0);
   const [creator, setCreator] = useState<CreatorStatusResponse | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
+  const [frames, setFrames] = useState<string[]>([]);
+  const [framesLoading, setFramesLoading] = useState(false);
+  const [customThumbUri, setCustomThumbUri] = useState<string | null>(null);
+  const [thumbnail, setThumbnail] = useState<ThumbnailDraft | null>(null);
+  const frameJobRef = useRef(0);
 
   const stage: UploadStage = useMemo(() => {
     if (uploading) return 'publishing';
@@ -99,29 +133,109 @@ export function useLongVideoUpload() {
     }, [refreshAccess])
   );
 
+  const resetThumbnail = useCallback(() => {
+    frameJobRef.current += 1;
+    setFrames([]);
+    setFramesLoading(false);
+    setCustomThumbUri(null);
+    setThumbnail(null);
+  }, []);
+
+  const generateFrames = useCallback(async (picked: PickedLongVideo) => {
+    const job = ++frameJobRef.current;
+    setFramesLoading(true);
+    const times = picked.duration
+      ? FRAME_FRACTIONS.map((f) => Math.round(picked.duration! * 1000 * f))
+      : FALLBACK_FRAME_TIMES_MS;
+    const collected: string[] = [];
+    // Sequential: decoding several frames of a long video at once spikes memory.
+    for (const time of times) {
+      if (frameJobRef.current !== job) return;
+      try {
+        const { uri } = await VideoThumbnails.getThumbnailAsync(picked.uri, { time, quality: 0.8 });
+        collected.push(uri);
+        if (frameJobRef.current !== job) return;
+        setFrames([...collected]);
+        if (collected.length === 1) {
+          setThumbnail((prev) =>
+            prev ?? { sourceUri: uri, source: 'frame', ratioId: defaultRatioFor(picked), transform: null }
+          );
+        }
+      } catch (e) {
+        logger.debug('Thumbnail frame extraction failed', { time, e });
+      }
+    }
+    if (frameJobRef.current === job) setFramesLoading(false);
+  }, []);
+
   const clearVideo = useCallback(() => {
     if (uploading) return;
     setVideo(null);
-  }, [uploading]);
+    resetThumbnail();
+  }, [uploading, resetThumbnail]);
+
+  const selectFrame = useCallback((uri: string, source: ThumbnailDraft['source'] = 'frame') => {
+    setThumbnail((prev) => ({
+      sourceUri: uri,
+      source,
+      ratioId: prev?.ratioId ?? '16:9',
+      transform: null,
+    }));
+  }, []);
+
+  const setThumbnailRatio = useCallback((ratioId: ThumbnailRatioId) => {
+    setThumbnail((prev) => (prev && prev.ratioId !== ratioId ? { ...prev, ratioId, transform: null } : prev));
+  }, []);
+
+  const setThumbnailTransform = useCallback((transform: UserCropTransform | null) => {
+    setThumbnail((prev) => (prev ? { ...prev, transform } : prev));
+  }, []);
+
+  const pickerOpenRef = useRef(false);
+
+  /** Opens the photo library once at a time; resolves to the picked asset, or null if cancelled. */
+  const openLibrary = useCallback(
+    async (mediaTypes: ImagePicker.MediaType[], permissionMessage: string) => {
+      if (pickerOpenRef.current) return null;
+      pickerOpenRef.current = true;
+      try {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permission needed', permissionMessage);
+          return null;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes,
+          quality: 1,
+          allowsEditing: false,
+          // The iOS photo picker's X/Cancel doesn't dismiss it when shown as a page sheet
+          presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+        });
+        return result.canceled ? null : result.assets?.[0] ?? null;
+      } catch (error) {
+        logger.error('Media library picker failed', error);
+        Alert.alert('Could not open library', 'Please try again.');
+        return null;
+      } finally {
+        pickerOpenRef.current = false;
+      }
+    },
+    []
+  );
+
+  const pickCustomThumbnail = useCallback(async () => {
+    if (uploading) return;
+    const asset = await openLibrary(['images'], 'Allow photo library access to pick a thumbnail.');
+    if (!asset) return;
+    setCustomThumbUri(asset.uri);
+    selectFrame(asset.uri, 'custom');
+  }, [uploading, selectFrame, openLibrary]);
 
   const pickVideo = useCallback(async () => {
     if (!creator?.canUpload || uploading) return;
 
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to pick a video.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
-      quality: 1,
-      videoMaxDuration: LONG_VIDEO_MAX_DURATION_SEC,
-      allowsEditing: false,
-    });
-
-    if (result.canceled || !result.assets?.[0]) return;
-    const asset = result.assets[0];
+    const asset = await openLibrary(['videos'], 'Allow photo library access to pick a video.');
+    if (!asset) return;
     const durationSec = normalizeDuration(asset.duration);
 
     if (durationSec != null && durationSec > LONG_VIDEO_MAX_DURATION_SEC) {
@@ -135,7 +249,7 @@ export function useLongVideoUpload() {
       return;
     }
 
-    setVideo({
+    const picked: PickedLongVideo = {
       uri: asset.uri,
       name: asset.fileName || `long-video-${Date.now()}.mp4`,
       type: asset.mimeType || 'video/mp4',
@@ -143,14 +257,29 @@ export function useLongVideoUpload() {
       width: asset.width,
       height: asset.height,
       fileSize,
-    });
-  }, [creator?.canUpload, uploading]);
+    };
+    setVideo(picked);
+    resetThumbnail();
+    generateFrames(picked);
+  }, [creator?.canUpload, uploading, resetThumbnail, generateFrames, openLibrary]);
 
   const publish = useCallback(async () => {
     if (!video || uploading || !creator?.canUpload) return;
     setUploading(true);
     setProgress(0);
     try {
+      let thumbnailUri: string | undefined;
+      let thumbnailAspectRatio: number | undefined;
+      if (thumbnail) {
+        const ratio = thumbnailRatioValue(thumbnail.ratioId);
+        try {
+          thumbnailUri = await cropImageToRatio(thumbnail.sourceUri, ratio, thumbnail.transform ?? undefined);
+          thumbnailAspectRatio = ratio;
+        } catch (e) {
+          // The server extracts a frame itself when no thumbnail is sent.
+          logger.warn('Thumbnail crop failed; uploading without a custom thumbnail', e);
+        }
+      }
       const { post } = await uploadLongVideo(
         {
           videoUri: video.uri,
@@ -158,6 +287,8 @@ export function useLongVideoUpload() {
           videoType: video.type,
           caption: caption.trim(),
           durationSeconds: video.duration,
+          thumbnailUri,
+          thumbnailAspectRatio,
         },
         setProgress
       );
@@ -173,7 +304,7 @@ export function useLongVideoUpload() {
     } finally {
       setUploading(false);
     }
-  }, [video, caption, uploading, creator?.canUpload, router]);
+  }, [video, caption, thumbnail, uploading, creator?.canUpload, router]);
 
   return {
     platformOS: Platform.OS,
@@ -189,6 +320,14 @@ export function useLongVideoUpload() {
     pickVideo,
     clearVideo,
     publish,
+    frames,
+    framesLoading,
+    customThumbUri,
+    thumbnail,
+    selectFrame,
+    setThumbnailRatio,
+    setThumbnailTransform,
+    pickCustomThumbnail,
     close: () => router.back(),
   };
 }

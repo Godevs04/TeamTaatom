@@ -37,6 +37,7 @@ function normalizeVideo(raw: any): PostType {
     caption: raw.caption || raw.title || '',
     imageUrl: raw.imageUrl || raw.thumbnailUrl || '',
     thumbnailUrl: raw.thumbnailUrl || raw.imageUrl,
+    thumbnailAspectRatio: Number(raw.thumbnailAspectRatio) || null,
     videoUrl: playableUrl || raw.videoUrl || '',
     mediaUrl: playableUrl || raw.mediaUrl || raw.thumbnailUrl || raw.imageUrl || '',
     likes: raw.likes || [],
@@ -44,6 +45,7 @@ function normalizeVideo(raw: any): PostType {
     likesCount: raw.likesCount ?? 0,
     commentsCount: raw.commentsCount ?? 0,
     sharesCount: raw.sharesCount ?? 0,
+    viewsCount: Number(raw.viewsCount ?? raw.views ?? 0) || 0,
     isLiked: !!raw.liked || !!raw.isLiked,
     isActive: raw.isActive !== false,
     createdAt: raw.createdAt || new Date().toISOString(),
@@ -138,6 +140,18 @@ export const getUserLongVideos = async (
   };
 };
 
+/** Permanently delete one of the current user's long videos. */
+export const deleteLongVideo = async (id: string): Promise<void> => {
+  try {
+    await api.delete(`/api/v1/long-videos/${id}`);
+  } catch (error: any) {
+    if (isRateLimitError(error)) {
+      throw new Error(handleRateLimitError(error, 'deleteLongVideo').message);
+    }
+    throw new Error(parseError(error).userMessage);
+  }
+};
+
 export const uploadLongVideo = async (
   params: {
     videoUri: string;
@@ -146,6 +160,7 @@ export const uploadLongVideo = async (
     caption?: string;
     durationSeconds?: number;
     thumbnailUri?: string;
+    thumbnailAspectRatio?: number;
   },
   onProgress?: (progress: number) => void
 ): Promise<LongVideoResponse> => {
@@ -165,6 +180,9 @@ export const uploadLongVideo = async (
       type: 'image/jpeg',
       name: 'thumb.jpg',
     } as any);
+    if (params.thumbnailAspectRatio) {
+      formData.append('thumbnailAspectRatio', String(params.thumbnailAspectRatio));
+    }
   }
 
   try {

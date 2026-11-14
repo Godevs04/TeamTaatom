@@ -61,6 +61,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, type AVPlaybackStatus, type AvVideo, type AvSound } from "../../utils/expoAv";
+import { createSongSound, type SongSound } from "../../utils/expoAudioSound";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -375,7 +376,7 @@ export default function PostScreen() {
   const { showSuccess, showError, showConfirm } = useAlert();
   const isFocused = useIsFocused();
   const videoRef = useRef<AvVideo | null>(null);
-  const previewSoundRef = useRef<AvSound | null>(null);
+  const previewSoundRef = useRef<SongSound | null>(null);
   const audioSyncStateRef = useRef<{
     isPlaying: boolean;
     positionMillis: number;
@@ -1567,14 +1568,13 @@ export default function PostScreen() {
         try {
           audioSyncStateRef.current.isLoading = true;
           logger.info('[Preview Audio] Loading background music: ' + selectedSong.title, { songUrl });
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: songUrl },
-            {
-              shouldPlay: false,
-              volume: 1.0,
-              isMuted: false,
-            }
-          );
+          const sound = await createSongSound(songUrl, {
+            shouldPlay: false,
+            isLooping: false,
+            isMuted: false,
+            volume: 1.0,
+            positionMillis: 0,
+          });
           if (!active) {
             await sound.unloadAsync().catch(() => {});
             return;
