@@ -80,6 +80,10 @@ export function ProfileFollowButtons({ profile }: { profile: User }) {
       if (data?.isFollowing !== undefined) setIsFollowing(data.isFollowing);
       queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
       queryClient.invalidateQueries({ queryKey: ["posts", "feed"] });
+      // Unlock/lock posts, shorts, and long videos when follow state changes.
+      queryClient.invalidateQueries({ queryKey: ["profile-posts", profile._id] });
+      queryClient.invalidateQueries({ queryKey: ["user-shorts", profile._id] });
+      queryClient.invalidateQueries({ queryKey: ["user-long-videos", profile._id] });
       // Follower count and post visibility come from the server-rendered page.
       router.refresh();
     },

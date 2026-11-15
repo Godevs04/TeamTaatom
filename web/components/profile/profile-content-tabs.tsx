@@ -346,12 +346,14 @@ export function ProfileContentTabs({
       <div className="flex flex-col items-center py-10 text-center text-slate-500 dark:text-zinc-400">
         <Lock className="mb-3 h-12 w-12 opacity-60" />
         <p className="text-[15px] font-semibold text-slate-700 dark:text-zinc-200">
-          {followRequestSent ? "Follow request pending…" : "Follow to view posts"}
+          {followRequestSent
+            ? "Follow request pending…"
+            : "Follow to view posts, shorts & videos"}
         </p>
         <p className="mt-1 text-sm">
           {followRequestSent
-            ? "You'll see their posts once they approve your request."
-            : "This account's posts are visible to followers only."}
+            ? "You'll see their posts, shorts, and videos once they approve your request."
+            : "This account's posts, shorts, and videos are visible to followers only."}
         </p>
       </div>
     );

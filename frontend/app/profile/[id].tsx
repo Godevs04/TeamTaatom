@@ -119,6 +119,7 @@ export default function UserProfileScreen() {
   const [tabMinContentHeight, setTabMinContentHeight] = useState(0);
   const scrollViewHeightRef = useRef(0);
   const [loadingShorts, setLoadingShorts] = useState(false);
+  const [loadingLongVideos, setLoadingLongVideos] = useState(false);
   const [postsPage, setPostsPage] = useState(1);
   const [hasMorePosts, setHasMorePosts] = useState(true);
   const [loadingMorePosts, setLoadingMorePosts] = useState(false);
@@ -267,6 +268,54 @@ export default function UserProfileScreen() {
   const openLongVideo = useCallback((video: PostType) => {
     router.push(`/watch/${video._id}` as any);
   }, [router]);
+
+  const clearProfileMedia = useCallback(() => {
+    updateProfileState((prev: any) => (prev ? { ...prev, posts: [] } : prev));
+    setUserShorts([]);
+    setUserLongVideos([]);
+    setPostsPage(1);
+    setHasMorePosts(false);
+  }, [updateProfileState]);
+
+  /** Loads posts, shorts, and long videos for another user's profile when the viewer is allowed. */
+  const loadProfileMedia = useCallback(async (userId: string) => {
+    setLoadingShorts(true);
+    setLoadingLongVideos(true);
+    const [postsResult, shortsResult, longVideosResult] = await Promise.allSettled([
+      api.get(`/api/v1/posts/user/${userId}?page=1&limit=18`),
+      getUserShorts(userId, 1, 100),
+      getUserLongVideos(userId, 1, 50),
+    ]);
+
+    let nextPosts: any[] = [];
+    if (postsResult.status === 'fulfilled') {
+      const resPosts = postsResult.value.data.posts || [];
+      nextPosts = sortByCreatedDesc(resPosts);
+      setPostsPage(1);
+      const total = postsResult.value.data.totalPosts ?? resPosts.length;
+      setHasMorePosts(resPosts.length < total);
+    } else {
+      setHasMorePosts(false);
+    }
+    updateProfileState((prev: any) => (prev ? { ...prev, posts: nextPosts } : prev));
+
+    if (shortsResult.status === 'fulfilled') {
+      setUserShorts(sortByCreatedDesc(shortsResult.value.shorts || []));
+    } else {
+      logger.error('Error fetching shorts:', shortsResult.reason);
+      setUserShorts([]);
+    }
+
+    if (longVideosResult.status === 'fulfilled') {
+      setUserLongVideos(savedEvents.filterDeleted(longVideosResult.value.videos));
+    } else {
+      logger.error('Error fetching long videos:', longVideosResult.reason);
+      setUserLongVideos([]);
+    }
+
+    setLoadingShorts(false);
+    setLoadingLongVideos(false);
+  }, [updateProfileState]);
 
   // Animation for stat cards with enhanced glass effect
   const StatCard = ({ 
@@ -444,74 +493,13 @@ export default function UserProfileScreen() {
           // Don't set error state, just log it - this is optional data
         });
       
-      // OPTIMIZATION: Fetch posts and shorts in parallel if user can view posts
+      // Load posts, shorts, and long videos when the viewer is allowed to see them.
       if (userProfile.canViewPosts) {
-        if (shouldSkipPosts) {
-          // Skip fetching posts and shorts to preserve state
-        } else {
-          setLoadingShorts(true);
-          
-          // Fetch posts with pagination and shorts in parallel
-          const [postsResult, shortsResult, longVideosResult] = await Promise.allSettled([
-            // Fetch first page of posts
-            api.get(`/api/v1/posts/user/${id}?page=1&limit=18`),
-            // Fetch shorts in parallel
-            getUserShorts(id as string, 1, 100),
-            getUserLongVideos(id as string, 1, 50),
-          ]);
-
-          if (longVideosResult.status === 'fulfilled') {
-            setUserLongVideos(savedEvents.filterDeleted(longVideosResult.value.videos));
-          } else {
-            logger.error('Error fetching long videos:', longVideosResult.reason);
-            setUserLongVideos([]);
-          }
-          
-          // Handle posts result
-          if (postsResult.status === 'fulfilled') {
-            const resPosts = postsResult.value.data.posts || [];
-            userProfile.posts = sortByCreatedDesc(resPosts);
-            setPostsPage(1);
-            const total = postsResult.value.data.totalPosts ?? resPosts.length;
-            setHasMorePosts(resPosts.length < total);
-          } else {
-            userProfile.posts = [];
-            setHasMorePosts(false);
-          }
-          
-          // Handle shorts result
-          if (shortsResult.status === 'fulfilled') {
-            const fetchedShorts = sortByCreatedDesc(shortsResult.value.shorts || []);
-            setUserShorts(fetchedShorts);
-            
-            // Log for debugging
-            if (__DEV__ && fetchedShorts.length > 0) {
-              logger.debug('Fetched shorts for other user profile:', {
-                count: fetchedShorts.length,
-                firstShort: {
-                  _id: fetchedShorts[0]._id,
-                  imageUrl: (fetchedShorts[0] as any).imageUrl?.substring(0, 50),
-                  thumbnailUrl: (fetchedShorts[0] as any).thumbnailUrl?.substring(0, 50),
-                  mediaUrl: (fetchedShorts[0] as any).mediaUrl?.substring(0, 50),
-                }
-              });
-            }
-          } else {
-            logger.error('Error fetching shorts:', shortsResult.reason);
-            setUserShorts([]);
-          }
-          
-          setLoadingShorts(false);
-          updateProfileState(userProfile); // Update profile with posts (includes fetched posts)
-        }
-      } else {
-        // User cannot view posts, set empty arrays
         if (!shouldSkipPosts) {
-          userProfile.posts = [];
-          setUserShorts([]);
-          setUserLongVideos([]);
-          updateProfileState(userProfile);
+          await loadProfileMedia(id as string);
         }
+      } else if (!shouldSkipPosts) {
+        clearProfileMedia();
       }
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
@@ -549,7 +537,7 @@ export default function UserProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, loadProfileMedia, clearProfileMedia]);
 
   const loadMorePosts = useCallback(async () => {
     if (isFetchingMoreRef.current || !hasMorePosts || !id) return;
@@ -633,6 +621,11 @@ export default function UserProfileScreen() {
     setVerifiedLocationsCount(null);
     setVerifiedLocations([]);
     setShowProfileMenu(false);
+    setUserShorts([]);
+    setUserLongVideos([]);
+    setActiveTab('posts');
+    setPostsPage(1);
+    setHasMorePosts(true);
     lastFollowApiResponse.current = null;
     
     checkCacheAndFetch();
@@ -768,9 +761,15 @@ export default function UserProfileScreen() {
         if (prev.profileVisibility === 'private' || prev.profileVisibility === 'followers') {
           next.canViewPosts = false;
           next.canViewLocations = false;
+          next.posts = [];
         }
         return next;
       });
+      if (profile.profileVisibility === 'private' || profile.profileVisibility === 'followers') {
+        setUserShorts([]);
+        setUserLongVideos([]);
+        setHasMorePosts(false);
+      }
     } else {
       // Optimistic follow based on visibility
       const isPrivate = profile.profileVisibility === 'private' || profile.profileVisibility === 'followers';
@@ -785,15 +784,10 @@ export default function UserProfileScreen() {
         savedEvents.emitFollowAction(profile._id, 'FOLLOWING');
         updateProfileState((prev: any) => {
           if (!prev) return prev;
-          const next = {
+          return {
             ...prev,
-            followersCount: (prev.followersCount || 0) + 1
+            followersCount: (prev.followersCount || 0) + 1,
           };
-          if (prev.profileVisibility === 'followers') {
-            next.canViewPosts = true;
-            next.canViewLocations = true;
-          }
-          return next;
         });
       }
     }
@@ -814,6 +808,15 @@ export default function UserProfileScreen() {
       });
       const finalState = response.isFollowing ? 'FOLLOWING' : (response.followRequestSent ? 'REQUESTED' : 'NOT_FOLLOWING');
       savedEvents.emitFollowAction(profile._id, finalState);
+
+      // Restricted profiles unlock content only after a successful follow — load all three tabs.
+      const restricted =
+        profile.profileVisibility === 'private' || profile.profileVisibility === 'followers';
+      if (restricted && response.isFollowing) {
+        await loadProfileMedia(profile._id);
+      } else if (restricted && !response.isFollowing && !response.followRequestSent) {
+        clearProfileMedia();
+      }
 
       // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
       // Cached responses (304) can return stale isFollowing state, so we need to protect against that
@@ -1355,14 +1358,12 @@ export default function UserProfileScreen() {
               ))}
             </View>
 
-            {/* Tab Content Container */}
             {/* Posts Tab */}
             <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
               {profile.posts && profile.posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {((profile.posts || [])
                     .sort((a: any, b: any) => {
-                      // Sort by createdAt date (newest first)
                       const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
                       const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
                       return dateB - dateA;
@@ -1393,7 +1394,6 @@ export default function UserProfileScreen() {
                           ]}
                         />
                       )}
-                      {/* View count overlay */}
                       <View style={styles.viewCountOverlay}>
                         <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
                         <Text style={styles.viewCountText}>
@@ -1404,7 +1404,14 @@ export default function UserProfileScreen() {
                     ))
                   )}
                 </View>
-              ) : null}
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="images-outline" size={40} color={profileTheme.textSecondary} />
+                  <Text style={[styles.emptyText, { color: profileTheme.textSecondary }]}>
+                    No posts yet
+                  </Text>
+                </View>
+              )}
               {activeTab === 'posts' && loadingMorePosts && (
                 <View style={{ paddingVertical: 20, alignItems: 'center' }}>
                   <LoadingGlobe size="small" />
@@ -1414,31 +1421,39 @@ export default function UserProfileScreen() {
 
             {/* Shorts Tab */}
             <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
-            {
-              loadingShorts ? (
+              {loadingShorts ? (
                 <View style={styles.emptyState}>
                   <LoadingGlobe size={32} />
                 </View>
               ) : userShorts.length > 0 ? (
                 <View style={styles.postsGrid}>
-                  {userShorts.map((s: any, index: number) => {
-                    return (
-                      <ShortsCard
-                        key={s._id}
-                        item={s}
-                        isThumbnail={true}
-                        onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}&index=${index}`)}
-                        profileTheme={profileTheme}
-                      />
-                    );
-                  })}
+                  {userShorts.map((s: any, index: number) => (
+                    <ShortsCard
+                      key={s._id}
+                      item={s}
+                      isThumbnail={true}
+                      onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}&index=${index}`)}
+                      profileTheme={profileTheme}
+                    />
+                  ))}
                 </View>
-              ) : null
-              }
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="videocam-outline" size={40} color={profileTheme.textSecondary} />
+                  <Text style={[styles.emptyText, { color: profileTheme.textSecondary }]}>
+                    No shorts yet
+                  </Text>
+                </View>
+              )}
             </View>
 
-            {activeTab === 'videos' && (
-              userLongVideos.length > 0 ? (
+            {/* Videos Tab */}
+            <View style={activeTab !== 'videos' ? { height: 0, overflow: 'hidden' } : {}}>
+              {loadingLongVideos ? (
+                <View style={styles.emptyState}>
+                  <LoadingGlobe size={32} />
+                </View>
+              ) : userLongVideos.length > 0 ? (
                 <View>
                   {userLongVideos.map((video) => (
                     <ProfileLongVideoRow
@@ -1456,8 +1471,8 @@ export default function UserProfileScreen() {
                     No videos yet
                   </Text>
                 </View>
-              )
-            )}
+              )}
+            </View>
           </CloudGlassSurface>
         )}
 
@@ -1468,12 +1483,11 @@ export default function UserProfileScreen() {
                 <Ionicons name="lock-closed-outline" size={56} color={profileTheme.accent} />
               </View>
               <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>
-                {profile.profileVisibility === 'followers' 
-                  ? 'Follow to view posts'
+                {profile.profileVisibility === 'followers'
+                  ? 'Follow to view posts, shorts & videos'
                   : profile.profileVisibility === 'private'
-                  ? 'Follow request pending to view posts'
-                  : 'Follow to view posts'
-                }
+                  ? 'Follow request pending to view posts, shorts & videos'
+                  : 'Follow to view posts, shorts & videos'}
               </Text>
             </View>
           </PremiumGlassCard>

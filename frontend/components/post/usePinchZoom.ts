@@ -133,17 +133,15 @@ export function usePinchZoom({
     const oy = finiteOr(originY.value, 0);
     const fx = finiteOr(focalX.value, ox);
     const fy = finiteOr(focalY.value, oy);
-    const centerOffsetX = finiteOr(width / 2 - ox, 0);
-    const centerOffsetY = finiteOr(h / 2 - oy, 0);
+    // RN scales around the view center. (1 - s) * (origin - center) keeps the
+    // pinch start fixed under the fingers; (focal - origin) follows finger drift.
+    const translateX = finiteOr(fx - ox + (1 - s) * (ox - width / 2), 0);
+    const translateY = finiteOr(fy - oy + (1 - s) * (oy - h / 2), 0);
 
     const transform: TransformsStyle['transform'] = [
-      { translateX: fx - ox },
-      { translateY: fy - oy },
-      { translateX: centerOffsetX },
-      { translateY: centerOffsetY },
+      { translateX },
+      { translateY },
       { scale: s },
-      { translateX: -centerOffsetX },
-      { translateY: -centerOffsetY },
     ];
     return { transform };
   }, [width, height]);
