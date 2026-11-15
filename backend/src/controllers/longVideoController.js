@@ -23,12 +23,53 @@ const { deleteCache, deleteCacheByPattern, CacheKeys } = require('../utils/cache
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
+const {
+  getAllowedPostAuthorIds,
+  getBidirectionalBlockedIds,
+} = require('./postController');
 
 const LONG_VIDEO = 'long_video';
 const MAX_DURATION_SECONDS = 60 * 60;
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
 /** Long-form playback needs longer than the default 15m short TTL. */
 const LONG_VIDEO_URL_TTL_SECONDS = 4 * 60 * 60;
+
+function toAuthorObjectIds(ids) {
+  return (ids || [])
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => (id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id)));
+}
+
+/** Same rule as posts/shorts: public always; followers/private only for followers (and the owner). */
+async function canViewerSeeAuthorContent(authorId, viewerId) {
+  if (!authorId) return false;
+  const authorStr = String(authorId);
+  const viewerStr = viewerId ? String(viewerId) : null;
+  if (viewerStr && viewerStr === authorStr) return true;
+
+  const author = await User.findById(authorId)
+    .select('settings.privacy.profileVisibility blockedUsers')
+    .lean();
+  if (!author) return false;
+
+  if (viewerStr) {
+    const viewer = await User.findById(viewerId).select('blockedUsers').lean();
+    const authorBlocked = (author.blockedUsers || []).map((b) =>
+      typeof b === 'object' && b?._id ? String(b._id) : String(b)
+    );
+    const viewerBlocked = (viewer?.blockedUsers || []).map((b) =>
+      typeof b === 'object' && b?._id ? String(b._id) : String(b)
+    );
+    if (authorBlocked.includes(viewerStr) || viewerBlocked.includes(authorStr)) {
+      return false;
+    }
+  }
+
+  const visibility = author.settings?.privacy?.profileVisibility || 'public';
+  if (visibility === 'public') return true;
+  if (!viewerStr) return false;
+  return !!(await Follow.exists({ follower: viewerId, following: authorId }));
+}
 
 function serializeLongVideo(doc, { liked = false, includeComments = false } = {}) {
   const o = typeof doc.toObject === 'function' ? doc.toObject({ virtuals: true }) : { ...doc };
@@ -389,6 +430,23 @@ async function listLongVideos(req, res) {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 15, 1), 50);
     const skip = (page - 1) * limit;
+    const viewerId = req.user?._id || null;
+
+    // Match posts/shorts feed: only creators the viewer is allowed to see.
+    let [allowedAuthorIds, blockedIds] = await Promise.all([
+      getAllowedPostAuthorIds(viewerId),
+      viewerId ? getBidirectionalBlockedIds(viewerId) : Promise.resolve([]),
+    ]);
+    if (blockedIds.length) {
+      const blockedSet = new Set(blockedIds.map((id) => String(id)));
+      allowedAuthorIds = allowedAuthorIds.filter((id) => !blockedSet.has(String(id)));
+    }
+    const authorIds = toAuthorObjectIds(allowedAuthorIds);
+    // Empty $in would match everything in Mongo; use a never-matching id instead.
+    const userFilter =
+      authorIds.length > 0
+        ? { $in: authorIds }
+        : { $in: [new mongoose.Types.ObjectId()] };
 
     const match = {
       type: LONG_VIDEO,
@@ -396,6 +454,7 @@ async function listLongVideos(req, res) {
       isActive: true,
       isHidden: { $ne: true },
       status: { $nin: ['removed', 'failed'] },
+      user: userFilter,
     };
 
     const [rows, total] = await Promise.all([
@@ -455,6 +514,12 @@ async function getLongVideo(req, res) {
       return sendError(res, 'RES_3001', 'Video not found');
     }
 
+    const authorId = post.user?._id || post.user;
+    const allowed = await canViewerSeeAuthorContent(authorId, req.user?._id);
+    if (!allowed) {
+      return sendError(res, 'AUTH_1006', 'This video is not available');
+    }
+
     // Views are counted by the watch screen's post_view event (one per viewer per 8h window), not per fetch.
     const [likedDoc, recentView] = await Promise.all([
       req.user?._id ? Like.exists({ user: req.user._id, post: post._id }) : null,
@@ -502,17 +567,16 @@ async function listUserLongVideos(req, res) {
       pagination: { page, limit, total: 0, totalPages: 1, hasMore: false },
     };
 
-    const owner = await User.findById(userId).select('settings.privacy.profileVisibility').lean();
+    const owner = await User.findById(userId)
+      .select('settings.privacy.profileVisibility blockedUsers')
+      .lean();
     if (!owner) {
       return sendError(res, 'RES_3002', 'User not found');
     }
     const isOwnProfile = req.user ? String(req.user._id) === String(userId) : false;
-    const visibility = owner.settings?.privacy?.profileVisibility || 'public';
-    if (!isOwnProfile && (visibility === 'followers' || visibility === 'private')) {
-      const isFollowing = req.user
-        ? await Follow.exists({ follower: req.user._id, following: userId })
-        : false;
-      if (!isFollowing) {
+    if (!isOwnProfile) {
+      const allowed = await canViewerSeeAuthorContent(userId, req.user?._id);
+      if (!allowed) {
         return sendSuccess(res, 200, 'User videos fetched', emptyPage);
       }
     }
