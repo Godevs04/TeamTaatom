@@ -51,7 +51,7 @@ export type ConnectPage = {
   _id: string;
   userId: ConnectPageOwner | string;
   name: string;
-  type: "public" | "private";
+  type: "public" | "followers" | "private";
   profileImage?: string;
   bannerImage?: string;
   bio?: string;

@@ -37,8 +37,8 @@ import {
 } from '../../services/connect';
 import { getUserFromStorage } from '../../services/auth';
 import { getPlaceSuggestions, getStateSuggestions } from '../../utils/locationUtils';
-import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
+import FollowButton, { FollowState } from '../../components/ui/FollowButton';
 import PremiumScreen from '../../components/ui/PremiumScreen';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import PremiumIconButton from '../../components/ui/PremiumIconButton';
@@ -71,7 +71,18 @@ interface FoundUser {
   language: string;
   travelStyle?: string;
   isFollowing: boolean;
+  followRequestSent?: boolean;
+  profileVisibility?: 'public' | 'followers' | 'private';
 }
+
+const followStateFor = (user: FoundUser): FollowState => {
+  if (user.isFollowing) return 'FOLLOWING';
+  if (user.followRequestSent) return 'REQUESTED';
+  return 'NOT_FOLLOWING';
+};
+
+const isRestrictedProfile = (user: FoundUser) =>
+  user.profileVisibility === 'private' || user.profileVisibility === 'followers';
 
 const TRAVEL_STYLES = [
   { code: 'solo', name: 'Solo Traveler' },
@@ -697,21 +708,15 @@ export default function ConnectHubScreen() {
     };
   }, []);
 
-  // Find tab: toggle profile follow
-  const handleProfileFollowToggle = async (user: FoundUser) => {
-    try {
-      const wasFollowing = user.isFollowing;
-      setFoundUsers(prev =>
-        prev.map(u => (u._id === user._id ? { ...u, isFollowing: !wasFollowing } : u))
-      );
-      await toggleFollow(user._id);
-    } catch (error) {
-      setFoundUsers(prev =>
-        prev.map(u => (u._id === user._id ? { ...u, isFollowing: user.isFollowing } : u))
-      );
-      logger.error('Error toggling profile follow:', error);
-    }
-  };
+  // Keep Find-tab cards + the bottom sheet in sync with FollowButton / profile privacy.
+  const applyFoundUserFollowState = useCallback((userId: string, state: FollowState) => {
+    const patch = {
+      isFollowing: state === 'FOLLOWING',
+      followRequestSent: state === 'REQUESTED',
+    };
+    setFoundUsers((prev) => prev.map((u) => (u._id === userId ? { ...u, ...patch } : u)));
+    setSelectedUser((prev) => (prev && prev._id === userId ? { ...prev, ...patch } : prev));
+  }, []);
 
   // Page follow toggle (Archived/Community tabs)
   const handlePageFollowToggle = async (pageItem: ConnectPageType) => {
@@ -808,21 +813,13 @@ export default function ConnectHubScreen() {
             </Text>
           ) : null}
         </View>
-        <TouchableOpacity
-          style={[
-            styles.followBtn,
-            user.isFollowing === true
-              ? { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
-              : { backgroundColor: theme.colors.secondary },
-          ]}
-          onPress={() => handleProfileFollowToggle(user)}
-          activeOpacity={0.7}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={[styles.followBtnText, { color: user.isFollowing === true ? theme.colors.text : '#FFFFFF' }]}>
-            {user.isFollowing === true ? 'Following' : 'Follow'}
-          </Text>
-        </TouchableOpacity>
+        <FollowButton
+          userId={user._id}
+          initialState={followStateFor(user)}
+          isPrivate={isRestrictedProfile(user)}
+          size="small"
+          onToggle={(state) => applyFoundUserFollowState(user._id, state)}
+        />
       </CloudGlassSurface>
     </TouchableOpacity>
   );
@@ -976,24 +973,15 @@ export default function ConnectHubScreen() {
             <Text style={[styles.sheetActionText, { color: theme.colors.text }]}>View Profile</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.sheetAction, { borderBottomColor: theme.colors.border }]}
-            onPress={() => {
-              const user = selectedUser;
-              setShowUserSheet(false);
-              handleProfileFollowToggle(user);
-            }}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={selectedUser.isFollowing ? 'person-remove-outline' : 'person-add-outline'}
-              size={22}
-              color={selectedUser.isFollowing ? theme.colors.error : theme.colors.primary}
+          <View style={[styles.sheetAction, { borderBottomColor: theme.colors.border, justifyContent: 'center' }]}>
+            <FollowButton
+              userId={selectedUser._id}
+              initialState={followStateFor(selectedUser)}
+              isPrivate={isRestrictedProfile(selectedUser)}
+              size="medium"
+              onToggle={(state) => applyFoundUserFollowState(selectedUser._id, state)}
             />
-            <Text style={[styles.sheetActionText, { color: selectedUser.isFollowing ? theme.colors.error : theme.colors.primary }]}>
-              {selectedUser.isFollowing ? 'Unfollow' : 'Follow'}
-            </Text>
-          </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={[styles.sheetAction, { borderBottomColor: theme.colors.border }]}

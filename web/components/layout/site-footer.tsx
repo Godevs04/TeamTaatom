@@ -3,6 +3,11 @@ import { cn } from "@/lib/utils";
 
 const FOOTER_LINKS = [
   { href: "/", label: "Home" },
+  { href: "/about", label: "About" },
+  { href: "/guides", label: "Guides" },
+  { href: "/help", label: "Help" },
+  { href: "/download", label: "Download" },
+  { href: "/community-guidelines", label: "Guidelines" },
   { href: "/privacy", label: "Privacy Policy" },
   { href: "/terms", label: "Terms of Service" },
   { href: "/copyrights", label: "Copyright Consent" },

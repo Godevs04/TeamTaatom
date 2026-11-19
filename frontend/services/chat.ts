@@ -255,3 +255,25 @@ export const getMuteStatus = async (otherUserId: string): Promise<{ muted: boole
     throw new Error(parsedError.userMessage);
   }
 };
+
+// Mute or unmute a group/room chat (connect page / community)
+export const toggleMuteRoom = async (chatId: string): Promise<{ success: boolean; muted: boolean; message: string }> => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/mute`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Get mute status for a group/room chat
+export const getRoomMuteStatus = async (chatId: string): Promise<{ muted: boolean }> => {
+  try {
+    const response = await api.get(`/chat/room/${chatId}/mute-status`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

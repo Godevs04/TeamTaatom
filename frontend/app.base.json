@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.4.30",
+    "version": "26.4.31",
     "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -238,6 +238,7 @@
         }
       ],
       "expo-asset",
+      "expo-sharing",
       "expo-web-browser",
       "./plugins/withCashfreeSubscriptionAndroid.js",
       "./plugins/withFfmpegKitIos.js"

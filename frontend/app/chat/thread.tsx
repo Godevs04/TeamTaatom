@@ -17,7 +17,7 @@ import { callService } from '../../services/callService';
 import CallScreen from '../../components/CallScreen';
 import ThreeDotMenu from '../../components/ThreeDotMenu';
 import { toggleBlockUser, getBlockStatus } from '../../services/profile';
-import { clearChat, toggleMuteChat, getMuteStatus, ChatAttachment } from '../../services/chat';
+import { clearChat, toggleMuteChat, getMuteStatus, toggleMuteRoom, getRoomMuteStatus, ChatAttachment } from '../../services/chat';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
@@ -524,21 +524,28 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 
   useEffect(() => {
     const fetchStatuses = async () => {
-      if (otherUser?._id) {
-        try {
+      if (!otherUser?._id && !chatId) return;
+      try {
+        if (chatType === 'connect_page' && chatId) {
+          const muteStatus = await getRoomMuteStatus(chatId);
+          setIsMuted(muteStatus.muted);
+          setIsBlocked(false);
+          return;
+        }
+        if (otherUser?._id) {
           const [blockStatus, muteStatus] = await Promise.all([
             getBlockStatus(otherUser._id),
             getMuteStatus(otherUser._id),
           ]);
           setIsBlocked(blockStatus.isBlocked);
           setIsMuted(muteStatus.muted);
-        } catch (error) {
-          logger.error('Error fetching statuses:', error);
         }
+      } catch (error) {
+        logger.error('Error fetching statuses:', error);
       }
     };
     fetchStatuses();
-  }, [otherUser?._id]);
+  }, [otherUser?._id, chatId, chatType]);
 
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
@@ -1523,13 +1530,22 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
         <CloudChatConversationHeader
-          title={otherUser?.fullName || 'Chat'}
+          title={
+            chatType === 'connect_page'
+              ? (connectPageId?.name || otherUser?.fullName || 'Group Chat')
+              : (otherUser?.fullName || 'Chat')
+          }
+          username={
+            chatType === 'connect_page'
+              ? `${Array.isArray(participants) ? participants.filter((p: any) => p != null).length : 0} members`
+              : (otherUser?.username ? `@${otherUser.username}` : undefined)
+          }
           onBack={onClose}
           avatarUris={
-            chatType === 'connect_page' && participants?.length
-              ? participants
-                  .map((p: any) => p?.profilePic)
-                  .filter((u: string | undefined) => typeof u === 'string' && u.length > 0)
+            chatType === 'connect_page'
+              ? (connectPageId?.profileImage
+                  ? [connectPageId.profileImage]
+                  : (otherUser?.profilePic ? [otherUser.profilePic] : []))
               : resolvedProfilePic
                 ? [resolvedProfilePic]
                 : []
@@ -1549,7 +1565,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                   label: 'View Profile',
                   icon: 'person-outline',
                   onPress: () => {
-                    if (otherUser?._id && router) {
+                    if (chatType === 'connect_page' && connectPageId?._id && router) {
+                      router.push(`/connect/page/${connectPageId._id}`);
+                    } else if (otherUser?._id && router) {
                       router.push(`/profile/${otherUser._id}`);
                     }
                   },
@@ -1590,7 +1608,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                   icon: isMuted ? 'notifications-outline' : 'notifications-off-outline',
                   onPress: async () => {
                     try {
-                      if (otherUser?._id) {
+                      if (chatType === 'connect_page' && chatId) {
+                        const result = await toggleMuteRoom(chatId);
+                        setIsMuted(result.muted);
+                        Alert.alert('Success', result.message);
+                      } else if (otherUser?._id) {
                         const result = await toggleMuteChat(otherUser._id);
                         setIsMuted(result.muted);
                         Alert.alert('Success', result.message);
@@ -2220,10 +2242,17 @@ export default function ChatThreadScreen() {
       if (!chat) throw new Error('No chat data received');
 
       const messages = messagesRes.data.messages || [];
-      const pageInfo = chat.connectPageId;
-      const syntheticUser = pageInfo
-        ? { _id: resolvedChatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
-        : { _id: resolvedChatId, fullName: 'Group Chat' };
+      const pageInfo =
+        chat.connectPageId && typeof chat.connectPageId === 'object'
+          ? chat.connectPageId
+          : null;
+      const syntheticUser = {
+        _id: pageInfo?._id || resolvedChatId,
+        fullName: pageInfo?.name || 'Group Chat',
+        profilePic: pageInfo?.profileImage || '',
+        username: undefined,
+        isGroup: chat.type === 'connect_page',
+      };
 
       setActiveChat(chat);
       setActiveMessages(messages);

@@ -1787,12 +1787,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       setActionLoading(userId);
       const response = await toggleFollow(userId);
       
+      // Private / followers-only profiles return followRequestSent, not isFollowing.
       setFollowStates(prev => ({
         ...prev,
-        [userId]: response.isFollowing
+        [userId]: !!response.isFollowing
       }));
-      
-      // No success alert - silent update for better UX
+      if (response.followRequestSent) {
+        showSuccess('Follow request sent');
+      }
     } catch (error) {
       logger.error('Error toggling follow', error);
       showError('Failed to update follow status');
@@ -2331,12 +2333,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         viewTimerRef.current = null;
       }, SHORT_VIEW_DWELL_MS);
     }
-    for (let i = currentVisibleIndex + 1; i < shortsData.length; i++) {
-      const nextItem = shortsData[i] as ShortsItem;
-      if (nextItem && !isAdItem(nextItem)) {
-        const nextShort = nextItem as PostType;
-        setTimeout(() => logger.debug('Preloading next video:', nextShort._id), 1000);
-        break;
+    // Debug hint for neighbor warming (players themselves mount via shouldRenderVideo ±1).
+    for (const offset of [1, -1] as const) {
+      const neighbour = shortsData[currentVisibleIndex + offset] as ShortsItem | undefined;
+      if (neighbour && !isAdItem(neighbour)) {
+        logger.debug(`Neighbor short ready for swipe (${offset > 0 ? 'next' : 'prev'}): ${neighbour._id}`);
       }
     }
 
@@ -2414,10 +2415,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
     const isActive = index === currentVisibleIndex;
-    const shouldPreload = isScreenFocused && index === currentVisibleIndex + 1;
-    // Current reel plus the next one (pre-buffered for an instant swipe). Keeping the previous
-    // reel's player alive too meant three concurrent decoders, which dropped frames on mid-range phones.
-    const shouldRenderVideo = index === currentVisibleIndex || index === currentVisibleIndex + 1;
+    // Keep both neighbors warm so reverse swipes are as smooth as forward ones.
+    // Only the active cell plays; ±1 stay mounted/paused (one decoder active).
+    const distance = Math.abs(index - currentVisibleIndex);
+    const shouldPreload = isScreenFocused && distance === 1;
+    const shouldRenderVideo = distance <= 1;
 
     return (
       <ShortsCell
@@ -2538,8 +2540,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }, []);
 
   const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 60, // Lower threshold so visibility triggers sooner during snap animation
-    minimumViewTime: 50, // Reduced from 100ms — faster visibility detection after snap
+    // Fire as soon as the incoming page dominates — especially important on reverse snaps.
+    itemVisiblePercentThreshold: 50,
+    minimumViewTime: 16,
   }).current;
 
   const showLoading = loading || !isTransitionFinished || (shorts.length === 0 && !shortsSettled);
@@ -2657,6 +2660,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       <AnyFlashList
         ref={flatListRef}
         estimatedItemSize={containerHeight}
+        // Fixed page height keeps forward and reverse snaps on the same cadence.
+        overrideItemLayout={(layout: { size?: number }) => {
+          layout.size = containerHeight;
+        }}
+        getItemType={(item: ShortsItem) => (isAdItem(item) ? 'ad' : 'reel')}
+        extraData={currentVisibleIndex}
         scrollEnabled={isSingle ? false : !isSwipeActive}
         refreshControl={
           <RefreshControl
@@ -2675,17 +2684,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           const dataIndex = showShortsAds ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY) : reelIndex;
           return dataIndex;
         })()}
+        // pagingEnabled alone — pairing it with snapToInterval caused reverse-scroll jitter.
         pagingEnabled
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        snapToInterval={containerHeight}
-        snapToAlignment="start"
         decelerationRate="fast"
-        disableIntervalMomentum={true}
         onEndReached={loadMoreShorts}
         onEndReachedThreshold={0.3}
-        directionalLockEnabled={false}
+        directionalLockEnabled
         alwaysBounceVertical={true}
         bounces={true}
         contentInsetAdjustmentBehavior="never"
@@ -2693,7 +2700,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         contentInset={{ top: 0, bottom: 0, left: 0, right: 0 }}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        drawDistance={containerHeight || 800}
+        // Keep previous + current + next cells drawn so reverse swipes do not remount mid-gesture.
+        drawDistance={(containerHeight || 800) * 2}
       />
 
       {/* Comment Modal */}

@@ -1804,6 +1804,74 @@ exports.getMuteStatus = async (req, res) => {
   }
 };
 
+// Mute or unmute a group/room chat (connect page / community)
+exports.toggleMuteRoom = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId).select('_id participants type').lean();
+    if (!chat) {
+      return sendError(res, 'RES_3001', 'Chat not found');
+    }
+
+    const isParticipant = (chat.participants || []).some(
+      (p) => (p._id || p).toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    const muteIndex = (user.mutedChats || []).findIndex(
+      (m) => m.chatId && m.chatId.toString() === chat._id.toString()
+    );
+
+    if (muteIndex >= 0) {
+      user.mutedChats.splice(muteIndex, 1);
+      await user.save();
+      return sendSuccess(res, 200, 'Chat unmuted successfully', { muted: false });
+    }
+
+    user.mutedChats.push({ chatId: chat._id, mutedAt: new Date() });
+    await user.save();
+    return sendSuccess(res, 200, 'Chat muted successfully', { muted: true });
+  } catch (error) {
+    logger.error('Error toggling room mute:', error);
+    return sendError(res, 'SRV_6001', 'Failed to toggle mute');
+  }
+};
+
+// Get mute status for a group/room chat
+exports.getRoomMuteStatus = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const user = await User.findById(userId).select('mutedChats').lean();
+    const isMuted = !!(user?.mutedChats || []).some(
+      (m) => m.chatId && m.chatId.toString() === chatId.toString()
+    );
+
+    return sendSuccess(res, 200, 'Mute status fetched successfully', { muted: isMuted });
+  } catch (error) {
+    logger.error('Error getting room mute status:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get mute status');
+  }
+};
+
 /**
  * Upload media/files for chat attachments
  * POST /api/v1/chat/upload

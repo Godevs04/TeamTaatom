@@ -105,6 +105,12 @@ export function LandingNav() {
 
         <div className="relative z-10 flex items-center gap-2 pr-0.5">
           <Link
+            href="/guides"
+            className="hidden text-[13px] font-medium text-[var(--landing-muted)] transition-colors hover:text-[var(--landing-ink)] lg:inline"
+          >
+            Guides
+          </Link>
+          <Link
             href="/auth/login"
             className="hidden text-[13px] font-medium text-[var(--landing-muted)] transition-colors hover:text-[var(--landing-ink)] sm:inline"
           >
@@ -140,6 +146,12 @@ export function LandingNav() {
               {s.label}
             </a>
           ))}
+          <Link href="/guides" className="block py-2.5 text-sm font-medium" onClick={() => setOpen(false)}>
+            Guides
+          </Link>
+          <Link href="/about" className="block py-2.5 text-sm font-medium" onClick={() => setOpen(false)}>
+            About
+          </Link>
           <Link href="/auth/login" className="mt-2 block py-2 text-sm font-medium" onClick={() => setOpen(false)}>
             Log in
           </Link>

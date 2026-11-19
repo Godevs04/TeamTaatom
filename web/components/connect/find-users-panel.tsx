@@ -94,19 +94,38 @@ export function FindUsersPanel() {
 
   const toggleFollow = async (user: FoundUser) => {
     setFollowBusy(user._id);
-    const wasFollowing = user.isFollowing;
+    const snapshot = {
+      isFollowing: user.isFollowing,
+      followRequestSent: !!user.followRequestSent,
+    };
+    const restricted =
+      user.profileVisibility === "private" || user.profileVisibility === "followers";
+    // Optimistic: restricted profiles go to Requested, public go to Following.
+    const optimistic = user.isFollowing || user.followRequestSent
+      ? { isFollowing: false, followRequestSent: false }
+      : restricted
+        ? { isFollowing: false, followRequestSent: true }
+        : { isFollowing: true, followRequestSent: false };
     setUsers((prev) =>
-      prev.map((u) =>
-        u._id === user._id ? { ...u, isFollowing: !wasFollowing } : u
-      )
+      prev.map((u) => (u._id === user._id ? { ...u, ...optimistic } : u))
     );
     try {
-      await followProfile(user._id);
-    } catch (e) {
+      const res = await followProfile(user._id);
       setUsers((prev) =>
         prev.map((u) =>
-          u._id === user._id ? { ...u, isFollowing: wasFollowing } : u
+          u._id === user._id
+            ? {
+                ...u,
+                isFollowing: !!res.isFollowing,
+                followRequestSent: !!res.followRequestSent,
+              }
+            : u
         )
+      );
+      if (res.followRequestSent) toast.success("Follow request sent");
+    } catch (e) {
+      setUsers((prev) =>
+        prev.map((u) => (u._id === user._id ? { ...u, ...snapshot } : u))
       );
       toast.error(getFriendlyErrorMessage(e));
     } finally {
@@ -252,7 +271,7 @@ export function FindUsersPanel() {
                 </div>
               </Link>
               <Button
-                variant={user.isFollowing ? "outline" : "default"}
+                variant={user.isFollowing || user.followRequestSent ? "outline" : "default"}
                 size="sm"
                 disabled={followBusy === user._id}
                 onClick={() => void toggleFollow(user)}
@@ -264,6 +283,8 @@ export function FindUsersPanel() {
                     <UserMinus className="mr-1 h-4 w-4" />
                     Following
                   </>
+                ) : user.followRequestSent ? (
+                  <>Requested</>
                 ) : (
                   <>
                     <UserPlus className="mr-1 h-4 w-4" />

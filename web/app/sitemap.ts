@@ -76,13 +76,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticEntries: MetadataRoute.Sitemap = [
     { url: base, lastModified: now, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/locale`, lastModified: now, changeFrequency: "daily", priority: 0.9 },
+    { url: `${base}/guides`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
+    { url: `${base}/about`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/help`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/download`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${base}/community-guidelines`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/contact`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
     { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/copyrights`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
     { url: `${base}/child-safety`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
   ];
+
+  const { GUIDES } = await import("../lib/guides");
+  const guideEntries: MetadataRoute.Sitemap = GUIDES.map((g) => ({
+    url: `${base}/guides/${g.slug}`,
+    lastModified: toDate(g.updatedAt) ?? now,
+    changeFrequency: "monthly" as const,
+    priority: 0.85,
+  }));
 
   const [locales, posts] = await Promise.all([fetchAllLocales(), fetchPublicPosts()]);
 
@@ -120,5 +132,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.5,
   }));
 
-  return [...staticEntries, ...localeEntries, ...tripEntries, ...profileEntries];
+  return [
+    ...staticEntries,
+    ...guideEntries,
+    ...localeEntries,
+    ...tripEntries,
+    ...profileEntries,
+  ];
 }

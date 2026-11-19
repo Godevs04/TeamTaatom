@@ -465,13 +465,14 @@ const getPageDetail = async (req, res) => {
       logger.warn('[connect.getPageDetail] FX display prices failed (non-fatal):', e.message);
     }
 
-    // Privacy gate: for private pages, redact gated fields when the viewer
-    // is neither the owner nor an active follower. The card / lock screen
+    // Privacy gate: for followers/private pages, redact gated fields when the
+    // viewer is neither the owner nor an active follower. The card / lock screen
     // can still render (name, bio, profile image, follower count) but the
     // body content, subscription content, and chat room id stay hidden.
     // Without this, anyone hitting /api/v1/connect/page/:id could read every
     // private page's full website + paid content directly from the response.
-    const isPrivateLocked = page.type === 'private' && !isOwner && !isFollowing;
+    const isAudienceRestricted = page.type === 'private' || page.type === 'followers';
+    const isPrivateLocked = isAudienceRestricted && !isOwner && !isFollowing;
     if (isPrivateLocked) {
       page.websiteContent = [];
       page.subscriptionContent = [];
@@ -527,6 +528,10 @@ const updatePage = async (req, res) => {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
       }
+    }
+
+    if (updates.type !== undefined && !['public', 'followers', 'private'].includes(updates.type)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Visibility must be public, followers, or private');
     }
 
     // Handle currency update from country change
@@ -907,8 +912,15 @@ const findUsers = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Language is required');
     }
 
-    // Fetch the logged-in user profile to read their interests
-    const currentUser = await User.findById(currentUserId).select('interests languagesKnown nationality');
+    // Interests + pending outbound follow requests (so Find can show Requested).
+    const currentUser = await User.findById(currentUserId).select(
+      'interests languagesKnown nationality sentFollowRequests'
+    );
+    const pendingFollowRequestIds = new Set(
+      (currentUser?.sentFollowRequests || [])
+        .filter((req) => req.status === 'pending' && req.user)
+        .map((req) => req.user.toString())
+    );
 
     // Resolve country codes to names so we can match against the
     // free-text `nationality` field (e.g. "IN" → "India").
@@ -1054,6 +1066,9 @@ const findUsers = async (req, res) => {
         }
       }
 
+      const userIdStr = user._id.toString();
+      const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
+      const isFollowing = !!(await Follow.exists({ follower: currentUserId, following: user._id }));
       return {
         _id: user._id,
         username: user.username,
@@ -1063,7 +1078,9 @@ const findUsers = async (req, res) => {
         language: user.settings?.account?.language || 'en',
         travelStyle: user.travelStyle || '',
         sharedInterestsCount: sharedInterests.length,
-        isFollowing: !!(await Follow.exists({ follower: currentUserId, following: user._id })),
+        isFollowing,
+        followRequestSent: !isFollowing && pendingFollowRequestIds.has(userIdStr),
+        profileVisibility,
         distance,
         currentLocation: showLocation ? (user.currentLocation || '') : ''
       };
@@ -1378,7 +1395,7 @@ const getPageFollowers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get the page to find the creator AND check privacy.
+    // Get the page to find the creator AND check audience privacy.
     const connectPage = await ConnectPage.findById(pageId)
       .populate('userId', 'username fullName profilePic profilePicStorageKey')
       .select('userId type')
@@ -1388,9 +1405,9 @@ const getPageFollowers = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
 
-    // Privacy gate: private pages don't expose their follower roster to
-    // non-followers / non-owners. Match the rest of the connect surface.
-    if (connectPage.type === 'private') {
+    // Privacy gate: followers/private pages don't expose their follower roster
+    // to non-followers / non-owners. Match the rest of the connect surface.
+    if (connectPage.type === 'private' || connectPage.type === 'followers') {
       const currentUserId = req.user?._id;
       const ownerId = connectPage.userId?._id || connectPage.userId;
       const isOwner = !!(currentUserId && ownerId && ownerId.toString() === currentUserId.toString());
@@ -1537,8 +1554,8 @@ const getWebsiteContent = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
 
-    // If private, check if user is a follower or owner
-    if (page.type === 'private') {
+    // If followers/private, check if user is a follower or owner
+    if (page.type === 'private' || page.type === 'followers') {
       const currentUserId = req.user?._id;
       const isOwner = currentUserId && page.userId.toString() === currentUserId.toString();
       if (!isOwner) {

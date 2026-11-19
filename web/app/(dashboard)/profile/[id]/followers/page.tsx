@@ -62,9 +62,30 @@ export default function ProfileFollowersPage() {
 
   const followMutation = useMutation({
     mutationFn: (userId: string) => followProfile(userId),
-    onSuccess: (_data, userId) => {
+    onSuccess: (data, userId) => {
+      queryClient.setQueriesData<{ pages: { users: ProfileListUser[] }[]; pageParams: unknown[] }>(
+        { queryKey: ["profile", id, type] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              users: page.users.map((u) =>
+                u._id === userId
+                  ? {
+                      ...u,
+                      isFollowing: !!data.isFollowing,
+                      followRequestSent: !!data.followRequestSent,
+                    }
+                  : u
+              ),
+            })),
+          };
+        }
+      );
+      if (data.followRequestSent) toast.success("Follow request sent");
       queryClient.invalidateQueries({ queryKey: ["profile", id] });
-      queryClient.invalidateQueries({ queryKey: ["profile", id, type] });
       queryClient.invalidateQueries({ queryKey: ["profile", userId] });
     },
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
@@ -151,7 +172,7 @@ export default function ProfileFollowersPage() {
                 </Link>
                 {u._id !== id && (
                   <Button
-                    variant={u.isFollowing ? "outline" : "default"}
+                    variant={u.isFollowing || u.followRequestSent ? "outline" : "default"}
                     size="sm"
                     className="shrink-0 rounded-xl gap-1.5"
                     onClick={() => followMutation.mutate(u._id)}
@@ -164,6 +185,8 @@ export default function ProfileFollowersPage() {
                         <UserMinus className="h-4 w-4" />
                         Unfollow
                       </>
+                    ) : u.followRequestSent ? (
+                      <>Requested</>
                     ) : (
                       <>
                         <UserPlus className="h-4 w-4" />

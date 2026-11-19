@@ -64,7 +64,7 @@ export interface ConnectPageType {
   } | string;
   name: string;
   category?: 'connect' | 'community';
-  type: 'public' | 'private';
+  type: 'public' | 'followers' | 'private';
   profileImage: string;
   bannerImage: string;
   bio: string;
@@ -148,6 +148,8 @@ export interface FindUsersResponse {
     bio: string;
     language: string;
     isFollowing: boolean;
+    followRequestSent?: boolean;
+    profileVisibility?: 'public' | 'followers' | 'private';
   }>;
   pagination: PaginationType;
 }
@@ -163,7 +165,7 @@ export interface GeoItem {
 
 export const createConnectPage = async (data: {
   name: string;
-  type: 'public' | 'private';
+  type: 'public' | 'followers' | 'private';
   bio?: string;
   features: { website: boolean; groupChat: boolean; subscription: boolean };
   subscriptionPrice?: number;

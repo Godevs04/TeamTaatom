@@ -23,6 +23,9 @@ const AD_ELIGIBLE_PATTERNS = [
   /^\/profile\/[^/]+\/?$/,
   /^\/journeys\/[^/]+\/?$/,
   /^\/hashtag\/[^/]+\/?$/,
+  // Substantial editorial guides (AdSense inventory-value compliant)
+  /^\/guides\/?$/,
+  /^\/guides\/[^/]+\/?$/,
 ];
 
 export function isAdEligiblePath(pathname: string | null | undefined): boolean {

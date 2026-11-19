@@ -21,6 +21,7 @@ const FOOTER_COLUMNS = [
     title: "Product",
     links: [
       { href: "/locale", label: "Explore places" },
+      { href: "/guides", label: "Travel guides" },
       { href: "/download", label: "Download the app" },
       { href: "/auth/register", label: "Create an account" },
       { href: "/auth/login", label: "Log in" },
@@ -28,11 +29,16 @@ const FOOTER_COLUMNS = [
   },
   {
     title: "Company",
-    links: [{ href: "/contact", label: "Contact us" }],
+    links: [
+      { href: "/about", label: "About Taatom" },
+      { href: "/help", label: "Help center" },
+      { href: "/contact", label: "Contact us" },
+    ],
   },
   {
     title: "Legal",
     links: [
+      { href: "/community-guidelines", label: "Community Guidelines" },
       { href: "/privacy", label: "Privacy Policy" },
       { href: "/terms", label: "Terms of Service" },
       { href: "/copyrights", label: "Copyright" },
