@@ -86,6 +86,14 @@ export function getServerEnv(): ServerEnv {
   if (process.env.NODE_ENV === "production" && !_serverEnv.BACKEND_ORIGIN) {
     throw new Error("BACKEND_ORIGIN is required in production. Set it in your environment.");
   }
+  if (process.env.NODE_ENV === "production" && !_serverEnv.NEXT_PUBLIC_WEB_URL) {
+    // Soft warning: config.webUrl falls back to https://taatom.com, but ops should
+    // set NEXT_PUBLIC_WEB_URL explicitly so sitemap/OG/canonicals stay correct.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "NEXT_PUBLIC_WEB_URL is unset in production; defaulting public URLs to https://taatom.com"
+    );
+  }
   return _serverEnv;
 }
 

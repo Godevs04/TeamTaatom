@@ -232,6 +232,7 @@ jobs:
     timeout-minutes: 20
     env:
       BACKEND_ORIGIN: ${{ vars.BACKEND_ORIGIN || 'https://api.taatom.com' }}
+      NEXT_PUBLIC_WEB_URL: ${{ vars.NEXT_PUBLIC_WEB_URL || 'https://taatom.com' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -257,6 +258,7 @@ jobs:
         working-directory: ./web
         env:
           NODE_ENV: production
+          NEXT_PUBLIC_WEB_URL: ${{ vars.NEXT_PUBLIC_WEB_URL || 'https://taatom.com' }}
         run: npm run build
 
   backend:

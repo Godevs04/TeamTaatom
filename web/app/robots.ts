@@ -2,7 +2,11 @@ import type { MetadataRoute } from "next";
 import { config } from "../lib/config";
 
 export default function robots(): MetadataRoute.Robots {
-  const base = config.webUrl;
+  // Same host rules as sitemap — never advertise localhost to Googlebot.
+  let base = config.webUrl;
+  if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(base)) {
+    base = "https://taatom.com";
+  }
   const privatePaths = [
     "/api/",
     "/auth/",
