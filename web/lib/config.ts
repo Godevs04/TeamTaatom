@@ -44,17 +44,41 @@ export const config = {
   },
 
   get webUrl(): string {
+    const PRODUCTION_SITE = "https://taatom.com";
     const env = getServerEnv();
     const fromEnv = sanitizePublicWebUrl(env.NEXT_PUBLIC_WEB_URL);
-    if (fromEnv) {
+
+    const toOrigin = (raw: string, fallbackProtocol: "http" | "https"): string | null => {
       try {
         const href =
-          fromEnv.startsWith("http://") || fromEnv.startsWith("https://") ? fromEnv : `http://${fromEnv}`;
-        return new URL(href).origin;
+          raw.startsWith("http://") || raw.startsWith("https://")
+            ? raw
+            : `${fallbackProtocol}://${raw}`;
+        return new URL(href).origin.replace(/\/$/, "");
       } catch {
-        /* fall through */
+        return null;
+      }
+    };
+
+    if (fromEnv) {
+      const origin = toOrigin(fromEnv, this.isProduction || this.isStaging ? "https" : "http");
+      if (origin) {
+        // Never publish localhost / private hosts in prod sitemaps (Search Console
+        // flags every entry as "URL not allowed" against taatom.com).
+        if (
+          (this.isProduction || this.isStaging || process.env.NODE_ENV === "production") &&
+          /^(https?:\/\/)?(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(origin)
+        ) {
+          return PRODUCTION_SITE;
+        }
+        return origin;
       }
     }
+
+    if (this.isProduction || this.isStaging || process.env.NODE_ENV === "production") {
+      return PRODUCTION_SITE;
+    }
+
     if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
     return "http://localhost:3001";
   },

@@ -69,8 +69,25 @@ function toDate(value?: string): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+function canonicalSiteOrigin(): string {
+  const raw = (config.webUrl || "").trim();
+  try {
+    const origin = new URL(
+      raw.startsWith("http://") || raw.startsWith("https://") ? raw : `https://${raw}`
+    ).origin.replace(/\/$/, "");
+    if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(origin)) {
+      return "https://taatom.com";
+    }
+    return origin;
+  } catch {
+    return "https://taatom.com";
+  }
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = config.webUrl;
+  // Must match the Search Console property host (https://taatom.com). Localhost
+  // entries cause "URL not allowed" on every sitemap URL.
+  const base = canonicalSiteOrigin();
   const now = new Date();
 
   const staticEntries: MetadataRoute.Sitemap = [
