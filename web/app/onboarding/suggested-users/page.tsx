@@ -14,8 +14,9 @@ import { UserRound } from "lucide-react";
 export default function OnboardingSuggestedUsersPage() {
   const router = useRouter();
   const { refresh } = useAuth();
+  type FollowUi = "FOLLOWING" | "REQUESTED" | "NOT_FOLLOWING";
   const [users, setUsers] = React.useState<User[]>([]);
-  const [following, setFollowing] = React.useState<Set<string>>(() => new Set());
+  const [followStates, setFollowStates] = React.useState<Record<string, FollowUi>>({});
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -23,7 +24,19 @@ export default function OnboardingSuggestedUsersPage() {
     (async () => {
       try {
         const res = await getSuggestedUsers(8);
-        if (!cancelled) setUsers(res.users || []);
+        const list = res.users || [];
+        if (!cancelled) {
+          setUsers(list);
+          const initial: Record<string, FollowUi> = {};
+          for (const u of list) {
+            initial[u._id] = u.isFollowing
+              ? "FOLLOWING"
+              : u.followRequestSent
+                ? "REQUESTED"
+                : "NOT_FOLLOWING";
+          }
+          setFollowStates(initial);
+        }
       } catch {
         if (!cancelled) {
           toast.error("Could not load suggestions");
@@ -38,23 +51,29 @@ export default function OnboardingSuggestedUsersPage() {
     };
   }, []);
 
-  const toggle = async (id: string) => {
-    const was = following.has(id);
-    setFollowing((prev) => {
-      const next = new Set(prev);
-      if (was) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggle = async (user: User) => {
+    const id = user._id;
+    const previous = followStates[id] || "NOT_FOLLOWING";
+    const visibility = user.profileVisibility || "public";
+    const restricted = visibility === "private" || visibility === "followers";
+    const optimistic: FollowUi =
+      previous === "FOLLOWING" || previous === "REQUESTED"
+        ? "NOT_FOLLOWING"
+        : restricted
+          ? "REQUESTED"
+          : "FOLLOWING";
+    setFollowStates((prev) => ({ ...prev, [id]: optimistic }));
     try {
-      await followProfile(id);
+      const res = await followProfile(id);
+      const next: FollowUi = res.isFollowing
+        ? "FOLLOWING"
+        : res.followRequestSent
+          ? "REQUESTED"
+          : "NOT_FOLLOWING";
+      setFollowStates((prev) => ({ ...prev, [id]: next }));
+      if (res.followRequestSent) toast.success("Follow request sent");
     } catch {
-      setFollowing((prev) => {
-        const next = new Set(prev);
-        if (was) next.add(id);
-        else next.delete(id);
-        return next;
-      });
+      setFollowStates((prev) => ({ ...prev, [id]: previous }));
       toast.error("Could not update follow");
     }
   };
@@ -98,7 +117,9 @@ export default function OnboardingSuggestedUsersPage() {
         ) : (
           users.map((u) => {
             const pic = u.profilePic;
-            const isFollowing = following.has(u._id);
+            const state = followStates[u._id] || "NOT_FOLLOWING";
+            const label =
+              state === "FOLLOWING" ? "Following" : state === "REQUESTED" ? "Requested" : "Follow";
             return (
               <div
                 key={u._id}
@@ -120,11 +141,11 @@ export default function OnboardingSuggestedUsersPage() {
                 <Button
                   type="button"
                   size="sm"
-                  variant={isFollowing ? "secondary" : "default"}
+                  variant={state === "NOT_FOLLOWING" ? "default" : "secondary"}
                   className="shrink-0 rounded-lg font-semibold"
-                  onClick={() => toggle(u._id)}
+                  onClick={() => void toggle(u)}
                 >
-                  {isFollowing ? "Following" : "Follow"}
+                  {label}
                 </Button>
               </div>
             );

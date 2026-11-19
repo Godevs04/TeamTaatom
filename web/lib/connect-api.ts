@@ -261,6 +261,8 @@ export type FoundUser = {
   language?: string;
   travelStyle?: string;
   isFollowing: boolean;
+  followRequestSent?: boolean;
+  profileVisibility?: "public" | "followers" | "private";
 };
 
 export async function connectGetCountries() {
@@ -290,7 +292,7 @@ export async function connectFindUsers(params: {
 
 export async function connectUpdatePage(
   pageId: string,
-  data: Partial<Pick<ConnectPage, "bio" | "subscriptionPrice">>
+  data: Partial<Pick<ConnectPage, "bio" | "subscriptionPrice" | "type">>
 ) {
   const res = await api.put(`/connect/page/${pageId}`, data);
   const d = res.data as { page?: ConnectPage };

@@ -1,5 +1,13 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { createMetadata } from "@/lib/seo";
+
+export const metadata = createMetadata({
+  title: "Privacy Policy",
+  description:
+    "How Taatom collects, uses, and protects personal data, including cookies, analytics, and Google AdSense advertising disclosures.",
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (
@@ -196,6 +204,51 @@ export default function PrivacyPage() {
             We may update this Privacy Policy from time to time. We will notify you of any changes
             by posting the new policy on this page and updating the &quot;Last Updated&quot; date.
           </p>
+        </section>
+
+        {/* Advertising / AdSense */}
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">
+            Advertising, cookies, and Google AdSense
+          </h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
+            Taatom may display third-party advertisements on pages that contain substantial
+            publisher content (for example the home page, guides, place pages, and media pages).
+            We use Google AdSense to show ads. Google and its partners may use cookies or similar
+            technologies to serve ads based on your prior visits to this site or other sites, in
+            accordance with Google&apos;s policies and your consent choices where required by law.
+          </p>
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
+            <li>
+              You can learn how Google uses data when you use partner sites or apps at{" "}
+              <a
+                href="https://policies.google.com/technologies/partner-sites"
+                className="font-medium text-sky-700 underline dark:text-sky-300"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                policies.google.com/technologies/partner-sites
+              </a>
+              .
+            </li>
+            <li>
+              You can opt out of personalized advertising via Google Ad Settings at{" "}
+              <a
+                href="https://www.google.com/settings/ads"
+                className="font-medium text-sky-700 underline dark:text-sky-300"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                google.com/settings/ads
+              </a>
+              .
+            </li>
+            <li>
+              We do not place Google ads on login-only utility screens, empty pages, or thin legal
+              stubs. Ads are limited to pages with meaningful content, consistent with Google
+              Publisher Policies on inventory value.
+            </li>
+          </ul>
         </section>
 
         {/* Contact */}

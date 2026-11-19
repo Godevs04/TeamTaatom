@@ -63,7 +63,7 @@ export default function CreateConnectPageScreen() {
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [category, setCategory] = useState<'connect' | 'community'>('connect');
-  const [type, setType] = useState<'public' | 'private'>('public');
+  const [type, setType] = useState<'public' | 'followers' | 'private'>('public');
   const [websiteEnabled, setWebsiteEnabled] = useState(true);
   const [groupChatEnabled, setGroupChatEnabled] = useState(true);
   const [subscriptionEnabled, setSubscriptionEnabled] = useState(false);
@@ -373,52 +373,36 @@ export default function CreateConnectPageScreen() {
           <View style={styles.field}>
             <Text style={[styles.label, { color: theme.colors.text }]}>Visibility</Text>
             <View style={styles.typeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.typeOption,
-                  { borderColor: type === 'public' ? theme.colors.secondary : theme.colors.border },
-                  type === 'public' && { backgroundColor: theme.colors.secondary + '15' },
-                ]}
-                onPress={() => setType('public')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="globe-outline"
-                  size={20}
-                  color={type === 'public' ? theme.colors.secondary : theme.colors.textSecondary}
-                />
-                <Text
+              {([
+                { key: 'public' as const, label: 'Public', icon: 'globe-outline' as const },
+                { key: 'followers' as const, label: 'Followers', icon: 'people-outline' as const },
+                { key: 'private' as const, label: 'Private', icon: 'lock-closed-outline' as const },
+              ]).map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
                   style={[
-                    styles.typeLabel,
-                    { color: type === 'public' ? theme.colors.secondary : theme.colors.textSecondary },
+                    styles.typeOption,
+                    { borderColor: type === opt.key ? theme.colors.secondary : theme.colors.border },
+                    type === opt.key && { backgroundColor: theme.colors.secondary + '15' },
                   ]}
+                  onPress={() => setType(opt.key)}
+                  activeOpacity={0.7}
                 >
-                  Public
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.typeOption,
-                  { borderColor: type === 'private' ? theme.colors.secondary : theme.colors.border },
-                  type === 'private' && { backgroundColor: theme.colors.secondary + '15' },
-                ]}
-                onPress={() => setType('private')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={20}
-                  color={type === 'private' ? theme.colors.secondary : theme.colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.typeLabel,
-                    { color: type === 'private' ? theme.colors.secondary : theme.colors.textSecondary },
-                  ]}
-                >
-                  Private
-                </Text>
-              </TouchableOpacity>
+                  <Ionicons
+                    name={opt.icon}
+                    size={20}
+                    color={type === opt.key ? theme.colors.secondary : theme.colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.typeLabel,
+                      { color: type === opt.key ? theme.colors.secondary : theme.colors.textSecondary },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
 
@@ -948,10 +932,12 @@ const styles = StyleSheet.create({
   },
   typeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
   },
   typeOption: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '30%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

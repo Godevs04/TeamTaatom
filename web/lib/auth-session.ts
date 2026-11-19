@@ -22,6 +22,10 @@ export function clearWebAuthSession(): void {
 
   sessionStorage.removeItem(STORAGE_KEYS.webFallbackToken);
   document.cookie = CLEAR_DEV_AUTH_COOKIE;
+  // Best-effort clear if authToken was ever set without HttpOnly (dev / misconfig).
+  // Real httpOnly cookies are cleared by the logout response Set-Cookie.
+  document.cookie = "authToken=; path=/; max-age=0; samesite=lax";
+  document.cookie = "authToken=; path=/; max-age=0; samesite=strict";
 }
 
 export function hasWebAuthSession(): boolean {

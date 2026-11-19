@@ -14,9 +14,10 @@ interface ThreeDotMenuProps {
   items: MenuItem[];
   iconColor?: string;
   iconSize?: number;
+  iconName?: keyof typeof Ionicons.glyphMap;
 }
 
-const ThreeDotMenu: React.FC<ThreeDotMenuProps> = ({ items, iconColor, iconSize }) => {
+const ThreeDotMenu: React.FC<ThreeDotMenuProps> = ({ items, iconColor, iconSize, iconName }) => {
   const { theme } = useTheme();
   const [visible, setVisible] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -81,7 +82,7 @@ const ThreeDotMenu: React.FC<ThreeDotMenuProps> = ({ items, iconColor, iconSize 
         activeOpacity={0.7}
       >
         <Ionicons 
-          name="ellipsis-vertical" 
+          name={iconName || 'ellipsis-vertical'} 
           size={iconSize || 20} 
           color={iconColor || theme.colors.text} 
         />

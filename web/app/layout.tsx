@@ -3,7 +3,7 @@ import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import AppProviders from "../providers/app-providers";
 import { SiteHeader } from "../components/layout/site-header";
-import { SiteFooter } from "../components/layout/site-footer";
+import { ConditionalSiteFooter } from "../components/layout/conditional-site-footer";
 import { Analytics } from "../components/analytics";
 import { AdSenseScript } from "../components/ads/adsense-script";
 import { PwaRegister } from "../components/pwa/pwa-register";
@@ -58,7 +58,7 @@ export default function RootLayout({
             <PwaRegister />
             <SiteHeader />
             <main className="min-h-[calc(100vh-3.5rem)] w-full">{children}</main>
-            <SiteFooter />
+            <ConditionalSiteFooter />
           </AppProviders>
           <AdSenseScript />
           <Analytics />

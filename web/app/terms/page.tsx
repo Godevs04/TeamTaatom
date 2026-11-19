@@ -1,5 +1,13 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { createMetadata } from "@/lib/seo";
+
+export const metadata = createMetadata({
+  title: "Terms of Service",
+  description:
+    "Taatom Terms of Service covering accounts, content rules, acceptable use, and contact information.",
+  path: "/terms",
+});
 
 export default function TermsPage() {
   return (

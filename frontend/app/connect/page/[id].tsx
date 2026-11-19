@@ -15,6 +15,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Pressable,
+  Share,
 } from 'react-native';
 import LoadingGlobe from '../../../components/LoadingGlobe';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,13 +50,16 @@ import {
   ConnectFollowerUser,
   SubscriptionStatus,
 } from '../../../services/connect';
+import { getRoomMuteStatus, toggleMuteRoom } from '../../../services/chat';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
+import { WEB_SHARE_URL } from '../../../utils/config';
 import { useSubscription } from '../../../context/SubscriptionContext';
 import { NativeModules } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import ThreeDotMenu, { MenuItem } from '../../../components/ThreeDotMenu';
 import {
   CFErrorResponse,
   CFPaymentGatewayService,
@@ -216,6 +220,8 @@ export default function ConnectPageDetailScreen() {
   const pendingBuyOrderRef = useRef<{ orderId: string; cashfreeOrderId: string; pageId: string } | null>(null);
 
   const [savingBio, setSavingBio] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [visibilityUpdating, setVisibilityUpdating] = useState(false);
 
   // Multi-currency live conversion support
   const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
@@ -638,6 +644,131 @@ export default function ConnectPageDetailScreen() {
     );
   };
 
+  const handleSharePage = async () => {
+    if (!page) return;
+    const shareUrl = `${WEB_SHARE_URL.replace(/\/$/, '')}/connect/page/${page._id}`;
+    const label = isCommunity ? 'community' : 'group';
+    try {
+      await Share.share({
+        message: `Check out ${page.name} on Taatom\n${shareUrl}`,
+        title: `Share ${page.name}`,
+        ...(Platform.OS === 'ios' ? { url: shareUrl } : {}),
+      });
+    } catch (error: any) {
+      if (error?.message === 'User did not share') return;
+      logger.error(`Error sharing ${label}:`, error);
+      try {
+        await Clipboard.setStringAsync(shareUrl);
+        showSuccess('Link copied to clipboard');
+      } catch {
+        Alert.alert('Error', `Failed to share ${label} link.`);
+      }
+    }
+  };
+
+  const handleToggleMute = async () => {
+    if (!page?.chatRoomId) {
+      Alert.alert('Unavailable', 'Enable group chat to mute notifications for this page.');
+      return;
+    }
+    try {
+      const result = await toggleMuteRoom(page.chatRoomId);
+      setIsMuted(result.muted);
+      showSuccess(result.muted ? 'Notifications muted' : 'Notifications unmuted');
+    } catch (error: any) {
+      logger.error('Error toggling page mute:', error);
+      Alert.alert('Error', error?.message || 'Failed to update mute setting.');
+    }
+  };
+
+  const applyVisibility = async (nextType: 'public' | 'followers' | 'private') => {
+    if (!page || !isOwner || visibilityUpdating || page.type === nextType) return;
+    try {
+      setVisibilityUpdating(true);
+      const result = await updateConnectPage(page._id, { type: nextType } as Partial<ConnectPageType>);
+      setPage(result.page);
+      const labels = { public: 'Public', followers: 'Followers', private: 'Private' } as const;
+      showSuccess(`Visibility set to ${labels[nextType]}`);
+    } catch (error: any) {
+      logger.error('Error updating page visibility:', error);
+      Alert.alert('Error', error?.message || 'Failed to update visibility.');
+    } finally {
+      setVisibilityUpdating(false);
+    }
+  };
+
+  const handleChangeVisibility = () => {
+    if (!page || !isOwner) return;
+    // Keep to 3 actions so Android Alert can show every option (max 3 buttons).
+    Alert.alert(
+      'Change Visibility',
+      'Choose who can view this community or group content.',
+      [
+        {
+          text: page.type === 'public' ? 'Public ✓' : 'Public',
+          onPress: () => applyVisibility('public'),
+        },
+        {
+          text: page.type === 'followers' ? 'Followers ✓' : 'Followers',
+          onPress: () => applyVisibility('followers'),
+        },
+        {
+          text: page.type === 'private' ? 'Private ✓' : 'Private',
+          onPress: () => applyVisibility('private'),
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMute = async () => {
+      if (!page?.chatRoomId) {
+        setIsMuted(false);
+        return;
+      }
+      try {
+        const status = await getRoomMuteStatus(page.chatRoomId);
+        if (!cancelled) setIsMuted(!!status.muted);
+      } catch {
+        if (!cancelled) setIsMuted(false);
+      }
+    };
+    loadMute();
+    return () => {
+      cancelled = true;
+    };
+  }, [page?.chatRoomId]);
+
+  const pageMenuItems: MenuItem[] = [
+    {
+      label: isCommunity ? 'Share Community Link' : 'Share Group Link',
+      icon: 'share-outline',
+      onPress: handleSharePage,
+    },
+    {
+      label: isMuted ? 'Unmute Notifications' : 'Mute Notifications',
+      icon: isMuted ? 'notifications-outline' : 'notifications-off-outline',
+      onPress: handleToggleMute,
+    },
+    ...(isOwner
+      ? [
+          {
+            label: 'Change Visibility',
+            icon: 'eye-outline',
+            onPress: handleChangeVisibility,
+          } as MenuItem,
+          {
+            label: 'Delete Page',
+            icon: 'trash-outline',
+            onPress: handleDeletePage,
+            destructive: true,
+          } as MenuItem,
+        ]
+      : []),
+  ];
+
   const handleShowFollowers = async () => {
     if (!id) return;
     setShowFollowers(true);
@@ -1016,31 +1147,14 @@ export default function ConnectPageDetailScreen() {
           <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#000000' }]} numberOfLines={1}>
             {page.name}
           </Text>
-          {isOwner ? (
-            <TouchableOpacity
-              style={styles.headerRight}
-              onPress={() => {
-                Alert.alert(
-                  'Page Options',
-                  undefined,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete Page',
-                      style: 'destructive',
-                      onPress: handleDeletePage,
-                    },
-                  ]
-                );
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={isDark ? '#FFFFFF' : '#000000'} />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.headerRight} />
-          )}
+          <View style={styles.headerRight}>
+            <ThreeDotMenu
+              items={pageMenuItems}
+              iconName="ellipsis-horizontal"
+              iconSize={isTablet ? 26 : 22}
+              iconColor={isDark ? '#FFFFFF' : '#000000'}
+            />
+          </View>
         </View>
       </View>
 
@@ -1151,8 +1265,13 @@ export default function ConnectPageDetailScreen() {
           {/* Name & bio centered */}
           <View style={styles.profileInfo}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-              {page.type === 'private' && (
-                <Ionicons name="lock-closed" size={14} color={theme.colors.textSecondary} style={{ marginRight: 5 }} />
+              {(page.type === 'private' || page.type === 'followers') && (
+                <Ionicons
+                  name={page.type === 'private' ? 'lock-closed' : 'people'}
+                  size={14}
+                  color={theme.colors.textSecondary}
+                  style={{ marginRight: 5 }}
+                />
               )}
               <Text style={[styles.pageName, { color: theme.colors.text }]}>{page.name}</Text>
             </View>

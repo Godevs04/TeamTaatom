@@ -247,7 +247,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       disconnectSocket();
       qc.removeQueries({ queryKey: ["auth"] });
       qc.removeQueries({ queryKey: ["profile"] });
-      router.replace("/auth/login");
+      qc.clear();
+      // Hard navigation so middleware re-reads cookies and guests land on marketing home,
+      // not a soft-routed /feed or /auth/login that can bounce back into the app shell.
+      if (typeof window !== "undefined") {
+        window.location.assign("/");
+      } else {
+        router.replace("/");
+      }
     }
   }, [qc, router]);
 
@@ -267,6 +274,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if ((user.profileOnboardingVersion ?? 0) >= PROFILE_ONBOARDING_VERSION) return;
     router.replace("/onboarding/welcome");
   }, [isAuthPage, meQuery.isLoading, isPremiumLoading, user, pathname, router]);
+
+  // Kick guests out of private app shells (feed/chat/settings/…). Public content
+  // routes stay readable for AdSense/crawlers and logged-out visitors.
+  React.useEffect(() => {
+    if (!pathname || isAuthPage) return;
+    if (meQuery.isLoading || meQuery.isFetching) return;
+    if (user) return;
+
+    const guestAllowed =
+      pathname === "/" ||
+      [
+        "/about",
+        "/help",
+        "/guides",
+        "/download",
+        "/privacy",
+        "/terms",
+        "/contact",
+        "/copyrights",
+        "/child-safety",
+        "/community-guidelines",
+        "/locale",
+        "/trip",
+        "/profile",
+        "/auth",
+      ].some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+    if (guestAllowed) return;
+
+    clearWebAuthSession();
+    router.replace("/");
+  }, [pathname, isAuthPage, meQuery.isLoading, meQuery.isFetching, user, router]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

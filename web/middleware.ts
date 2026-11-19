@@ -5,12 +5,7 @@ import { BACKEND_ORIGIN } from "./lib/constants";
 // Auth routes that logged-in users should not see (redirect to feed)
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 
-// Public landing route -- redirect to feed when already logged in, same as
-// the auth routes above, but matched by exact pathname only (never a prefix)
-// since "/" is the app's root and every other route also starts with "/".
-const LANDING_ROUTE = "/";
-
-// Protect routes that require auth; redirect to landing (login) when not authenticated
+// Protect routes that require auth; redirect to landing when not authenticated
 const PROTECTED_PREFIXES = [
   "/onboarding",
   "/feed",
@@ -32,7 +27,6 @@ const PROTECTED_PREFIXES = [
   "/connect",
   "/discover",
   "/hashtag",
-  "/help",
   "/creator-monetization",
   "/upload-long-video",
 ];
@@ -72,16 +66,26 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Intercept download requests for smart redirection
+  // Smart store redirects for real mobile browsers only.
+  // Never bounce Googlebot / AdsBot / other crawlers — they need the HTML page
+  // (AdSense "low value content" reviews fail when key URLs 302 to app stores).
   if (pathname === "/download" || pathname.startsWith("/download/")) {
     const userAgent = req.headers.get("user-agent") || "";
-    const isAndroid = /Android/i.test(userAgent);
-    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
-    
-    if (isAndroid) {
-      return NextResponse.redirect("https://play.google.com/store/search?q=taatom&c=apps&hl=en");
-    } else if (isIOS) {
-      return NextResponse.redirect("https://apps.apple.com/app/id6757185352");
+    const isBot =
+      /Googlebot|AdsBot|Mediapartners-Google|Bingbot|Slurp|DuckDuckBot|Baiduspider|YandexBot|facebookexternalhit|Twitterbot|LinkedInBot|Applebot/i.test(
+        userAgent
+      );
+    if (!isBot) {
+      const isAndroid = /Android/i.test(userAgent);
+      const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+      if (isAndroid) {
+        return NextResponse.redirect(
+          "https://play.google.com/store/apps/details?id=com.taatom.app&pcampaignid=web_share"
+        );
+      }
+      if (isIOS) {
+        return NextResponse.redirect("https://apps.apple.com/app/id6757185352");
+      }
     }
   }
 
@@ -159,8 +163,10 @@ export async function middleware(req: NextRequest) {
   const hasDevAuth = !!req.cookies.get("devAuth")?.value;
   const isLoggedIn = hasCookieToken || hasDevAuth;
 
-  // If already logged in and trying to access login/register/landing, redirect to feed
-  if ((isAuthRoute(pathname) || pathname === LANDING_ROUTE) && isLoggedIn) {
+  // Logged-in users hitting login/register go to the app. Landing (`/`) stays
+  // reachable so sign-out can return to the marketing page even if a stale
+  // cookie briefly remains — guests must never be forced into /feed.
+  if (isAuthRoute(pathname) && isLoggedIn) {
     const url = req.nextUrl.clone();
     const next = url.searchParams.get("next");
     url.pathname = next && next.startsWith("/") && !next.startsWith("//") ? next : "/feed";
@@ -230,8 +236,6 @@ export const config = {
     "/discover/:path*",
     "/hashtag",
     "/hashtag/:path*",
-    "/help",
-    "/help/:path*",
     "/creator-monetization",
     "/upload-long-video",
     "/creator-monetization/:path*",

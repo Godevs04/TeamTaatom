@@ -7,13 +7,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getSuggestedUsers, toggleFollow as toggleFollowService, completeProfileOnboarding } from '../../services/profile';
+import { getSuggestedUsers, completeProfileOnboarding } from '../../services/profile';
 import { getCurrentUser, markProfileOnboardingCompletedLocally } from '../../services/auth';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { useAlert } from '../../context/AlertContext';
+import FollowButton, { FollowState } from '../../components/ui/FollowButton';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -38,6 +39,9 @@ interface SuggestedUser {
   bio?: string;
   followersCount?: number;
   postsCount?: number;
+  profileVisibility?: 'public' | 'followers' | 'private';
+  followRequestSent?: boolean;
+  isFollowing?: boolean;
 }
 
 export default function SuggestedUsersOnboarding() {
@@ -45,7 +49,7 @@ export default function SuggestedUsersOnboarding() {
   const { theme } = useTheme();
   const { showError } = useAlert();
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
-  const [following, setFollowing] = useState<Set<string>>(new Set());
+  const [followStates, setFollowStates] = useState<Record<string, FollowState>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isCompleting, setIsCompleting] = useState(false);
 
@@ -67,40 +71,26 @@ export default function SuggestedUsersOnboarding() {
         bio: user.bio,
         followersCount: user.followersCount || 0,
         postsCount: user.postsCount || 0,
+        profileVisibility: user.profileVisibility || user.settings?.privacy?.profileVisibility || 'public',
+        followRequestSent: !!user.followRequestSent,
+        isFollowing: !!user.isFollowing,
       }));
       setSuggestedUsers(users);
+      const initial: Record<string, FollowState> = {};
+      for (const user of users) {
+        initial[user._id] = user.isFollowing
+          ? 'FOLLOWING'
+          : user.followRequestSent
+            ? 'REQUESTED'
+            : 'NOT_FOLLOWING';
+      }
+      setFollowStates(initial);
     } catch (error: any) {
       logger.error('Error fetching suggested users:', error);
       // Continue with empty list - user can still complete onboarding
       setSuggestedUsers([]);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const toggleFollow = async (userId: string) => {
-    const isFollowing = following.has(userId);
-    const newFollowing = new Set(following);
-    
-    // Optimistic update
-    if (isFollowing) {
-      newFollowing.delete(userId);
-    } else {
-      newFollowing.add(userId);
-    }
-    setFollowing(newFollowing);
-
-    try {
-      await toggleFollowService(userId);
-      
-      // Track engagement
-      trackEngagement(isFollowing ? 'unfollow' : 'follow', 'user', userId, {
-        context: 'onboarding',
-      });
-    } catch (error) {
-      // Revert on error
-      setFollowing(following);
-      logger.error('Error toggling follow:', error);
     }
   };
 
@@ -114,7 +104,7 @@ export default function SuggestedUsersOnboarding() {
       await AsyncStorage.setItem('onboarding_completed', 'true');
 
       trackFeatureUsage('onboarding_completed', {
-        users_followed: following.size,
+        users_followed: Object.values(followStates).filter((s) => s === 'FOLLOWING' || s === 'REQUESTED').length,
         skipped: false,
       });
 
@@ -168,7 +158,8 @@ export default function SuggestedUsersOnboarding() {
         ) : (
           <View style={styles.usersList}>
             {suggestedUsers.map(user => {
-              const isFollowingUser = following.has(user._id);
+              const visibility = user.profileVisibility || 'public';
+              const isPrivate = visibility === 'private' || visibility === 'followers';
               return (
                 <View
                   key={user._id}
@@ -196,38 +187,21 @@ export default function SuggestedUsersOnboarding() {
                       </Text>
                     )}
                   </View>
-                  <TouchableOpacity
-                    onPress={() => toggleFollow(user._id)}
-                    style={[
-                      styles.followButton,
-                      isFollowingUser && {
-                        backgroundColor: theme.colors.border,
-                      },
-                      isAndroid && styles.followButtonAndroid,
-                    ]}
-                    activeOpacity={0.8}
-                    {...(isAndroid && {
-                      // @ts-ignore - android_ripple is valid but not in types
-                      android_ripple: { color: isFollowingUser ? theme.colors.textSecondary : '#FFFFFF', borderless: false }
-                    })}
-                  >
-                    {!isFollowingUser && (
-                      <LinearGradient
-                        colors={['#50C878', '#1C73B4']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                    )}
-                    <Text
-                      style={[
-                        styles.followButtonText,
-                        { color: isFollowingUser ? theme.colors.text : '#FFFFFF' },
-                      ]}
-                    >
-                      {isFollowingUser ? 'Following' : 'Follow'}
-                    </Text>
-                  </TouchableOpacity>
+                  <FollowButton
+                    userId={user._id}
+                    initialState={followStates[user._id] || 'NOT_FOLLOWING'}
+                    isPrivate={isPrivate}
+                    size="small"
+                    onToggle={(state) => {
+                      setFollowStates((prev) => ({ ...prev, [user._id]: state }));
+                      trackEngagement(
+                        state === 'NOT_FOLLOWING' ? 'unfollow' : 'follow',
+                        'user',
+                        user._id,
+                        { context: 'onboarding', followState: state }
+                      );
+                    }}
+                  />
                 </View>
               );
             })}

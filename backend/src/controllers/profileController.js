@@ -756,10 +756,14 @@ const toggleFollow = async (req, res) => {
         followRequestSent: false
       });
     } else {
-      // Check if target user requires follow approval
-      const requiresApproval = targetUser.settings.privacy.requireFollowApproval ||
-                               targetUser.settings.privacy.profileVisibility === 'private' ||
-                               targetUser.settings.privacy.profileVisibility === 'followers';
+      // Check if target user requires follow approval (same rules everywhere:
+      // private / followers-only / requireFollowApproval → request, never open follow).
+      const privacy = targetUser.settings?.privacy || {};
+      const visibility = privacy.profileVisibility || 'public';
+      const requiresApproval =
+        !!privacy.requireFollowApproval ||
+        visibility === 'private' ||
+        visibility === 'followers';
       
       if (requiresApproval) {
         // Check if follow request already exists (check both sides)
@@ -3093,13 +3097,19 @@ const getSuggestedUsers = async (req, res) => {
 
     // follows only needs userId, not currentUser's data — fetch both concurrently.
     const [currentUser, follows] = await Promise.all([
-      User.findById(userId).select('interests').lean(),
+      User.findById(userId).select('interests sentFollowRequests').lean(),
       Follow.find({ follower: userId }).select('following').lean()
     ]);
     if (!currentUser) return sendError(res, 'RES_3001', 'User does not exist');
     const userInterests = Array.isArray(currentUser.interests) ? currentUser.interests : [];
     const followingIds = follows.map(f => f.following.toString());
     followingIds.push(userId.toString());
+    const pendingFollowRequestIds = new Set(
+      (currentUser.sentFollowRequests || [])
+        .filter((req) => req.status === 'pending' && req.user)
+        .map((req) => req.user.toString())
+    );
+    const followingIdSet = new Set(followingIds);
 
     let suggestedUsers = [];
     const seenIds = new Set(followingIds);
@@ -3111,7 +3121,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: followingIds },
         interests: { $in: userInterests },
       })
-        .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt interests')
+        .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt interests settings.privacy.profileVisibility')
         .limit(limit * 2)
         .lean();
 
@@ -3139,7 +3149,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: excludeIds },
         isVerified: true,
       })
-        .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt')
+        .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt settings.privacy.profileVisibility')
         .limit(need * 2)
         .sort({ followersCount: -1, createdAt: -1 })
         .lean();
@@ -3148,7 +3158,7 @@ const getSuggestedUsers = async (req, res) => {
         const more = await User.find({
           _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
         })
-          .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt')
+          .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt settings.privacy.profileVisibility')
           .limit(need * 2 - fillUsers.length)
           .sort({ followersCount: -1, createdAt: -1 })
           .lean();
@@ -3170,11 +3180,17 @@ const getSuggestedUsers = async (req, res) => {
           $or: [{ status: 'active' }, { status: { $exists: false } }]
         });
         user.profilePic = await resolveProfilePic(user);
-        const { interests: _i, profilePicStorageKey: _psk, ...rest } = user;
+        const userIdStr = user._id.toString();
+        const isFollowing = followingIdSet.has(userIdStr);
+        const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
+        const { interests: _i, profilePicStorageKey: _psk, settings: _settings, ...rest } = user;
         return {
           ...rest,
           postsCount: postCount,
           followersCount: user.followersCount || 0,
+          isFollowing,
+          followRequestSent: !isFollowing && pendingFollowRequestIds.has(userIdStr),
+          profileVisibility,
         };
       })
     );

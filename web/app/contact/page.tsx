@@ -87,6 +87,44 @@ export default function ContactPage() {
         </div>
       </div>
 
+      <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-8">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">
+          Before you write — self-serve resources
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-zinc-400">
+          Many questions are already answered in our public Help center and Guides. Checking those
+          first often gets you a faster answer than waiting for email. Use this form for account
+          access problems, safety reports, privacy requests, partnership pitches, and bugs that need
+          screenshots or device details.
+        </p>
+        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-700 dark:text-zinc-300">
+          <li>
+            <Link href="/help" className="font-medium text-sky-700 underline dark:text-sky-300">
+              Help center
+            </Link>{" "}
+            — FAQs for trips, Connect, Navigate, Shorts, and monetization.
+          </li>
+          <li>
+            <Link href="/guides" className="font-medium text-sky-700 underline dark:text-sky-300">
+              Guides
+            </Link>{" "}
+            — original articles on journaling, privacy, TripScore, and communities.
+          </li>
+          <li>
+            <Link href="/about" className="font-medium text-sky-700 underline dark:text-sky-300">
+              About Taatom
+            </Link>{" "}
+            — who we are and what the product is for.
+          </li>
+          <li>
+            Email directly:{" "}
+            <a href="mailto:contact@taatom.com" className="font-medium text-sky-700 underline dark:text-sky-300">
+              contact@taatom.com
+            </a>
+          </li>
+        </ul>
+      </section>
+
       {/* Content */}
       <div className="grid gap-6 md:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)] md:items-start">
         <section className="space-y-4 rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-7">

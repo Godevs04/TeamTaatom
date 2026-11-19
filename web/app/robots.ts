@@ -8,6 +8,8 @@ export default function robots(): MetadataRoute.Robots {
     "/auth/",
     "/onboarding/",
     "/feed",
+    "/shorts",
+    "/watch",
     "/search",
     "/chat",
     "/create",
@@ -15,6 +17,11 @@ export default function robots(): MetadataRoute.Robots {
     "/saved",
     "/settings",
     "/activity",
+    "/discover",
+    "/navigate",
+    "/collections",
+    "/creator-monetization",
+    "/upload-long-video",
   ];
 
   return {

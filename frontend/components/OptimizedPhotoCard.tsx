@@ -1503,16 +1503,20 @@ function PhotoCard({
                           setShowMenu(false);
                           try {
                             setIsMenuLoading(true);
-                            await toggleFollow(postUser._id);
-                            const updatedFollowing = [...followingList.map((id: any) => normalizeId(id)), postUserIdNormalized].filter(Boolean);
-                            const updatedUser = { 
-                              ...currentUser, 
-                              followingIds: updatedFollowing,
-                              following: updatedFollowing.length
-                            };
-                            setCurrentUser(updatedUser);
-                            await saveUserToStorage(updatedUser);
-                            showCustomAlertMessage('Success', `Following ${postUser.fullName || 'User'}!`, 'success');
+                            const result = await toggleFollow(postUser._id);
+                            if (result.isFollowing) {
+                              const updatedFollowing = [...followingList.map((id: any) => normalizeId(id)), postUserIdNormalized].filter(Boolean);
+                              const updatedUser = { 
+                                ...currentUser, 
+                                followingIds: updatedFollowing,
+                                following: updatedFollowing.length
+                              };
+                              setCurrentUser(updatedUser);
+                              await saveUserToStorage(updatedUser);
+                              showCustomAlertMessage('Success', `Following ${postUser.fullName || 'User'}!`, 'success');
+                            } else if (result.followRequestSent) {
+                              showCustomAlertMessage('Success', 'Follow request sent', 'success');
+                            }
                           } catch (err: any) {
                             showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.follow') || 'Failed to follow user', 'error');
                           } finally {

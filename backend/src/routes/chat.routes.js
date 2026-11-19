@@ -108,6 +108,8 @@ router.get('/room/:chatId', authMiddleware, chatController.getChatByRoomId);
 router.get('/room/:chatId/messages', authMiddleware, chatController.getMessagesByRoomId);
 router.post('/room/:chatId/messages', authMiddleware, chatController.sendMessageToRoom);
 router.post('/room/:chatId/mark-all-seen', authMiddleware, chatController.markAllMessagesSeenInRoom);
+router.get('/room/:chatId/mute-status', authMiddleware, chatController.getRoomMuteStatus);
+router.post('/room/:chatId/mute', authMiddleware, chatController.toggleMuteRoom);
 router.delete('/room/:chatId', authMiddleware, chatController.deleteChatById);
 
 // Specific routes must come before parameterized routes

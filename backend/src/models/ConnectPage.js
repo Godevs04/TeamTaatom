@@ -167,7 +167,7 @@ const ConnectPageSchema = new Schema({
   },
   type: {
     type: String,
-    enum: ['public', 'private'],
+    enum: ['public', 'followers', 'private'],
     default: 'public'
   },
   profileImage: {

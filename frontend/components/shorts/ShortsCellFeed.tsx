@@ -269,15 +269,17 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     videoOpacity.setValue(0);
   }, [item._id]);
 
-  // Only the active cell owns a player, so leaving it unmounts the player and the thumbnail must come back.
+  // Neighbors keep their player mounted (paused) for smooth reverse swipes.
+  // Do not clear videoReady on deactivate — that forced a black flash / remount on swipe-back.
   useEffect(() => {
     if (!isActive) {
-      setVideoReady(false);
-      setVideoFailed(false);
-      urlRefetchAttemptedRef.current = false;
       videoOpacity.setValue(0);
+      return;
     }
-  }, [isActive]);
+    if (videoReady) {
+      videoOpacity.setValue(1);
+    }
+  }, [isActive, videoReady, videoOpacity]);
 
   // Sync playback state based on visibility and focus
   const shouldPlay = isActive && isVideoPlaying && isScreenFocused && !userPaused && appState === 'active';
@@ -289,13 +291,15 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     if (shouldPlay) {
       video.playAsync().then(() => {
         setIsPlaying(true);
+        // Reverse swipe: player may already be ready, so restore opacity without waiting for onReady again.
+        if (videoReady) videoOpacity.setValue(1);
       }).catch(() => {});
     } else {
       video.pauseAsync().then(() => {
         setIsPlaying(false);
       }).catch(() => {});
     }
-  }, [shouldPlay, isActive]);
+  }, [shouldPlay, isActive, videoReady, videoOpacity]);
 
   // Sync native video player's mute/volume when isMuted, isActive, or song changes
   useEffect(() => {
