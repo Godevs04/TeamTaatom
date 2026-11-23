@@ -594,13 +594,34 @@ exports.getChatByRoomId = async (req, res) => {
     // Filter out null participants (e.g. admin-created pages with SuperAdmin userId)
     chat.participants = (chat.participants || []).filter(p => p != null);
 
-    // Verify the requesting user is a participant (connect_page chats are open to all)
+    // Verify the requesting user is a participant. Connect group chats require
+    // owner or *active* ConnectFollow — no auto-join (private pending must not bypass).
     const isParticipant = chat.participants.some(
       (p) => (p._id || p).toString() === userId.toString()
     );
     if (!isParticipant) {
-      if (chat.type === 'connect_page') {
-        // Auto-join: add user as participant for connect_page group chats
+      if (chat.type === 'connect_page' && chat.connectPageId) {
+        const ConnectPage = require('../models/ConnectPage');
+        const ConnectFollow = require('../models/ConnectFollow');
+        const pageId = chat.connectPageId._id || chat.connectPageId;
+        const page = await ConnectPage.findById(pageId).select('userId type').lean();
+        const isOwner = page?.userId && page.userId.toString() === userId.toString();
+        let isActiveFollower = false;
+        if (!isOwner && page) {
+          const follow = await ConnectFollow.findOne({
+            followerId: userId,
+            connectPageId: pageId,
+            status: 'active',
+          }).select('_id').lean();
+          isActiveFollower = !!follow;
+        }
+        const audienceOk =
+          isOwner ||
+          isActiveFollower ||
+          (page && page.type !== 'private' && page.type !== 'followers');
+        if (!audienceOk) {
+          return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not allowed to join this chat');
+        }
         await Chat.findByIdAndUpdate(chatId, { $addToSet: { participants: userId } });
         const joiningUser = await mongoose.model('User').findById(userId).select('fullName username profilePic profilePicStorageKey').lean();
         if (joiningUser) chat.participants.push(joiningUser);
@@ -635,13 +656,41 @@ exports.getChatByRoomId = async (req, res) => {
       }
     }
 
+    const {
+      ensureOwnerAdmin,
+      attachGroupRolesToParticipants,
+      resolveGroupRole,
+    } = require('../utils/connectGroupAdmins');
+    const isGroupChat = chat.type === 'connect_page';
+    if (isGroupChat) {
+      const ConnectPage = require('../models/ConnectPage');
+      const pageId = chat.connectPageId?._id || chat.connectPageId;
+      const pageOwner = pageId
+        ? await ConnectPage.findById(pageId).select('userId').lean()
+        : null;
+      const ownerId = pageOwner?.userId;
+      if (!Array.isArray(chat.admins)) chat.admins = [];
+      // Lazy backfill owner admin on legacy chats
+      if (ownerId && ensureOwnerAdmin(chat, ownerId)) {
+        await Chat.updateOne(
+          { _id: chatId },
+          { $set: { admins: chat.admins } }
+        ).catch((e) => logger.warn('Failed to backfill chat admins:', e?.message));
+      }
+      chat.participants = attachGroupRolesToParticipants(chat.participants, chat.admins || []);
+      chat.myGroupRole = resolveGroupRole(chat.admins || [], userId);
+    }
+
     // Build participants map for sender info in group chat messages
     const participantsMap = {};
-    const isGroupChat = chat.type === 'connect_page';
     if (isGroupChat && chat.participants) {
       for (const p of chat.participants) {
         const pId = (p._id || p).toString();
-        participantsMap[pId] = { fullName: p.fullName || '', profilePic: p.profilePic || '' };
+        participantsMap[pId] = {
+          fullName: p.fullName || '',
+          profilePic: p.profilePic || '',
+          groupRole: p.groupRole || 'member',
+        };
       }
     }
 
@@ -655,12 +704,14 @@ exports.getChatByRoomId = async (req, res) => {
         text: msg.text || '',
         timestamp: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+        isSystem: !!msg.isSystem,
       };
       // Include sender info and seenBy for group chats
       if (isGroupChat) {
         const senderInfo = participantsMap[senderId] || {};
         formatted.senderName = senderInfo.fullName || '';
         formatted.senderProfilePic = senderInfo.profilePic || '';
+        formatted.senderGroupRole = senderInfo.groupRole || 'member';
         formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
       }
       return formatted;
@@ -2285,5 +2336,309 @@ exports.markMessageDelivered = async (req, res) => {
   } catch (error) {
     logger.error('Error in markMessageDelivered:', error);
     return sendError(res, 'SRV_6001', 'Failed to mark delivered');
+  }
+};
+
+// ─────────────────────────────────────────────
+// Connect group admins (WhatsApp-style)
+// ─────────────────────────────────────────────
+
+const loadConnectGroupChat = async (chatId, userId) => {
+  const {
+    ensureOwnerAdmin,
+    findAdminEntry,
+    resolveGroupRole,
+  } = require('../utils/connectGroupAdmins');
+  const ConnectPage = require('../models/ConnectPage');
+
+  const chat = await Chat.findById(chatId);
+  if (!chat || chat.type !== 'connect_page') {
+    return { error: ['RESOURCE_NOT_FOUND', 'Group chat not found'] };
+  }
+
+  const page = await ConnectPage.findById(chat.connectPageId).select('userId name').lean();
+  if (!page) {
+    return { error: ['RESOURCE_NOT_FOUND', 'Connect page not found'] };
+  }
+
+  const ownerId = page.userId?._id || page.userId;
+  const isPageOwner = !!(ownerId && ownerId.toString() === userId.toString());
+  let isParticipant = (chat.participants || []).some(
+    (p) => p && p.toString() === userId.toString()
+  );
+  // Page owner must always be able to manage admins even if participants drifted
+  if (!isParticipant && isPageOwner) {
+    chat.participants = [...(chat.participants || []), userId];
+    chat.markModified('participants');
+    isParticipant = true;
+    await chat.save();
+  }
+  if (!isParticipant) {
+    return { error: ['BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat'] };
+  }
+
+  if (!Array.isArray(chat.admins)) chat.admins = [];
+  if (ensureOwnerAdmin(chat, ownerId)) {
+    await chat.save();
+  }
+
+  return {
+    chat,
+    page,
+    myRole: isPageOwner ? 'owner' : resolveGroupRole(chat.admins, userId),
+    findAdminEntry,
+  };
+};
+
+const appendSystemMessage = async (chat, actorId, text) => {
+  chat.messages.push({
+    sender: actorId,
+    text,
+    timestamp: new Date(),
+    status: 'sent',
+    seen: false,
+    isSystem: true,
+  });
+  chat.markModified('messages');
+};
+
+/**
+ * Owner → active co-admin; Co-admin → pending nomination
+ * POST /api/v1/chat/room/:chatId/admins/promote
+ */
+exports.promoteGroupAdmin = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+    const { userId: targetUserId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId) || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat or user ID');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, myRole, findAdminEntry } = loaded;
+    const { MAX_CO_ADMINS, countActiveCoAdmins } = require('../utils/connectGroupAdmins');
+
+    if (myRole !== 'owner' && myRole !== 'admin') {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only admins can promote members');
+    }
+
+    let targetIsParticipant = (chat.participants || []).some(
+      (p) => p && p.toString() === targetUserId.toString()
+    );
+    // Members list can show active followers who never got synced into chat.participants
+    if (!targetIsParticipant) {
+      const ConnectFollow = require('../models/ConnectFollow');
+      const activeFollow = await ConnectFollow.findOne({
+        connectPageId: chat.connectPageId,
+        followerId: targetUserId,
+        status: 'active',
+      }).select('_id').lean();
+      if (!activeFollow) {
+        return sendError(res, 'VALIDATION_FAILED', 'User must be a group participant');
+      }
+      chat.participants = [...(chat.participants || []), targetUserId];
+      chat.markModified('participants');
+      targetIsParticipant = true;
+    }
+
+    const existing = findAdminEntry(chat.admins, targetUserId);
+    if (existing?.role === 'owner') {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Page owner is already the group owner');
+    }
+    if (existing?.status === 'active' && existing.role === 'admin') {
+      return sendError(res, 'RESOURCE_ALREADY_EXISTS', 'User is already an admin');
+    }
+    if (existing?.status === 'pending') {
+      return sendSuccess(res, 200, 'Admin nomination already pending', {
+        groupRole: 'pending_admin',
+      });
+    }
+
+    if (countActiveCoAdmins(chat.admins) >= MAX_CO_ADMINS) {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'This group already has 2 co-admins');
+    }
+
+    const User = require('../models/User');
+    const targetUser = await User.findById(targetUserId).select('fullName username').lean();
+    const targetName = targetUser?.fullName || targetUser?.username || 'Member';
+
+    if (myRole === 'owner') {
+      chat.admins.push({
+        userId: targetUserId,
+        role: 'admin',
+        promotedBy: actorId,
+        status: 'active',
+        createdAt: new Date(),
+      });
+      await appendSystemMessage(chat, actorId, `${targetName} is now an admin`);
+      await chat.save();
+      return sendSuccess(res, 200, 'Member promoted to admin', {
+        groupRole: 'admin',
+        admins: chat.admins,
+      });
+    }
+
+    // Co-admin nominates → pending until owner accepts
+    chat.admins.push({
+      userId: targetUserId,
+      role: 'admin',
+      promotedBy: actorId,
+      status: 'pending',
+      createdAt: new Date(),
+    });
+    await appendSystemMessage(chat, actorId, `${targetName} was nominated as admin (awaiting owner approval)`);
+    await chat.save();
+    return sendSuccess(res, 200, 'Admin nomination sent', {
+      groupRole: 'pending_admin',
+      admins: chat.admins,
+    });
+  } catch (error) {
+    logger.error('Error promoting group admin:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to promote admin');
+  }
+};
+
+/**
+ * Owner accepts a pending nomination
+ * POST /api/v1/chat/room/:chatId/admins/accept
+ */
+exports.acceptGroupAdmin = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+    const { userId: targetUserId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId) || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat or user ID');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, myRole, findAdminEntry } = loaded;
+    const { MAX_CO_ADMINS, countActiveCoAdmins } = require('../utils/connectGroupAdmins');
+
+    if (myRole !== 'owner') {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the page owner can approve admin nominations');
+    }
+
+    const entry = findAdminEntry(chat.admins, targetUserId);
+    if (!entry || entry.status !== 'pending') {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'No pending admin nomination for this user');
+    }
+
+    if (countActiveCoAdmins(chat.admins) >= MAX_CO_ADMINS) {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'This group already has 2 co-admins');
+    }
+
+    entry.status = 'active';
+    entry.createdAt = new Date();
+    chat.markModified('admins');
+
+    const User = require('../models/User');
+    const targetUser = await User.findById(targetUserId).select('fullName username').lean();
+    const targetName = targetUser?.fullName || targetUser?.username || 'Member';
+    await appendSystemMessage(chat, actorId, `${targetName} is now an admin`);
+    await chat.save();
+
+    return sendSuccess(res, 200, 'Admin nomination accepted', {
+      groupRole: 'admin',
+      admins: chat.admins,
+    });
+  } catch (error) {
+    logger.error('Error accepting group admin:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to accept admin nomination');
+  }
+};
+
+/**
+ * Owner rejects pending nomination; nominator may cancel their own nomination
+ * POST /api/v1/chat/room/:chatId/admins/reject
+ */
+exports.rejectGroupAdmin = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+    const { userId: targetUserId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId) || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat or user ID');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, myRole, findAdminEntry } = loaded;
+
+    const entry = findAdminEntry(chat.admins, targetUserId);
+    if (!entry || entry.status !== 'pending') {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'No pending admin nomination for this user');
+    }
+
+    const isNominator =
+      entry.promotedBy && entry.promotedBy.toString() === actorId.toString();
+    if (myRole !== 'owner' && !isNominator) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner or nominator can cancel this nomination');
+    }
+
+    chat.admins = chat.admins.filter(
+      (a) => (a.userId?._id || a.userId).toString() !== targetUserId.toString() || a.status !== 'pending'
+    );
+    chat.markModified('admins');
+    await chat.save();
+
+    return sendSuccess(res, 200, 'Admin nomination rejected');
+  } catch (error) {
+    logger.error('Error rejecting group admin:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to reject admin nomination');
+  }
+};
+
+/**
+ * Owner demotes an active co-admin
+ * POST /api/v1/chat/room/:chatId/admins/demote
+ */
+exports.demoteGroupAdmin = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+    const { userId: targetUserId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId) || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat or user ID');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, myRole, findAdminEntry } = loaded;
+
+    if (myRole !== 'owner') {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the page owner can demote admins');
+    }
+
+    const entry = findAdminEntry(chat.admins, targetUserId);
+    if (!entry) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'User is not an admin');
+    }
+    if (entry.role === 'owner') {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Cannot demote the page owner');
+    }
+
+    chat.admins = chat.admins.filter(
+      (a) => (a.userId?._id || a.userId).toString() !== targetUserId.toString()
+    );
+    chat.markModified('admins');
+
+    const User = require('../models/User');
+    const targetUser = await User.findById(targetUserId).select('fullName username').lean();
+    const targetName = targetUser?.fullName || targetUser?.username || 'Member';
+    await appendSystemMessage(chat, actorId, `${targetName} is no longer an admin`);
+    await chat.save();
+
+    return sendSuccess(res, 200, 'Admin demoted', { groupRole: 'member' });
+  } catch (error) {
+    logger.error('Error demoting group admin:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to demote admin');
   }
 };

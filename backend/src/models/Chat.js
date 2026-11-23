@@ -47,7 +47,9 @@ const MessageSchema = new Schema({
   isEdited: { type: Boolean, default: false },
   editedAt: { type: Date, default: null },
   isDeleted: { type: Boolean, default: false },
-  deletedAt: { type: Date, default: null }
+  deletedAt: { type: Date, default: null },
+  // Group system lines (admin promote/demote announcements)
+  isSystem: { type: Boolean, default: false },
 });
 
 // Ensure message has either text, attachments, or is marked as deleted
@@ -92,6 +94,15 @@ const ChatSchema = new Schema({
     ref: 'ConnectPage',
     default: null
   },
+  // WhatsApp-style group roles for connect_page chats only.
+  // Cap: 1 owner + up to 2 active co-admins. Pending = nomination awaiting owner.
+  admins: [{
+    userId: { type: Types.ObjectId, ref: 'User', required: true },
+    role: { type: String, enum: ['owner', 'admin'], required: true },
+    promotedBy: { type: Types.ObjectId, ref: 'User', default: null },
+    status: { type: String, enum: ['active', 'pending'], default: 'active' },
+    createdAt: { type: Date, default: Date.now },
+  }],
   // Optional admin assignment (for future scaling)
   assignedAdminId: {
     type: Types.ObjectId,

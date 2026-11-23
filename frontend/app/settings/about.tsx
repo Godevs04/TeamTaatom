@@ -195,33 +195,39 @@ export default function AboutSettingsScreen() {
   const handleCheckForUpdates = async () => {
     try {
       setLoading(true);
-      
-      // Use update service for automatic updates
+
+      // Prefer store binary check first (App Store / Play), then OTA.
+      const { checkStoreUpdate } = require('../../services/storeUpdateService');
+      const storeResult = await checkStoreUpdate({
+        force: true,
+        showAlertIfUpToDate: false,
+      });
+      if (storeResult.updateAvailable) {
+        // Alert already shown by storeUpdateService
+        return;
+      }
+
       const { updateService } = require('../../services/updateService');
-      
+
       if (!updateService.isEnabled()) {
-        // Updates not enabled (development mode or Expo Go)
         const currentVersion = Constants.expoConfig?.version || '1.0.0';
         const buildNumber = getNativeBuildNumber();
         showSuccess(
-          `You are using version ${currentVersion} (Build ${buildNumber}).\n\nUpdates are only available in production builds.`,
+          `You are using version ${currentVersion} (Build ${buildNumber}).\n\nNo store or OTA update is available right now.`,
           'Check for Updates'
         );
         return;
       }
 
-      // Check for updates
       const updateInfo = await updateService.checkForUpdates(true);
-      
+
       if (updateInfo.isAvailable) {
-        // Update available - alert will be shown by update service
         const versionText = updateInfo.version ? `Version ${updateInfo.version}` : 'A new version';
         showSuccess(
           `${versionText} is available!\n\n${updateInfo.isCritical ? 'This is a required update.' : 'You can update now or later.'}`,
           'Update Available'
         );
       } else {
-        // No update available
         const currentVersion = updateService.getCurrentVersion();
         const buildNumber = updateService.getCurrentBuildNumber();
         showSuccess(
@@ -244,15 +250,14 @@ export default function AboutSettingsScreen() {
 
   const handleShareApp = async () => {
     try {
-      const shareMessage = `Check out Taatom - Share your moments with the world!\n\n` +
-        `Download now: https://taatom.com/download`;
-      
+      const downloadUrl = 'https://taatom.com/download';
       const result = await Share.share({
-        message: shareMessage,
+        message:
+          Platform.OS === 'ios'
+            ? 'Check out Taatom - Share your moments with the world!'
+            : `Check out Taatom - Share your moments with the world!\n\nDownload now: ${downloadUrl}`,
         title: 'Share Taatom',
-        ...(Platform.OS === 'ios' && {
-          url: 'https://taatom.com/download'
-        })
+        ...(Platform.OS === 'ios' ? { url: downloadUrl } : {}),
       });
 
       if (result.action === Share.sharedAction) {

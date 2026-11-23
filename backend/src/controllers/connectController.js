@@ -13,7 +13,50 @@ const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
 const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
 const { escapeRegex } = require('../utils/regexEscape');
+const Notification = require('../models/Notification');
+const { sendNotificationToUser } = require('../utils/sendNotification');
+const { ownerAdminEntry } = require('../utils/connectGroupAdmins');
 
+/** Audience-restricted Connect page types (profile-like privacy). */
+const isAudienceRestrictedType = (type) => type === 'private' || type === 'followers';
+
+/**
+ * Redact Connect page fields for viewers who are not owner / active follower.
+ * Card fields (name, bio, images, counts, feature flags) remain for lock UI.
+ * Never leak content bodies, chatRoomId, buyItems, or payout secrets.
+ */
+const sanitizeConnectPageForViewer = (page, { isOwner = false, isFollowing = false } = {}) => {
+  if (!page) return page;
+  const locked = isAudienceRestrictedType(page.type) && !isOwner && !isFollowing;
+  if (!isOwner) {
+    page.creatorPayoutInfo = undefined;
+  }
+  if (locked) {
+    page.websiteContent = [];
+    page.subscriptionContent = [];
+    page.chatRoomId = null;
+    page.buyItems = [];
+    page.isPrivateLocked = true;
+  } else if (page.isPrivateLocked === undefined) {
+    page.isPrivateLocked = false;
+  }
+  return page;
+};
+
+/** True when viewer may access gated Connect content / group chat. */
+const canAccessConnectAudience = async (page, userId) => {
+  if (!page) return false;
+  const ownerId = page.userId?._id || page.userId;
+  if (userId && ownerId && ownerId.toString() === userId.toString()) return true;
+  if (!isAudienceRestrictedType(page.type)) return true;
+  if (!userId) return false;
+  const follow = await ConnectFollow.findOne({
+    followerId: userId,
+    connectPageId: page._id,
+    status: 'active',
+  }).select('_id').lean();
+  return !!follow;
+};
 
 /**
  * Subscription content gate — true when the viewer is allowed to see paid
@@ -301,7 +344,8 @@ const createPage = async (req, res) => {
         type: 'connect_page',
         connectPageId: page._id,
         messages: [],
-        status: 'open'
+        status: 'open',
+        admins: [ownerAdminEntry(userId)],
       });
       await chatRoom.save();
       page.chatRoomId = chatRoom._id;
@@ -465,29 +509,27 @@ const getPageDetail = async (req, res) => {
       logger.warn('[connect.getPageDetail] FX display prices failed (non-fatal):', e.message);
     }
 
-    // Privacy gate: for followers/private pages, redact gated fields when the
-    // viewer is neither the owner nor an active follower. The card / lock screen
-    // can still render (name, bio, profile image, follower count) but the
-    // body content, subscription content, and chat room id stay hidden.
-    // Without this, anyone hitting /api/v1/connect/page/:id could read every
-    // private page's full website + paid content directly from the response.
-    const isAudienceRestricted = page.type === 'private' || page.type === 'followers';
-    const isPrivateLocked = isAudienceRestricted && !isOwner && !isFollowing;
-    if (isPrivateLocked) {
-      page.websiteContent = [];
-      page.subscriptionContent = [];
-      page.chatRoomId = null;
-      page.buyItems = [];
+    // Privacy gate: followers/private — only *active* follow unlocks. Pending
+    // requests stay locked. Card fields remain for the lock UI.
+    let followRequestPending = false;
+    if (currentUserId && !isOwner && !isFollowing && isAudienceRestrictedType(page.type)) {
+      const pending = await ConnectFollow.findOne({
+        followerId: currentUserId,
+        connectPageId: pageId,
+        status: 'pending',
+      }).select('_id').lean();
+      followRequestPending = !!pending;
     }
+    sanitizeConnectPageForViewer(page, { isOwner: !!isOwner, isFollowing });
+    const isPrivateLocked = !!page.isPrivateLocked;
+    page.followRequestPending = followRequestPending;
 
-    // Paid content gate: subscriptionContent is only visible to the owner or
-    // an active subscriber. Without this, the lock screen on the client was
-    // purely cosmetic — every visitor's API response carried the full paid
-    // content. Website content stays visible to everyone.
+    // Paid content gate: subscriptionContent only for owner / active subscriber.
+    // Skip when already audience-locked (content already cleared).
     const isSubscribed = isPrivateLocked
       ? false
       : await userCanReadSubscriptionContent(currentUserId, pageOwnerId, pageId);
-    if (!isOwner && !isSubscribed) {
+    if (!isOwner && !isSubscribed && !isPrivateLocked) {
       page.subscriptionContent = maskSubscriptionContent(page.subscriptionContent);
     }
 
@@ -497,6 +539,7 @@ const getPageDetail = async (req, res) => {
       isFollowing,
       isSubscribed,
       isPrivateLocked,
+      followRequestPending,
       subscriptionDisplayPrices: isPrivateLocked ? null : subscriptionDisplayPrices,
     });
   } catch (error) {
@@ -603,7 +646,8 @@ const updatePage = async (req, res) => {
         type: 'connect_page',
         connectPageId: pageId,
         messages: [],
-        status: 'open'
+        status: 'open',
+        admins: [ownerAdminEntry(userId)],
       });
       await chatRoom.save();
       updates.chatRoomId = chatRoom._id;
@@ -708,7 +752,12 @@ const getCommunities = async (req, res) => {
       const followedIds = new Set(follows.map(f => f.connectPageId.toString()));
       pages.forEach(p => {
         p.isFollowing = followedIds.has(p._id.toString());
+        const ownerId = p.userId?._id?.toString?.() || (typeof p.userId === 'string' ? p.userId : p.userId?.toString?.());
+        const isOwner = ownerId === currentUserId.toString();
+        sanitizeConnectPageForViewer(p, { isOwner, isFollowing: !!p.isFollowing });
       });
+    } else {
+      pages.forEach(p => sanitizeConnectPageForViewer(p, { isOwner: false, isFollowing: false }));
     }
 
     return sendSuccess(res, 200, 'Communities fetched', {
@@ -822,6 +871,12 @@ const getConnectPages = async (req, res) => {
     // Resolve storage keys to signed URLs for images
     for (const p of pages) {
       await resolvePageImages(p);
+      const ownerId = p.userId?._id?.toString?.() || (typeof p.userId === 'string' ? p.userId : p.userId?.toString?.());
+      const isOwner = !!(currentUserId && ownerId === currentUserId.toString()) || !!p.isOwn;
+      sanitizeConnectPageForViewer(p, {
+        isOwner,
+        isFollowing: !!p.isFollowing,
+      });
     }
 
     return sendSuccess(res, 200, 'Connect pages fetched', {
@@ -1146,7 +1201,9 @@ const syncFollowerCount = async (connectPageId) => {
 };
 
 /**
- * Follow a Connect page
+ * Follow a Connect page.
+ * - public / followers → active follow (instant unlock for followers-only)
+ * - private → pending request until owner accepts
  * POST /api/v1/connect/follow
  */
 const followPage = async (req, res) => {
@@ -1168,37 +1225,80 @@ const followPage = async (req, res) => {
       return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Cannot follow your own page');
     }
 
-    // Check if already following (might be archived)
+    const wantsPending = page.type === 'private';
+    const nextStatus = wantsPending ? 'pending' : 'active';
+
     const existingFollow = await ConnectFollow.findOne({ followerId, connectPageId });
 
     if (existingFollow) {
       if (existingFollow.status === 'active') {
         return sendError(res, 'RESOURCE_ALREADY_EXISTS', 'Already following this page');
       }
-      // Restore archived follow
-      existingFollow.status = 'active';
+      if (existingFollow.status === 'pending') {
+        return sendSuccess(res, 200, 'Follow request already pending', {
+          status: 'pending',
+          followRequestPending: true,
+          isFollowing: false,
+        });
+      }
+      // Restore archived → apply audience rules again
+      existingFollow.status = nextStatus;
       existingFollow.archivedAt = null;
       existingFollow.followedAt = new Date();
       await existingFollow.save();
     } else {
-      await ConnectFollow.create({ followerId, connectPageId });
+      await ConnectFollow.create({ followerId, connectPageId, status: nextStatus });
     }
 
-    // Re-derive the cached count from the active follow set instead of
-    // running an arithmetic increment. Bulletproof against drift / re-
-    // activation double-counts.
-    await syncFollowerCount(connectPageId);
-
-    // If page has group chat, add follower to chat participants
-    if (page.chatRoomId) {
-      await Chat.findByIdAndUpdate(page.chatRoomId, {
-        $addToSet: { participants: followerId }
+    if (nextStatus === 'active') {
+      await syncFollowerCount(connectPageId);
+      if (page.chatRoomId) {
+        await Chat.findByIdAndUpdate(page.chatRoomId, {
+          $addToSet: { participants: followerId },
+        });
+      }
+      return sendSuccess(res, 200, 'Followed successfully', {
+        status: 'active',
+        followRequestPending: false,
+        isFollowing: true,
       });
     }
 
-    return sendSuccess(res, 200, 'Followed successfully');
+    // Notify page owner of join request (reuse follow_request type + metadata)
+    try {
+      const ownerId = page.userId;
+      if (ownerId) {
+        await Notification.createNotification({
+          type: 'follow_request',
+          fromUser: followerId,
+          toUser: ownerId,
+          metadata: {
+            connectPageId: page._id.toString(),
+            pageName: page.name,
+            kind: 'connect_page_follow',
+          },
+        });
+        const fromUser = await User.findById(followerId).select('username fullName').lean();
+        await sendNotificationToUser({
+          userId: ownerId.toString(),
+          title: 'Community join request',
+          body: `${fromUser?.fullName || fromUser?.username || 'Someone'} requested to join ${page.name}`,
+          data: {
+            type: 'connect_follow_request',
+            connectPageId: page._id.toString(),
+          },
+        });
+      }
+    } catch (notifyErr) {
+      logger.warn('Connect follow-request notify failed (non-fatal):', notifyErr?.message || notifyErr);
+    }
+
+    return sendSuccess(res, 200, 'Follow request sent', {
+      status: 'pending',
+      followRequestPending: true,
+      isFollowing: false,
+    });
   } catch (error) {
-    // Handle duplicate key error (race condition)
     if (error.code === 11000) {
       return sendError(res, 'RESOURCE_ALREADY_EXISTS', 'Already following this page');
     }
@@ -1208,7 +1308,7 @@ const followPage = async (req, res) => {
 };
 
 /**
- * Unfollow a Connect page
+ * Unfollow a Connect page (also cancels a pending join request)
  * POST /api/v1/connect/unfollow
  */
 const unfollowPage = async (req, res) => {
@@ -1216,29 +1316,144 @@ const unfollowPage = async (req, res) => {
     const { connectPageId } = req.body;
     const followerId = req.user._id;
 
-    const follow = await ConnectFollow.findOne({ followerId, connectPageId, status: 'active' });
+    const follow = await ConnectFollow.findOne({
+      followerId,
+      connectPageId,
+      status: { $in: ['active', 'pending'] },
+    });
     if (!follow) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Not following this page');
     }
 
+    const wasActive = follow.status === 'active';
     await ConnectFollow.deleteOne({ _id: follow._id });
 
-    // Re-derive the cached count from the active follow set. Always
-    // accurate, never negative.
-    await syncFollowerCount(connectPageId);
-
-    // Remove from chat participants if page has group chat
-    const page = await ConnectPage.findById(connectPageId).select('chatRoomId');
-    if (page?.chatRoomId) {
-      await Chat.findByIdAndUpdate(page.chatRoomId, {
-        $pull: { participants: followerId }
-      });
+    if (wasActive) {
+      await syncFollowerCount(connectPageId);
+      const page = await ConnectPage.findById(connectPageId).select('chatRoomId');
+      if (page?.chatRoomId) {
+        await Chat.findByIdAndUpdate(page.chatRoomId, {
+          $pull: { participants: followerId },
+        });
+        // Explicitly strip admin / pending-admin seats (nested $pull by userId is unreliable)
+        const groupChat = await Chat.findById(page.chatRoomId).select('admins');
+        if (groupChat && Array.isArray(groupChat.admins) && groupChat.admins.length) {
+          const before = groupChat.admins.length;
+          groupChat.admins = groupChat.admins.filter(
+            (a) => (a.userId?._id || a.userId)?.toString() !== followerId.toString()
+          );
+          if (groupChat.admins.length !== before) {
+            groupChat.markModified('admins');
+            await groupChat.save();
+          }
+        }
+      }
     }
 
     return sendSuccess(res, 200, 'Unfollowed successfully');
   } catch (error) {
     logger.error('Error unfollowing page:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to unfollow page');
+  }
+};
+
+/**
+ * Owner accepts a pending Connect follow request
+ * POST /api/v1/connect/follow/accept
+ */
+const acceptFollowRequest = async (req, res) => {
+  try {
+    const { connectPageId, followerId } = req.body;
+    const ownerId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(connectPageId) || !mongoose.Types.ObjectId.isValid(followerId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid page or follower ID');
+    }
+
+    const page = await ConnectPage.findById(connectPageId);
+    if (!page || page.status !== 'active') {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== ownerId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the page owner can accept requests');
+    }
+
+    const follow = await ConnectFollow.findOne({
+      followerId,
+      connectPageId,
+      status: 'pending',
+    });
+    if (!follow) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'No pending follow request');
+    }
+
+    follow.status = 'active';
+    follow.followedAt = new Date();
+    await follow.save();
+    await syncFollowerCount(connectPageId);
+
+    if (page.chatRoomId) {
+      await Chat.findByIdAndUpdate(page.chatRoomId, {
+        $addToSet: { participants: followerId },
+      });
+    }
+
+    try {
+      await Notification.createNotification({
+        type: 'follow_request_accepted',
+        fromUser: ownerId,
+        toUser: followerId,
+        metadata: {
+          connectPageId: page._id.toString(),
+          pageName: page.name,
+          kind: 'connect_page_follow',
+        },
+      });
+    } catch (notifyErr) {
+      logger.warn('Connect accept notify failed (non-fatal):', notifyErr?.message || notifyErr);
+    }
+
+    return sendSuccess(res, 200, 'Follow request accepted');
+  } catch (error) {
+    logger.error('Error accepting connect follow request:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to accept follow request');
+  }
+};
+
+/**
+ * Owner rejects a pending Connect follow request
+ * POST /api/v1/connect/follow/reject
+ */
+const rejectFollowRequest = async (req, res) => {
+  try {
+    const { connectPageId, followerId } = req.body;
+    const ownerId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(connectPageId) || !mongoose.Types.ObjectId.isValid(followerId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid page or follower ID');
+    }
+
+    const page = await ConnectPage.findById(connectPageId).select('userId');
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== ownerId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the page owner can reject requests');
+    }
+
+    const follow = await ConnectFollow.findOneAndDelete({
+      followerId,
+      connectPageId,
+      status: 'pending',
+    });
+    if (!follow) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'No pending follow request');
+    }
+
+    return sendSuccess(res, 200, 'Follow request rejected');
+  } catch (error) {
+    logger.error('Error rejecting connect follow request:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to reject follow request');
   }
 };
 
@@ -1329,6 +1544,8 @@ const getFollowing = async (req, res) => {
     // Resolve storage keys to signed URLs for images
     for (const p of pages) {
       await resolvePageImages(p);
+      // Active followers already unlock; still strip payout secrets
+      sanitizeConnectPageForViewer(p, { isOwner: false, isFollowing: true });
     }
 
     return sendSuccess(res, 200, 'Following list fetched', {
@@ -1372,6 +1589,8 @@ const getArchived = async (req, res) => {
     // Resolve storage keys to signed URLs for images
     for (const p of pages) {
       await resolvePageImages(p);
+      // Archived = not active follow → treat as locked for restricted pages
+      sanitizeConnectPageForViewer(p, { isOwner: false, isFollowing: false });
     }
 
     return sendSuccess(res, 200, 'Archived list fetched', {
@@ -1398,7 +1617,7 @@ const getPageFollowers = async (req, res) => {
     // Get the page to find the creator AND check audience privacy.
     const connectPage = await ConnectPage.findById(pageId)
       .populate('userId', 'username fullName profilePic profilePicStorageKey')
-      .select('userId type')
+      .select('userId type category chatRoomId')
       .lean();
 
     if (!connectPage) {
@@ -1425,14 +1644,29 @@ const getPageFollowers = async (req, res) => {
       }
     }
 
-    const [follows, total] = await Promise.all([
+    const currentUserIdForOwner = req.user?._id;
+    const ownerIdForList = connectPage.userId?._id || connectPage.userId;
+    const viewerIsOwner = !!(
+      currentUserIdForOwner &&
+      ownerIdForList &&
+      ownerIdForList.toString() === currentUserIdForOwner.toString()
+    );
+
+    const [follows, total, pendingFollows] = await Promise.all([
       ConnectFollow.find({ connectPageId: pageId, status: 'active' })
         .populate('followerId', 'username fullName profilePic profilePicStorageKey')
         .sort({ followedAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      ConnectFollow.countDocuments({ connectPageId: pageId, status: 'active' })
+      ConnectFollow.countDocuments({ connectPageId: pageId, status: 'active' }),
+      viewerIsOwner && page === 1
+        ? ConnectFollow.find({ connectPageId: pageId, status: 'pending' })
+            .populate('followerId', 'username fullName profilePic profilePicStorageKey')
+            .sort({ createdAt: -1 })
+            .limit(50)
+            .lean()
+        : Promise.resolve([]),
     ]);
 
     const followers = follows.map(f => f.followerId).filter(Boolean);
@@ -1442,6 +1676,17 @@ const getPageFollowers = async (req, res) => {
       if (follower.profilePicStorageKey) {
         try {
           follower.profilePic = await generateSignedUrl(follower.profilePicStorageKey, 'PROFILE');
+        } catch (e) {
+          // keep existing profilePic
+        }
+      }
+    }
+
+    const pendingUsers = (pendingFollows || []).map((f) => f.followerId).filter(Boolean);
+    for (const pendingUser of pendingUsers) {
+      if (pendingUser.profilePicStorageKey) {
+        try {
+          pendingUser.profilePic = await generateSignedUrl(pendingUser.profilePicStorageKey, 'PROFILE');
         } catch (e) {
           // keep existing profilePic
         }
@@ -1460,16 +1705,110 @@ const getPageFollowers = async (req, res) => {
       }
     }
 
-    // Add role to each follower and prepend the creator as admin on page 1
+    // Resolve group admin roles from Chat.admins (Owner / Admin / Pending admin).
+    // Page owners can manage admins from Members — lazily create the connect
+    // group chat if the page never had groupChat enabled.
+    const { ensureOwnerAdmin, resolveGroupRole } = require('../utils/connectGroupAdmins');
+    let chatAdmins = [];
+    let myGroupRole = viewerIsOwner ? 'owner' : 'member';
+    let resolvedChatRoomId = connectPage.chatRoomId || null;
+
+    if (viewerIsOwner && !resolvedChatRoomId) {
+      try {
+        const ownerId = ownerIdForList;
+        const chatRoom = new Chat({
+          participants: [ownerId],
+          type: 'connect_page',
+          connectPageId: pageId,
+          messages: [],
+          status: 'open',
+          admins: [ownerAdminEntry(ownerId)],
+        });
+        await chatRoom.save();
+        const followerIds = follows
+          .map((f) => f.followerId?._id || f.followerId)
+          .filter(Boolean);
+        if (followerIds.length > 0) {
+          await Chat.findByIdAndUpdate(chatRoom._id, {
+            $addToSet: { participants: { $each: followerIds } },
+          });
+        }
+        await ConnectPage.findByIdAndUpdate(pageId, {
+          $set: {
+            chatRoomId: chatRoom._id,
+            'features.groupChat': true,
+          },
+        });
+        resolvedChatRoomId = chatRoom._id;
+        chatAdmins = chatRoom.admins || [];
+        myGroupRole = 'owner';
+      } catch (ensureErr) {
+        logger.warn('[getPageFollowers] Failed to ensure group chat:', ensureErr?.message);
+      }
+    }
+
+    if (resolvedChatRoomId && chatAdmins.length === 0) {
+      const groupChat = await Chat.findById(resolvedChatRoomId).select('admins type participants').lean();
+      if (groupChat) {
+        if (!Array.isArray(groupChat.admins)) groupChat.admins = [];
+        const ownerId = connectPage.userId?._id || connectPage.userId;
+        if (ownerId && ensureOwnerAdmin(groupChat, ownerId)) {
+          await Chat.updateOne(
+            { _id: resolvedChatRoomId },
+            { $set: { admins: groupChat.admins } }
+          ).catch(() => {});
+        }
+        chatAdmins = groupChat.admins || [];
+        if (currentUserIdForOwner) {
+          myGroupRole = resolveGroupRole(chatAdmins, currentUserIdForOwner);
+          if (viewerIsOwner) myGroupRole = 'owner';
+        }
+
+        // Keep chat participants in sync with active followers so promote works
+        if (viewerIsOwner) {
+          const participantIds = new Set(
+            (groupChat.participants || []).map((p) => p?.toString()).filter(Boolean)
+          );
+          const missingFollowerIds = follows
+            .map((f) => f.followerId?._id || f.followerId)
+            .filter((fid) => fid && !participantIds.has(fid.toString()));
+          if (ownerId && !participantIds.has(ownerId.toString())) {
+            missingFollowerIds.push(ownerId);
+          }
+          if (missingFollowerIds.length > 0) {
+            await Chat.findByIdAndUpdate(resolvedChatRoomId, {
+              $addToSet: { participants: { $each: missingFollowerIds } },
+            }).catch(() => {});
+          }
+        }
+      }
+    }
+
+    const mapGroupRole = (userId) => {
+      const gr = resolveGroupRole(chatAdmins, userId);
+      if (gr === 'owner') return 'owner';
+      if (gr === 'admin') return 'admin';
+      if (gr === 'pending_admin') return 'pending_admin';
+      return 'member';
+    };
+
     const membersWithRole = followers.map(f => ({
       _id: f._id,
       username: f.username,
       fullName: f.fullName,
       profilePic: f.profilePic,
-      role: 'member',
+      role: mapGroupRole(f._id),
     }));
 
-    // On page 1, prepend creator as admin (filter out if also in followers list)
+    // Follow-request pending (private page join), not admin nomination
+    const pendingMembers = pendingUsers.map((u) => ({
+      _id: u._id,
+      username: u.username,
+      fullName: u.fullName,
+      profilePic: u.profilePic,
+      role: 'pending',
+    }));
+
     let members = membersWithRole;
     const isCommunity = connectPage.category === 'community' || connectPage.type === 'community';
     if (page === 1 && creator && !isCommunity) {
@@ -1480,13 +1819,51 @@ const getPageFollowers = async (req, res) => {
         username: creator.username,
         fullName: creator.fullName,
         profilePic: creator.profilePic,
-        role: 'admin',
+        role: 'owner',
       });
+    }
+
+    // Pending admin nominations (from Chat.admins) — show for owner/admins
+    const pendingAdminEntries = (chatAdmins || []).filter((a) => a.status === 'pending');
+    if (page === 1 && pendingAdminEntries.length) {
+      const User = require('../models/User');
+      const pendingAdminIds = pendingAdminEntries.map((a) => a.userId);
+      const pendingAdminUsers = await User.find({ _id: { $in: pendingAdminIds } })
+        .select('username fullName profilePic profilePicStorageKey')
+        .lean();
+      for (const u of pendingAdminUsers) {
+        if (u.profilePicStorageKey) {
+          try {
+            u.profilePic = await generateSignedUrl(u.profilePicStorageKey, 'PROFILE');
+          } catch { /* keep */ }
+        }
+      }
+      const pendingAdminMembers = pendingAdminUsers.map((u) => ({
+        _id: u._id,
+        username: u.username,
+        fullName: u.fullName,
+        profilePic: u.profilePic,
+        role: 'pending_admin',
+      }));
+      // Drop duplicates if they also appear as members
+      const pendingAdminIdSet = new Set(pendingAdminMembers.map((m) => m._id.toString()));
+      members = members.filter((m) => !pendingAdminIdSet.has(m._id.toString()));
+      const ownerRow = members[0]?.role === 'owner' ? [members[0]] : [];
+      const rest = ownerRow.length ? members.slice(1) : members;
+      members = [...ownerRow, ...pendingAdminMembers, ...rest];
+    }
+
+    if (page === 1 && pendingMembers.length) {
+      const ownerRow = members[0]?.role === 'owner' ? [members[0]] : [];
+      const rest = ownerRow.length ? members.slice(1) : members;
+      members = [...ownerRow, ...pendingMembers, ...rest];
     }
 
     const finalTotal = (page === 1 && creator && !isCommunity) ? total + 1 : total;
     return sendSuccess(res, 200, 'Followers fetched', {
       followers: members,
+      myGroupRole,
+      chatRoomId: resolvedChatRoomId || null,
       pagination: { page, limit, total: finalTotal, totalPages: Math.ceil(finalTotal / limit) }
     });
   } catch (error) {
@@ -1954,6 +2331,10 @@ const createBuyOrder = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Community page not found');
     }
 
+    if (!(await canAccessConnectAudience(page, userId))) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Follow this community to purchase');
+    }
+
     const item = page.buyItems.id(itemId);
     if (!item || !item.active) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Item not found or is inactive');
@@ -2127,6 +2508,8 @@ module.exports = {
   // Follow
   followPage,
   unfollowPage,
+  acceptFollowRequest,
+  rejectFollowRequest,
   archivePage,
   unarchivePage,
   getFollowing,

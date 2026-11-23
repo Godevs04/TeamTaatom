@@ -1,6 +1,7 @@
 const ShortUrl = require('../models/ShortUrl');
 const Post = require('../models/Post');
 const Journey = require('../models/Journey');
+const ConnectPage = require('../models/ConnectPage');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 
@@ -40,24 +41,33 @@ function generateShortCode(length = 8) {
  */
 const createShortUrl = async (req, res) => {
   try {
-    const { postId, journeyId } = req.body;
+    const { postId, journeyId, connectPageId } = req.body;
 
-    if (!postId && !journeyId) {
-      return sendError(res, 'VAL_2001', 'Post ID or Journey ID is required');
+    const provided = [postId, journeyId, connectPageId].filter(Boolean);
+    if (provided.length !== 1) {
+      return sendError(res, 'VAL_2001', 'Provide exactly one of postId, journeyId, or connectPageId');
     }
 
-    // Determine type and validate
-    const isJourney = !!journeyId;
-    const resourceId = isJourney ? journeyId : postId;
-    const resourceField = isJourney ? 'journeyId' : 'postId';
-
-    if (isJourney) {
-      const journey = await Journey.findById(journeyId);
+    let resourceField;
+    let resourceId;
+    if (connectPageId) {
+      resourceField = 'connectPageId';
+      resourceId = connectPageId;
+      const page = await ConnectPage.findById(connectPageId).select('_id status').lean();
+      if (!page || page.status === 'archived') {
+        return sendError(res, 'RES_3001', 'Connect page not found');
+      }
+    } else if (journeyId) {
+      resourceField = 'journeyId';
+      resourceId = journeyId;
+      const journey = await Journey.findById(journeyId).select('_id').lean();
       if (!journey) {
         return sendError(res, 'RES_3001', 'Journey not found');
       }
     } else {
-      const post = await Post.findById(postId);
+      resourceField = 'postId';
+      resourceId = postId;
+      const post = await Post.findById(postId).select('_id').lean();
       if (!post) {
         return sendError(res, 'RES_3001', 'Post not found');
       }
@@ -98,7 +108,6 @@ const createShortUrl = async (req, res) => {
       return sendError(res, 'SRV_6001', 'Failed to generate short URL. Please try again.');
     }
 
-    // Create new short URL
     shortUrl = new ShortUrl({
       shortCode,
       [resourceField]: resourceId
@@ -169,14 +178,44 @@ const redirectShortUrl = async (req, res) => {
     shortUrl.lastClickedAt = new Date();
     await shortUrl.save().catch(err => logger.error('Error updating short URL click count:', err));
 
-    // Determine if this is a journey or post short URL
     const isJourney = !!shortUrl.journeyId;
+    const isConnectPage = !!shortUrl.connectPageId;
 
     let previewTitle = 'Opening Taatom...';
     let previewDescription = 'Travel stories that feel alive.';
     let previewImage = '';
 
-    if (isJourney) {
+    if (isConnectPage) {
+      const page = await ConnectPage.findById(shortUrl.connectPageId)
+        .select('name bio profileImage bannerImage status')
+        .lean();
+      if (!page || page.status === 'archived') {
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Link Not Found</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              h1 { color: #333; }
+              p { color: #666; }
+            </style>
+          </head>
+          <body>
+            <h1>Link Not Found</h1>
+            <p>This community is no longer available.</p>
+          </body>
+          </html>
+        `);
+      }
+      previewTitle = `${page.name || 'Community'} on Taatom`;
+      previewDescription = page.bio
+        ? page.bio.substring(0, 160)
+        : `Join ${page.name || 'this community'} on Taatom.`;
+      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
+      previewImage = page.bannerImage || page.profileImage || `${baseUrl}/icon.png`;
+    } else if (isJourney) {
       const journey = await Journey.findById(shortUrl.journeyId)
         .populate('user', 'fullName username')
         .populate({
@@ -277,29 +316,38 @@ const redirectShortUrl = async (req, res) => {
       previewImage = img || `${baseUrl}/icon.png`;
     }
 
-    // Build deep link and universal link based on type
-    let deepLink, universalLink;
-    if (isJourney) {
+    // Prefer HTTPS Universal/App Links; custom scheme is a secondary handoff.
+    let deepLink, universalLink, intentPath;
+    if (isConnectPage) {
+      deepLink = `taatom://connect/page/${shortUrl.connectPageId}`;
+      universalLink = `https://taatom.com/connect/page/${shortUrl.connectPageId}`;
+      intentPath = `connect/page/${shortUrl.connectPageId}`;
+    } else if (isJourney) {
       deepLink = `taatom://navigate/detail?journeyId=${shortUrl.journeyId}`;
       universalLink = `https://taatom.com/journey/${shortUrl.journeyId}`;
+      intentPath = `navigate/detail?journeyId=${shortUrl.journeyId}`;
     } else {
       deepLink = `taatom:///post/${shortUrl.postId}`;
       universalLink = `https://taatom.com/post/${shortUrl.postId}`;
+      intentPath = `post/${shortUrl.postId}`;
     }
     
-    logger.debug('Redirecting to app:', { deepLink, postId: shortUrl.postId, journeyId: shortUrl.journeyId });
+    logger.debug('Redirecting to app:', {
+      deepLink,
+      universalLink,
+      postId: shortUrl.postId,
+      journeyId: shortUrl.journeyId,
+      connectPageId: shortUrl.connectPageId,
+    });
     
-    const resourceId = isJourney ? shortUrl.journeyId : shortUrl.postId;
-    
-    // Return HTML page that attempts to open app, with fallback
-    // Use both deep link and universal link for better compatibility
+    // Return HTML page that attempts to open app via HTTPS Universal Links first
     return res.send(`
         <!DOCTYPE html>
         <html>
         <head>
           <title>${escapeHtml(previewTitle)}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="refresh" content="2;url=${universalLink}">
+          <meta http-equiv="refresh" content="3;url=${universalLink}">
 
           <!-- Open Graph / Facebook -->
           <meta property="og:type" content="website">
@@ -316,36 +364,38 @@ const redirectShortUrl = async (req, res) => {
           <meta name="twitter:description" content="${escapeHtml(previewDescription)}">
           <meta name="twitter:image" content="${escapeHtml(previewImage)}">
           <script>
-            // Try to open app immediately with deep link
             (function() {
               var deepLink = '${deepLink}';
               var universalLink = '${universalLink}';
-              var isJourney = ${isJourney};
-              var resourceId = '${resourceId}';
-              
-              // Detect Android device
+              var intentPath = '${intentPath}';
               var isAndroid = /Android/i.test(navigator.userAgent);
-              
+              var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+              // Prefer HTTPS Universal / App Links so the OS can open the app
+              // when installed; fall back to custom scheme, then web page.
               if (isAndroid) {
-                // Use intent link for Android Chrome to avoid redirection block and support auto fallback
-                var intentLink = 'intent://' + (isJourney ? 'navigate/detail?journeyId=' + resourceId : 'post/' + resourceId) + '#Intent;scheme=taatom;package=com.taatom.app;S.browser_fallback_url=' + encodeURIComponent(universalLink) + ';end';
+                var intentLink = 'intent://' + intentPath + '#Intent;scheme=taatom;package=com.taatom.app;S.browser_fallback_url=' + encodeURIComponent(universalLink) + ';end';
                 window.location.href = intentLink;
+              } else if (isIOS) {
+                window.location.href = universalLink;
+                setTimeout(function() {
+                  if (document.hasFocus && document.hasFocus()) {
+                    window.location.href = deepLink;
+                  }
+                }, 1200);
               } else {
-                // Use custom scheme for iOS / other platforms
-                window.location.href = deepLink;
+                window.location.href = universalLink;
               }
-              
-              // Fallback: if app doesn't open in 1.5 seconds, try universal link
+
               setTimeout(function() {
-                // Check if we're still on this page (app didn't open)
                 if (document.hasFocus && document.hasFocus()) {
                   window.location.href = universalLink;
                 }
-                // Show fallback UI after 2 seconds
                 setTimeout(function() {
-                  document.getElementById('fallback').style.display = 'block';
+                  var el = document.getElementById('fallback');
+                  if (el) el.style.display = 'block';
                 }, 500);
-              }, 1500);
+              }, 2000);
             })();
           </script>
           <style>
@@ -400,9 +450,9 @@ const redirectShortUrl = async (req, res) => {
             <h1>Opening Taatom...</h1>
             <p>If the app doesn't open automatically, tap the button below.</p>
             <div id="fallback">
-              <a href="${deepLink}" class="button">Open in Taatom App</a>
+              <a href="${universalLink}" class="button">Open in Taatom</a>
               <br>
-              <a href="https://taatom.com" class="button" style="background: transparent; color: white; border: 2px solid white;">Visit Website</a>
+              <a href="${deepLink}" class="button" style="background: transparent; color: white; border: 2px solid white;">Open App</a>
             </div>
           </div>
         </body>

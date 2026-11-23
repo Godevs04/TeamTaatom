@@ -277,3 +277,44 @@ export const getRoomMuteStatus = async (chatId: string): Promise<{ muted: boolea
     throw new Error(parsedError.userMessage);
   }
 };
+
+/** Promote member to co-admin (owner) or nominate (co-admin). */
+export const promoteGroupAdmin = async (chatId: string, userId: string) => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/admins/promote`, { userId });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const acceptGroupAdmin = async (chatId: string, userId: string) => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/admins/accept`, { userId });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const rejectGroupAdmin = async (chatId: string, userId: string) => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/admins/reject`, { userId });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const demoteGroupAdmin = async (chatId: string, userId: string) => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/admins/demote`, { userId });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

@@ -278,7 +278,13 @@ export default function GroupChatRoomPage() {
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-semibold text-slate-900 dark:text-zinc-50">{groupName}</h1>
           <p className="truncate text-xs text-slate-500 dark:text-zinc-400">
-            {typingName ? `${typingName} is typing…` : `${participants.length} members`}
+            {typingName
+              ? `${typingName} is typing…`
+              : `${participants.length} members${
+                  chat?.myGroupRole === "owner" || chat?.myGroupRole === "admin"
+                    ? ` · You’re ${chat.myGroupRole === "owner" ? "Owner" : "Admin"}`
+                    : ""
+                }`}
           </p>
         </div>
       </div>
@@ -298,10 +304,30 @@ export default function GroupChatRoomPage() {
         ) : (
           messages.map((msg) => {
             const isMe = normalizeSenderId(msg.sender) === myId;
-            const senderName = msg.senderName ?? "";
-            const senderPic = msg.senderProfilePic;
+            const senderId = normalizeSenderId(msg.sender);
+            const senderParticipant = participants.find(
+              (p) => (typeof p === "string" ? p : p._id) === senderId
+            );
+            const senderName = msg.senderName ?? (typeof senderParticipant === "object" ? senderParticipant.fullName || senderParticipant.username || "" : "");
+            const senderPic = msg.senderProfilePic ?? (typeof senderParticipant === "object" ? senderParticipant.profilePic : undefined);
+            const senderGroupRole =
+              msg.senderGroupRole ||
+              (typeof senderParticipant === "object" ? senderParticipant.groupRole : undefined) ||
+              "member";
+            const isAdminSender = senderGroupRole === "owner" || senderGroupRole === "admin";
             const isDeleted = msg.isDeleted === true;
             const text = msg.text ?? "";
+
+            if (msg.isSystem) {
+              return (
+                <div key={msg._id} className="flex justify-center px-6 py-1">
+                  <p className="rounded-xl bg-slate-100 px-3 py-1.5 text-center text-xs text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
+                    {text}
+                  </p>
+                </div>
+              );
+            }
+
             const postShare = !isDeleted ? parsePostShareMessage(text) : null;
             const journeyShare = !isDeleted && !postShare ? parseJourneyShareMessage(text) : null;
             const hasAttachments = !isDeleted && (msg.attachments?.length ?? 0) > 0;
@@ -384,10 +410,24 @@ export default function GroupChatRoomPage() {
                         : isMe
                           ? "bg-primary px-4 py-2.5 text-on-primary"
                           : "bg-slate-100 px-4 py-2.5 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
-                  }`}
+                  } ${isAdminSender && !isDeleted ? "ring-1 ring-amber-500/45" : ""}`}
                 >
                   {!isMe && senderName && !isDeleted && (
-                    <p className="mb-0.5 text-xs font-semibold text-primary">{senderName}</p>
+                    <div className="mb-0.5 flex items-center gap-1.5">
+                      <p className="text-xs font-semibold text-primary">{senderName}</p>
+                      {isAdminSender ? (
+                        <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                          {senderGroupRole === "owner" ? "Owner" : "Admin"}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
+                  {isMe && isAdminSender && !isDeleted && (
+                    <div className="mb-0.5 flex justify-end">
+                      <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {senderGroupRole === "owner" ? "Owner" : "Admin"}
+                      </span>
+                    </div>
                   )}
                   {isDeleted ? (
                     <p className="italic text-xs">This message was deleted</p>

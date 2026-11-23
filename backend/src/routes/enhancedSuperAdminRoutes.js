@@ -5314,12 +5314,14 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
     // Create group chat room if enabled
     if (pageData.features.groupChat) {
       await connectPage.save()
+      const { ownerAdminEntry } = require('../utils/connectGroupAdmins')
       const chatRoom = new ChatModel({
         participants: [adminUser._id],
         type: 'connect_page',
         connectPageId: connectPage._id,
         messages: [],
-        status: 'open'
+        status: 'open',
+        admins: [ownerAdminEntry(adminUser._id)],
       })
       await chatRoom.save()
       connectPage.chatRoomId = chatRoom._id

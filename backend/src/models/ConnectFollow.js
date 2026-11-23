@@ -14,7 +14,8 @@ const ConnectFollowSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['active', 'archived'],
+    // pending = private-page join request awaiting owner accept
+    enum: ['active', 'archived', 'pending'],
     default: 'active'
   },
   followedAt: {

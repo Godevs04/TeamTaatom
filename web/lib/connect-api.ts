@@ -47,16 +47,37 @@ export async function connectGetPageDetail(pageId: string) {
     page: ConnectPage;
     isOwner?: boolean;
     isFollowing?: boolean;
+    isPrivateLocked?: boolean;
+    followRequestPending?: boolean;
   };
   return d;
 }
 
 export async function connectFollowPage(connectPageId: string) {
-  await api.post("/connect/follow", { connectPageId });
+  const res = await api.post("/connect/follow", { connectPageId });
+  return (res.data || {}) as {
+    status?: "active" | "pending";
+    followRequestPending?: boolean;
+    isFollowing?: boolean;
+  };
 }
 
 export async function connectUnfollowPage(connectPageId: string) {
   await api.post("/connect/unfollow", { connectPageId });
+}
+
+export async function connectAcceptFollowRequest(
+  connectPageId: string,
+  followerId: string,
+) {
+  await api.post("/connect/follow/accept", { connectPageId, followerId });
+}
+
+export async function connectRejectFollowRequest(
+  connectPageId: string,
+  followerId: string,
+) {
+  await api.post("/connect/follow/reject", { connectPageId, followerId });
 }
 
 export async function connectRecordView(pageId: string) {
@@ -137,7 +158,7 @@ export type ConnectFollower = {
   username?: string;
   fullName?: string;
   profilePic?: string;
-  role: "admin" | "member";
+  role: "owner" | "admin" | "member" | "pending" | "pending_admin";
 };
 
 export async function connectGetPageFollowers(pageId: string, page = 1, limit = 20) {
@@ -145,8 +166,31 @@ export async function connectGetPageFollowers(pageId: string, page = 1, limit = 
   const d = res.data as {
     followers?: ConnectFollower[];
     pagination?: { page: number; limit: number; total: number; totalPages: number };
+    myGroupRole?: "owner" | "admin" | "member" | "pending_admin";
+    chatRoomId?: string | null;
   };
-  return { followers: d.followers ?? [], pagination: d.pagination };
+  return {
+    followers: d.followers ?? [],
+    pagination: d.pagination,
+    myGroupRole: d.myGroupRole ?? "member",
+    chatRoomId: d.chatRoomId ?? null,
+  };
+}
+
+export async function connectPromoteGroupAdmin(chatId: string, userId: string) {
+  await api.post(`/chat/room/${chatId}/admins/promote`, { userId });
+}
+
+export async function connectAcceptGroupAdmin(chatId: string, userId: string) {
+  await api.post(`/chat/room/${chatId}/admins/accept`, { userId });
+}
+
+export async function connectRejectGroupAdmin(chatId: string, userId: string) {
+  await api.post(`/chat/room/${chatId}/admins/reject`, { userId });
+}
+
+export async function connectDemoteGroupAdmin(chatId: string, userId: string) {
+  await api.post(`/chat/room/${chatId}/admins/demote`, { userId });
 }
 
 export async function connectGetPageAnalytics(pageId: string) {

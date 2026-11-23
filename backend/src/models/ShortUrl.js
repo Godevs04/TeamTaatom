@@ -17,6 +17,11 @@ const shortUrlSchema = new mongoose.Schema({
     ref: 'Journey',
     default: null
   },
+  connectPageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ConnectPage',
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -36,6 +41,7 @@ const shortUrlSchema = new mongoose.Schema({
 // Note: shortCode index is automatically created by unique: true
 shortUrlSchema.index({ postId: 1 });
 shortUrlSchema.index({ journeyId: 1 });
+shortUrlSchema.index({ connectPageId: 1 });
 // TTL index - expires documents after 1 year
 shortUrlSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
 

@@ -1,11 +1,15 @@
 import type { User } from "./user";
 
+export type ChatGroupRole = "owner" | "admin" | "member" | "pending_admin";
+
 export type ChatParticipant = {
   _id: string;
   fullName?: string;
   username?: string;
   profilePic?: string;
   isVerified?: boolean;
+  /** Present on connect_page group chats */
+  groupRole?: ChatGroupRole;
 };
 
 /**
@@ -47,6 +51,10 @@ export type ChatMessage = {
   senderName?: string;
   /** Group chat: sender profile picture URL */
   senderProfilePic?: string;
+  /** Group chat: sender Owner/Admin role for chips */
+  senderGroupRole?: ChatGroupRole;
+  /** System notice (promote/demote), centered — not a normal bubble */
+  isSystem?: boolean;
   seenBy?: string[];
 };
 
@@ -67,4 +75,6 @@ export type Chat = {
   createdAt?: string;
   type?: "user_chat" | "admin_support" | "connect_page";
   connectPageId?: string | ConnectPageRef;
+  /** Viewer's role in connect group chat */
+  myGroupRole?: ChatGroupRole;
 };
