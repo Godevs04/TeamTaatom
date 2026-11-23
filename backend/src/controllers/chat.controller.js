@@ -2356,27 +2356,36 @@ const loadConnectGroupChat = async (chatId, userId) => {
     return { error: ['RESOURCE_NOT_FOUND', 'Group chat not found'] };
   }
 
-  const isParticipant = (chat.participants || []).some(
-    (p) => p && p.toString() === userId.toString()
-  );
-  if (!isParticipant) {
-    return { error: ['BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat'] };
-  }
-
   const page = await ConnectPage.findById(chat.connectPageId).select('userId name').lean();
   if (!page) {
     return { error: ['RESOURCE_NOT_FOUND', 'Connect page not found'] };
   }
 
+  const ownerId = page.userId?._id || page.userId;
+  const isPageOwner = !!(ownerId && ownerId.toString() === userId.toString());
+  let isParticipant = (chat.participants || []).some(
+    (p) => p && p.toString() === userId.toString()
+  );
+  // Page owner must always be able to manage admins even if participants drifted
+  if (!isParticipant && isPageOwner) {
+    chat.participants = [...(chat.participants || []), userId];
+    chat.markModified('participants');
+    isParticipant = true;
+    await chat.save();
+  }
+  if (!isParticipant) {
+    return { error: ['BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat'] };
+  }
+
   if (!Array.isArray(chat.admins)) chat.admins = [];
-  if (ensureOwnerAdmin(chat, page.userId)) {
+  if (ensureOwnerAdmin(chat, ownerId)) {
     await chat.save();
   }
 
   return {
     chat,
     page,
-    myRole: resolveGroupRole(chat.admins, userId),
+    myRole: isPageOwner ? 'owner' : resolveGroupRole(chat.admins, userId),
     findAdminEntry,
   };
 };
@@ -2416,11 +2425,23 @@ exports.promoteGroupAdmin = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only admins can promote members');
     }
 
-    const targetIsParticipant = (chat.participants || []).some(
+    let targetIsParticipant = (chat.participants || []).some(
       (p) => p && p.toString() === targetUserId.toString()
     );
+    // Members list can show active followers who never got synced into chat.participants
     if (!targetIsParticipant) {
-      return sendError(res, 'VALIDATION_FAILED', 'User must be a group participant');
+      const ConnectFollow = require('../models/ConnectFollow');
+      const activeFollow = await ConnectFollow.findOne({
+        connectPageId: chat.connectPageId,
+        followerId: targetUserId,
+        status: 'active',
+      }).select('_id').lean();
+      if (!activeFollow) {
+        return sendError(res, 'VALIDATION_FAILED', 'User must be a group participant');
+      }
+      chat.participants = [...(chat.participants || []), targetUserId];
+      chat.markModified('participants');
+      targetIsParticipant = true;
     }
 
     const existing = findAdminEntry(chat.admins, targetUserId);

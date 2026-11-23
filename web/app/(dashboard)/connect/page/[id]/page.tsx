@@ -75,6 +75,7 @@ export default function ConnectPageDetailPage() {
   const [subBusy, setSubBusy] = React.useState(false);
   const [payoutBreakdownOpen, setPayoutBreakdownOpen] = React.useState(false);
   const [followersOpen, setFollowersOpen] = React.useState(false);
+  const [adminActionBusyId, setAdminActionBusyId] = React.useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = React.useState(false);
   const [selectedItem, setSelectedItem] = React.useState<BuyItem | null>(null);
   const [buyerName, setBuyerName] = React.useState("");
@@ -172,9 +173,35 @@ export default function ConnectPageDetailPage() {
     detailQ.data?.isPrivateLocked ?? page?.isPrivateLocked ?? false;
   const isCommunityPage = page?.category === "community" || page?.isAdminPage === true;
 
+  // Backend may lazily create group chat when owner opens Members — sync into page cache
+  // so Group Chat link + promote buttons stay available without a full reload.
+  React.useEffect(() => {
+    const roomId = followersQ.data?.chatRoomId;
+    if (!id || !roomId || !detailQ.data?.page) return;
+    if (detailQ.data.page.chatRoomId === roomId && detailQ.data.page.features?.groupChat) return;
+    qc.setQueryData(["connect-page", id], (old: typeof detailQ.data) => {
+      if (!old?.page) return old;
+      return {
+        ...old,
+        page: {
+          ...old.page,
+          chatRoomId: roomId,
+          features: { ...old.page.features, groupChat: true },
+        },
+      };
+    });
+  }, [followersQ.data?.chatRoomId, id, detailQ.data, qc]);
+
   React.useEffect(() => {
     if (id) void connectRecordView(id);
   }, [id]);
+
+  const refreshMembersAndPage = React.useCallback(async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["connect-page-followers", id] }),
+      qc.invalidateQueries({ queryKey: ["connect-page", id] }),
+    ]);
+  }, [qc, id]);
 
   /** After Cashfree redirect: refresh subscription state and strip query params (avoids broken `{subscription_status}` macros). */
   React.useEffect(() => {
@@ -446,7 +473,11 @@ export default function ConnectPageDetailPage() {
                     onClick={() => setFollowersOpen((v) => !v)}
                     className="underline decoration-slate-300 underline-offset-2 transition hover:text-primary hover:decoration-primary dark:decoration-zinc-600"
                   >
-                    {(page.followerCount ?? 0) + 1} Members
+                    {Math.max(
+                      0,
+                      (page.followerCount ?? 0) + (isCommunityPage ? 0 : 1),
+                    )}{" "}
+                    Members
                   </button>
                   )}
                   <span>{page.viewCount ?? 0} views</span>
@@ -573,10 +604,20 @@ export default function ConnectPageDetailPage() {
           {followersOpen && (
             <Card className="mt-6 border-slate-200 dark:border-zinc-700">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-base">Members</CardTitle>
+                <div>
+                  <CardTitle className="text-base">Members</CardTitle>
+                  {(isOwner || followersQ.data?.myGroupRole === "admin") && (
+                    <CardDescription className="mt-0.5">
+                      Owner + up to 2 co-admins. Co-admins nominate; owner approves.
+                    </CardDescription>
+                  )}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setFollowersOpen(false)}
+                  onClick={() => {
+                    setFollowersOpen(false);
+                    setAdminActionBusyId(null);
+                  }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
                 >
                   <X className="h-4 w-4" />
@@ -588,12 +629,24 @@ export default function ConnectPageDetailPage() {
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : followersQ.isError ? (
-                  <p className="text-sm text-destructive">Could not load followers.</p>
-                ) : (followersQ.data?.followers ?? []).length === 0 ? (
-                  <p className="text-sm text-slate-500 dark:text-zinc-400">No followers yet.</p>
+                  <p className="text-sm text-destructive">Could not load members.</p>
                 ) : (
                   (() => {
-                    const members = followersQ.data?.followers ?? [];
+                    const rawMembers = followersQ.data?.followers ?? [];
+                    const ownerUserId =
+                      page.userId && typeof page.userId === "object"
+                        ? (page.userId as { _id?: string })._id
+                        : typeof page.userId === "string"
+                          ? page.userId
+                          : null;
+                    const members = isCommunityPage && ownerUserId
+                      ? rawMembers.filter((m) => m._id !== ownerUserId)
+                      : rawMembers;
+                    if (members.length === 0) {
+                      return (
+                        <p className="text-sm text-slate-500 dark:text-zinc-400">No members yet.</p>
+                      );
+                    }
                     const myGroupRole = followersQ.data?.myGroupRole ?? (isOwner ? "owner" : "member");
                     const effectiveRole = isOwner ? "owner" : myGroupRole;
                     const chatRoomId = followersQ.data?.chatRoomId || page.chatRoomId || null;
@@ -608,165 +661,212 @@ export default function ConnectPageDetailPage() {
                       if (role === "pending") return "Pending";
                       return null;
                     };
-                    return members.map((f: ConnectFollower) => (
-                    <div
-                      key={f._id}
-                      className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-slate-50 dark:hover:bg-zinc-800/50"
-                    >
-                      {f.role === "pending" || f.role === "pending_admin" ? (
-                        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
-                          {f.profilePic ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
-                              <User className="h-4 w-4" />
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <Link href={`/profile/${f._id}`} className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
-                          {f.profilePic ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
-                              <User className="h-4 w-4" />
-                            </div>
-                          )}
-                        </Link>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <p className="truncate text-sm font-medium leading-5 text-slate-900 dark:text-white">
-                            {f.fullName ?? f.username ?? "User"}
+                    const runAdminAction = async (memberId: string, action: () => Promise<void>, okMsg: string) => {
+                      if (adminActionBusyId) return;
+                      setAdminActionBusyId(memberId);
+                      try {
+                        await action();
+                        toast.success(okMsg);
+                        await refreshMembersAndPage();
+                      } catch (e) {
+                        toast.error(getFriendlyErrorMessage(e));
+                      } finally {
+                        setAdminActionBusyId(null);
+                      }
+                    };
+                    return (
+                      <>
+                        {canManageAdmins && !chatRoomId && !followersQ.isFetching ? (
+                          <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                            Group chat is still setting up. Close and reopen Members, then try again.
                           </p>
-                          {roleLabel(f.role) && (
-                            <span
-                              className={cn(
-                                "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-                                f.role === "owner" || f.role === "pending" || f.role === "pending_admin"
-                                  ? "bg-amber-500/10 text-amber-600"
-                                  : "bg-primary/10 text-primary",
-                              )}
+                        ) : null}
+                        {members.map((f: ConnectFollower) => {
+                          const busy = adminActionBusyId === f._id;
+                          const canPromote = !!chatRoomId && canManageAdmins && f.role === "member" && seatsOpen;
+                          const canDemote = !!chatRoomId && isGroupOwner && f.role === "admin";
+                          const canDecideAdmin = !!chatRoomId && isGroupOwner && f.role === "pending_admin";
+                          return (
+                            <div
+                              key={f._id}
+                              className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-slate-50 dark:hover:bg-zinc-800/50"
                             >
-                              {roleLabel(f.role)}
-                            </span>
-                          )}
-                        </div>
-                        {f.username && (
-                          <p className="truncate text-xs leading-[18px] text-slate-500 dark:text-zinc-400">@{f.username}</p>
-                        )}
-                      </div>
-                      {f.role === "pending" && isOwner && (
-                        <div className="flex shrink-0 gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              try {
-                                await connectAcceptFollowRequest(page._id, f._id);
-                                toast.success("Request accepted");
-                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
-                                await qc.invalidateQueries({ queryKey: ["connect-page", id] });
-                              } catch (e) {
-                                toast.error(getFriendlyErrorMessage(e));
-                              }
-                            }}
-                          >
-                            Accept
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={async () => {
-                              try {
-                                await connectRejectFollowRequest(page._id, f._id);
-                                toast.success("Request rejected");
-                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
-                              } catch (e) {
-                                toast.error(getFriendlyErrorMessage(e));
-                              }
-                            }}
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                      )}
-                      {chatRoomId && isGroupOwner && f.role === "pending_admin" && (
-                        <div className="flex shrink-0 gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              try {
-                                await connectAcceptGroupAdmin(chatRoomId, f._id);
-                                toast.success("Admin approved");
-                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
-                              } catch (e) {
-                                toast.error(getFriendlyErrorMessage(e));
-                              }
-                            }}
-                          >
-                            Approve admin
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={async () => {
-                              try {
-                                await connectRejectGroupAdmin(chatRoomId, f._id);
-                                toast.success("Nomination rejected");
-                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
-                              } catch (e) {
-                                toast.error(getFriendlyErrorMessage(e));
-                              }
-                            }}
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                      )}
-                      {chatRoomId && canManageAdmins && f.role === "member" && seatsOpen && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              await connectPromoteGroupAdmin(chatRoomId, f._id);
-                              toast.success(
-                                isGroupOwner
-                                  ? "Promoted to admin"
-                                  : "Nomination sent to owner",
-                              );
-                              await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
-                            } catch (e) {
-                              toast.error(getFriendlyErrorMessage(e));
-                            }
-                          }}
-                        >
-                          {isGroupOwner ? "Make admin" : "Nominate"}
-                        </Button>
-                      )}
-                      {chatRoomId && isGroupOwner && f.role === "admin" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={async () => {
-                            try {
-                              await connectDemoteGroupAdmin(chatRoomId, f._id);
-                              toast.success("Admin demoted");
-                              await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
-                            } catch (e) {
-                              toast.error(getFriendlyErrorMessage(e));
-                            }
-                          }}
-                        >
-                          Demote
-                        </Button>
-                      )}
-                    </div>
-                    ));
+                              {f.role === "pending" || f.role === "pending_admin" ? (
+                                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                                  {f.profilePic ? (
+                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                    <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
+                                      <User className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <Link
+                                  href={`/profile/${f._id}`}
+                                  className="flex min-w-0 flex-1 items-center gap-3"
+                                >
+                                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                                    {f.profilePic ? (
+                                      /* eslint-disable-next-line @next/next/no-img-element */
+                                      <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
+                                        <User className="h-4 w-4" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                      <p className="truncate text-sm font-medium leading-5 text-slate-900 dark:text-white">
+                                        {f.fullName ?? f.username ?? "User"}
+                                      </p>
+                                      {roleLabel(f.role) && (
+                                        <span
+                                          className={cn(
+                                            "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                                            f.role === "owner"
+                                              ? "bg-amber-500/10 text-amber-600"
+                                              : "bg-primary/10 text-primary",
+                                          )}
+                                        >
+                                          {roleLabel(f.role)}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {f.username && (
+                                      <p className="truncate text-xs leading-[18px] text-slate-500 dark:text-zinc-400">
+                                        @{f.username}
+                                      </p>
+                                    )}
+                                  </div>
+                                </Link>
+                              )}
+                              {(f.role === "pending" || f.role === "pending_admin") && (
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex min-w-0 items-center gap-1.5">
+                                    <p className="truncate text-sm font-medium leading-5 text-slate-900 dark:text-white">
+                                      {f.fullName ?? f.username ?? "User"}
+                                    </p>
+                                    {roleLabel(f.role) && (
+                                      <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-amber-600">
+                                        {roleLabel(f.role)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {f.username && (
+                                    <p className="truncate text-xs leading-[18px] text-slate-500 dark:text-zinc-400">
+                                      @{f.username}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                                {f.role === "pending" && isOwner && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!!adminActionBusyId}
+                                      onClick={() =>
+                                        void runAdminAction(
+                                          f._id,
+                                          () => connectAcceptFollowRequest(page._id, f._id),
+                                          "Request accepted",
+                                        )
+                                      }
+                                    >
+                                      {busy ? "…" : "Accept"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={!!adminActionBusyId}
+                                      onClick={() =>
+                                        void runAdminAction(
+                                          f._id,
+                                          () => connectRejectFollowRequest(page._id, f._id),
+                                          "Request rejected",
+                                        )
+                                      }
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                )}
+                                {canDecideAdmin && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={!!adminActionBusyId}
+                                      onClick={() =>
+                                        void runAdminAction(
+                                          f._id,
+                                          () => connectAcceptGroupAdmin(chatRoomId!, f._id),
+                                          "Admin approved",
+                                        )
+                                      }
+                                    >
+                                      {busy ? "…" : "Approve admin"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={!!adminActionBusyId}
+                                      onClick={() =>
+                                        void runAdminAction(
+                                          f._id,
+                                          () => connectRejectGroupAdmin(chatRoomId!, f._id),
+                                          "Nomination rejected",
+                                        )
+                                      }
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                )}
+                                {canPromote && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={!!adminActionBusyId}
+                                    onClick={() =>
+                                      void runAdminAction(
+                                        f._id,
+                                        () => connectPromoteGroupAdmin(chatRoomId!, f._id),
+                                        isGroupOwner
+                                          ? "Promoted to admin"
+                                          : "Nomination sent to owner",
+                                      )
+                                    }
+                                  >
+                                    {busy ? "…" : isGroupOwner ? "Make admin" : "Nominate"}
+                                  </Button>
+                                )}
+                                {canDemote && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={!!adminActionBusyId}
+                                    onClick={() =>
+                                      void runAdminAction(
+                                        f._id,
+                                        () => connectDemoteGroupAdmin(chatRoomId!, f._id),
+                                        "Admin demoted",
+                                      )
+                                    }
+                                  >
+                                    {busy ? "…" : "Demote"}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
+                    );
                   })()
                 )}
               </CardContent>
@@ -793,9 +893,9 @@ export default function ConnectPageDetailPage() {
             </Card>
           )}
 
-          {!isPrivateLocked && page.features?.groupChat && page.chatRoomId && (
+          {!isPrivateLocked && (page.features?.groupChat || followersQ.data?.chatRoomId) && (page.chatRoomId || followersQ.data?.chatRoomId) && (
             <Link
-              href={`/chat/room/${page.chatRoomId}`}
+              href={`/chat/room/${page.chatRoomId || followersQ.data?.chatRoomId}`}
               className="mt-6 flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 transition hover:border-primary/30 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/50 dark:hover:border-primary/30"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/20">
@@ -804,7 +904,7 @@ export default function ConnectPageDetailPage() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-slate-900 dark:text-white">Group Chat</p>
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  {(page.followerCount ?? 0) + 1} members active
+                  {Math.max(0, (page.followerCount ?? 0) + (isCommunityPage ? 0 : 1))} members active
                 </p>
               </div>
               <svg className="h-4 w-4 text-slate-400 dark:text-zinc-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">

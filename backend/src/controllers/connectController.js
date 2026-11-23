@@ -1333,11 +1333,20 @@ const unfollowPage = async (req, res) => {
       const page = await ConnectPage.findById(connectPageId).select('chatRoomId');
       if (page?.chatRoomId) {
         await Chat.findByIdAndUpdate(page.chatRoomId, {
-          $pull: {
-            participants: followerId,
-            admins: { userId: followerId },
-          },
+          $pull: { participants: followerId },
         });
+        // Explicitly strip admin / pending-admin seats (nested $pull by userId is unreliable)
+        const groupChat = await Chat.findById(page.chatRoomId).select('admins');
+        if (groupChat && Array.isArray(groupChat.admins) && groupChat.admins.length) {
+          const before = groupChat.admins.length;
+          groupChat.admins = groupChat.admins.filter(
+            (a) => (a.userId?._id || a.userId)?.toString() !== followerId.toString()
+          );
+          if (groupChat.admins.length !== before) {
+            groupChat.markModified('admins');
+            await groupChat.save();
+          }
+        }
       }
     }
 
@@ -1739,7 +1748,7 @@ const getPageFollowers = async (req, res) => {
     }
 
     if (resolvedChatRoomId && chatAdmins.length === 0) {
-      const groupChat = await Chat.findById(resolvedChatRoomId).select('admins type').lean();
+      const groupChat = await Chat.findById(resolvedChatRoomId).select('admins type participants').lean();
       if (groupChat) {
         if (!Array.isArray(groupChat.admins)) groupChat.admins = [];
         const ownerId = connectPage.userId?._id || connectPage.userId;
@@ -1753,6 +1762,24 @@ const getPageFollowers = async (req, res) => {
         if (currentUserIdForOwner) {
           myGroupRole = resolveGroupRole(chatAdmins, currentUserIdForOwner);
           if (viewerIsOwner) myGroupRole = 'owner';
+        }
+
+        // Keep chat participants in sync with active followers so promote works
+        if (viewerIsOwner) {
+          const participantIds = new Set(
+            (groupChat.participants || []).map((p) => p?.toString()).filter(Boolean)
+          );
+          const missingFollowerIds = follows
+            .map((f) => f.followerId?._id || f.followerId)
+            .filter((fid) => fid && !participantIds.has(fid.toString()));
+          if (ownerId && !participantIds.has(ownerId.toString())) {
+            missingFollowerIds.push(ownerId);
+          }
+          if (missingFollowerIds.length > 0) {
+            await Chat.findByIdAndUpdate(resolvedChatRoomId, {
+              $addToSet: { participants: { $each: missingFollowerIds } },
+            }).catch(() => {});
+          }
         }
       }
     }

@@ -206,6 +206,9 @@ export default function ConnectPageDetailScreen() {
   const [followersLoading, setFollowersLoading] = useState(false);
   const [myGroupRole, setMyGroupRole] = useState<'owner' | 'admin' | 'member' | 'pending_admin'>('member');
   const [membersChatRoomId, setMembersChatRoomId] = useState<string | null>(null);
+  /** In-sheet feedback only — never nest Alert/CustomAlert Modals over Members (iOS touch lock). */
+  const [membersFeedback, setMembersFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [membersActionBusy, setMembersActionBusy] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [showSubscriptionManagementModal, setShowSubscriptionManagementModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
@@ -298,6 +301,12 @@ export default function ConnectPageDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       loadPageDetail();
+      // Clear any leftover Members modal / nested-alert lock if user navigated away mid-action
+      return () => {
+        setShowFollowers(false);
+        setMembersFeedback(null);
+        setMembersActionBusy(false);
+      };
     }, [loadPageDetail])
   );
 
@@ -825,34 +834,6 @@ export default function ConnectPageDetailScreen() {
       : []),
   ];
 
-  const handleShowFollowers = async () => {
-    if (!id) return;
-    setShowFollowers(true);
-    setFollowersLoading(true);
-    try {
-      const response = await getPageFollowers(id);
-      let list = (response.followers || []).filter(Boolean);
-      const isCommunityPage = (page?.type as string) === 'community' || page?.category === 'community';
-      if (isCommunityPage) {
-        const creatorId = page && typeof page.userId === 'object' && page.userId ? page.userId._id : page?.userId;
-        if (creatorId) {
-          list = list.filter((m: any) => m._id.toString() !== creatorId.toString());
-        }
-      }
-      setFollowers(list);
-      setMyGroupRole(response.myGroupRole || (isOwner ? 'owner' : 'member'));
-      const roomId = response.chatRoomId || page?.chatRoomId || null;
-      setMembersChatRoomId(roomId);
-      if (roomId && page && !page.chatRoomId) {
-        setPage({ ...page, chatRoomId: roomId, features: { ...page.features, groupChat: true } });
-      }
-    } catch (error) {
-      logger.error('Error loading followers:', error);
-    } finally {
-      setFollowersLoading(false);
-    }
-  };
-
   const roleBadgeLabel = (role: ConnectGroupRole) => {
     switch (role) {
       case 'owner': return 'Owner';
@@ -863,17 +844,52 @@ export default function ConnectPageDetailScreen() {
     }
   };
 
+  const applyMembersResponse = (response: Awaited<ReturnType<typeof getPageFollowers>>) => {
+    let list = (response.followers || []).filter(Boolean);
+    const isCommunityPage = (page?.type as string) === 'community' || page?.category === 'community';
+    if (isCommunityPage) {
+      const creatorId = page && typeof page.userId === 'object' && page.userId ? page.userId._id : page?.userId;
+      if (creatorId) {
+        list = list.filter((m: any) => m._id.toString() !== creatorId.toString());
+      }
+    }
+    setFollowers(list);
+    setMyGroupRole(response.myGroupRole || (isOwner ? 'owner' : 'member'));
+    const roomId = response.chatRoomId || page?.chatRoomId || null;
+    setMembersChatRoomId(roomId ? String(roomId) : null);
+    if (roomId && page && !page.chatRoomId) {
+      setPage({ ...page, chatRoomId: String(roomId), features: { ...page.features, groupChat: true } });
+    }
+  };
+
+  const closeMembersModal = useCallback(() => {
+    setShowFollowers(false);
+    setMembersFeedback(null);
+    setMembersActionBusy(false);
+  }, []);
+
+  const handleShowFollowers = async () => {
+    if (!id) return;
+    setMembersFeedback(null);
+    setMembersActionBusy(false);
+    setShowFollowers(true);
+    setFollowersLoading(true);
+    try {
+      const response = await getPageFollowers(id);
+      applyMembersResponse(response);
+    } catch (error) {
+      logger.error('Error loading followers:', error);
+      setMembersFeedback({ type: 'error', text: 'Failed to load members' });
+    } finally {
+      setFollowersLoading(false);
+    }
+  };
+
   const refreshMembersList = async () => {
     if (!id) return;
     try {
       const response = await getPageFollowers(id);
-      setFollowers((response.followers || []).filter(Boolean));
-      setMyGroupRole(response.myGroupRole || (isOwner ? 'owner' : 'member'));
-      const roomId = response.chatRoomId || page?.chatRoomId || null;
-      setMembersChatRoomId(roomId);
-      if (roomId && page && !page.chatRoomId) {
-        setPage({ ...page, chatRoomId: roomId, features: { ...page.features, groupChat: true } });
-      }
+      applyMembersResponse(response);
     } catch (e) {
       logger.warn('Failed to refresh members:', e);
     }
@@ -1162,13 +1178,14 @@ export default function ConnectPageDetailScreen() {
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
-      {/* Background Depth Layer */}
+      {/* Background Depth Layer — never steal touches from header / scroll */}
       {page.bannerImage ? (
         <Image
           source={{ uri: optimizeCloudinaryUrl(page.bannerImage, { width: 200, height: 200 }) }}
           style={[StyleSheet.absoluteFill, { opacity: isDark ? 0.12 : 0.22 }]}
           resizeMode="cover"
           blurRadius={Platform.OS === 'android' ? 25 : 50}
+          pointerEvents="none"
         />
       ) : page.profileImage ? (
         <Image
@@ -1176,6 +1193,7 @@ export default function ConnectPageDetailScreen() {
           style={[StyleSheet.absoluteFill, { opacity: isDark ? 0.12 : 0.22 }]}
           resizeMode="cover"
           blurRadius={Platform.OS === 'android' ? 25 : 50}
+          pointerEvents="none"
         />
       ) : null}
       <LinearGradient
@@ -1185,6 +1203,7 @@ export default function ConnectPageDetailScreen() {
             : ['rgba(248, 250, 252, 0.85)', 'rgba(241, 245, 249, 0.95)']
         }
         style={StyleSheet.absoluteFill}
+        pointerEvents="none"
       />
 
       {/* Glass header in document flow (not absolute) so banner never covers
@@ -1236,10 +1255,11 @@ export default function ConnectPageDetailScreen() {
 
       <ScrollView
         style={styles.scrollContent}
-        contentContainerStyle={{ paddingTop: 0 }}
+        contentContainerStyle={{ paddingTop: 0, paddingBottom: Math.max(insets.bottom, 24) }}
         showsVerticalScrollIndicator={false}
         contentInsetAdjustmentBehavior="never"
         automaticallyAdjustContentInsets={false}
+        keyboardShouldPersistTaps="handled"
         bounces
       >
         {/* Banner */}
@@ -1330,9 +1350,11 @@ export default function ConnectPageDetailScreen() {
             intensity={50}
             tint={isDark ? 'dark' : 'light'}
             style={StyleSheet.absoluteFill}
+            pointerEvents="none"
             {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
           />
           <View
+            pointerEvents="none"
             style={[
               StyleSheet.absoluteFill,
               {
@@ -1562,9 +1584,11 @@ export default function ConnectPageDetailScreen() {
               intensity={45}
               tint={isDark ? 'dark' : 'light'}
               style={StyleSheet.absoluteFill}
+              pointerEvents="none"
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <View
+              pointerEvents="none"
               style={[
                 StyleSheet.absoluteFill,
                 {
@@ -1626,9 +1650,11 @@ export default function ConnectPageDetailScreen() {
               intensity={45}
               tint={isDark ? 'dark' : 'light'}
               style={StyleSheet.absoluteFill}
+              pointerEvents="none"
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <View
+              pointerEvents="none"
               style={[
                 StyleSheet.absoluteFill,
                 {
@@ -1691,9 +1717,11 @@ export default function ConnectPageDetailScreen() {
               intensity={45}
               tint={isDark ? 'dark' : 'light'}
               style={StyleSheet.absoluteFill}
+              pointerEvents="none"
               {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <View
+              pointerEvents="none"
               style={[
                 StyleSheet.absoluteFill,
                 {
@@ -1862,27 +1890,57 @@ export default function ConnectPageDetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Followers Modal */}
+      {/* Followers Modal — keep all feedback in-sheet (no nested Alert/CustomAlert Modals) */}
       <Modal
         visible={showFollowers}
         animationType="slide"
         transparent
-        onRequestClose={() => setShowFollowers(false)}
+        onRequestClose={closeMembersModal}
+        statusBarTranslucent
       >
         <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeMembersModal} accessibilityLabel="Dismiss members" />
           <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-            {/* Modal Header */}
             <View style={[styles.modalHeader, { borderBottomColor: theme.colors.border }]}>
               <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
                 Members
               </Text>
               <TouchableOpacity
-                onPress={() => setShowFollowers(false)}
+                onPress={closeMembersModal}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons name="close" size={24} color={theme.colors.text} />
               </TouchableOpacity>
             </View>
+
+            {membersFeedback ? (
+              <View
+                style={[
+                  styles.membersFeedbackBanner,
+                  {
+                    backgroundColor: membersFeedback.type === 'success'
+                      ? (isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(16, 124, 65, 0.1)')
+                      : (isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)'),
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    fontWeight: '600',
+                    color: membersFeedback.type === 'success'
+                      ? (isDark ? '#50C878' : '#107C41')
+                      : (theme.colors.error || '#EF4444'),
+                  }}
+                >
+                  {membersFeedback.text}
+                </Text>
+                <TouchableOpacity onPress={() => setMembersFeedback(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             {followersLoading ? (
               <View style={styles.modalLoading}>
@@ -1895,11 +1953,12 @@ export default function ConnectPageDetailScreen() {
             ) : (
               <FlatList
                 data={followers}
-                keyExtractor={(item) => item._id}
+                keyExtractor={(item) => String(item._id)}
+                style={{ flexGrow: 0 }}
+                keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => {
                   const badge = roleBadgeLabel(item.role);
                   const chatId = membersChatRoomId || page?.chatRoomId || null;
-                  // Page owner always counts as group owner for admin actions
                   const effectiveGroupRole = isOwner ? 'owner' : myGroupRole;
                   const isGroupOwner = effectiveGroupRole === 'owner';
                   const canManageAdmins = isGroupOwner || effectiveGroupRole === 'admin';
@@ -1909,72 +1968,54 @@ export default function ConnectPageDetailScreen() {
                   const canDemote = !!chatId && isGroupOwner && item.role === 'admin';
                   const canDecideAdminNomination =
                     !!chatId && isGroupOwner && item.role === 'pending_admin';
-                  const showAdminActions = canPromote || canDemote || canDecideAdminNomination
-                    || (isOwner && item.role === 'pending');
 
                   const openProfile = () => {
-                    setShowFollowers(false);
-                    router.push(`/profile/${item._id}`);
+                    closeMembersModal();
+                    // Defer navigation so Modal unmounts before stack push (avoids iOS gesture lock)
+                    setTimeout(() => {
+                      router.push(`/profile/${item._id}`);
+                    }, 50);
                   };
 
                   const doPromote = async () => {
+                    if (membersActionBusy) return;
                     if (!chatId) {
-                      Alert.alert('Group chat needed', 'Open Members again to set up group chat, then retry.');
+                      setMembersFeedback({ type: 'error', text: 'Group chat is still setting up — close and reopen Members.' });
                       await refreshMembersList();
                       return;
                     }
+                    setMembersActionBusy(true);
                     try {
                       await promoteGroupAdmin(chatId, item._id);
                       await refreshMembersList();
-                      showSuccess(
-                        isGroupOwner
-                          ? 'Member promoted to admin'
-                          : 'Admin nomination sent to owner'
-                      );
+                      setMembersFeedback({
+                        type: 'success',
+                        text: isGroupOwner
+                          ? `${item.fullName || item.username || 'Member'} is now an admin`
+                          : 'Admin nomination sent to owner',
+                      });
                     } catch (e: any) {
-                      Alert.alert('Error', e?.message || 'Failed to promote');
+                      setMembersFeedback({ type: 'error', text: e?.message || 'Failed to promote' });
+                    } finally {
+                      setMembersActionBusy(false);
                     }
                   };
 
                   const doDemote = async () => {
-                    if (!chatId) return;
+                    if (membersActionBusy || !chatId) return;
+                    setMembersActionBusy(true);
                     try {
                       await demoteGroupAdmin(chatId, item._id);
                       await refreshMembersList();
-                      showSuccess('Admin demoted');
+                      setMembersFeedback({
+                        type: 'success',
+                        text: `${item.fullName || item.username || 'Member'} is no longer an admin`,
+                      });
                     } catch (e: any) {
-                      Alert.alert('Error', e?.message || 'Failed to demote');
+                      setMembersFeedback({ type: 'error', text: e?.message || 'Failed to demote' });
+                    } finally {
+                      setMembersActionBusy(false);
                     }
-                  };
-
-                  const openMemberActions = () => {
-                    if (item.role === 'pending' || item.role === 'pending_admin') return;
-                    if (!canPromote && !canDemote) {
-                      openProfile();
-                      return;
-                    }
-                    const buttons: {
-                      text: string;
-                      style?: 'cancel' | 'destructive' | 'default';
-                      onPress?: () => void;
-                    }[] = [
-                      { text: 'View profile', onPress: openProfile },
-                    ];
-                    if (canPromote) {
-                      buttons.push({
-                        text: isGroupOwner ? 'Make group admin' : 'Nominate as admin',
-                        onPress: () => { void doPromote(); },
-                      });
-                    }
-                    if (canDemote) {
-                      buttons.push({
-                        text: 'Dismiss as admin',
-                        style: 'destructive',
-                        onPress: () => { void doDemote(); },
-                      });
-                    }
-                    buttons.push({ text: 'Cancel', style: 'cancel' });
-                    Alert.alert(item.fullName || item.username || 'Member', undefined, buttons);
                   };
 
                   const badgeBg = item.role === 'owner'
@@ -1990,8 +2031,9 @@ export default function ConnectPageDetailScreen() {
                   <View style={styles.followerItem}>
                     <TouchableOpacity
                       style={styles.followerMainTap}
-                      onPress={showAdminActions && (canPromote || canDemote) ? openMemberActions : openProfile}
+                      onPress={openProfile}
                       activeOpacity={0.7}
+                      disabled={membersActionBusy}
                     >
                       {item.profilePic ? (
                         <Image source={{ uri: item.profilePic }} style={styles.followerAvatar} />
@@ -2023,14 +2065,16 @@ export default function ConnectPageDetailScreen() {
                       {isOwner && item.role === 'pending' && page && (
                         <>
                           <TouchableOpacity
+                            disabled={membersActionBusy}
                             onPress={async () => {
                               try {
                                 await acceptConnectFollowRequest(page._id, item._id);
                                 setFollowers((prev) =>
                                   prev.map((f) => (f._id === item._id ? { ...f, role: 'member' } : f))
                                 );
+                                setMembersFeedback({ type: 'success', text: 'Request accepted' });
                               } catch (e: any) {
-                                Alert.alert('Error', e?.message || 'Failed to accept');
+                                setMembersFeedback({ type: 'error', text: e?.message || 'Failed to accept' });
                               }
                             }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -2038,12 +2082,14 @@ export default function ConnectPageDetailScreen() {
                             <Ionicons name="checkmark-circle" size={26} color={isDark ? '#50C878' : '#107C41'} />
                           </TouchableOpacity>
                           <TouchableOpacity
+                            disabled={membersActionBusy}
                             onPress={async () => {
                               try {
                                 await rejectConnectFollowRequest(page._id, item._id);
                                 setFollowers((prev) => prev.filter((f) => f._id !== item._id));
+                                setMembersFeedback({ type: 'success', text: 'Request rejected' });
                               } catch (e: any) {
-                                Alert.alert('Error', e?.message || 'Failed to reject');
+                                setMembersFeedback({ type: 'error', text: e?.message || 'Failed to reject' });
                               }
                             }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -2055,12 +2101,17 @@ export default function ConnectPageDetailScreen() {
                       {canDecideAdminNomination && (
                         <>
                           <TouchableOpacity
+                            disabled={membersActionBusy}
                             onPress={async () => {
+                              setMembersActionBusy(true);
                               try {
                                 await acceptGroupAdmin(chatId!, item._id);
                                 await refreshMembersList();
+                                setMembersFeedback({ type: 'success', text: 'Admin approved' });
                               } catch (e: any) {
-                                Alert.alert('Error', e?.message || 'Failed to accept');
+                                setMembersFeedback({ type: 'error', text: e?.message || 'Failed to accept' });
+                              } finally {
+                                setMembersActionBusy(false);
                               }
                             }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -2068,12 +2119,17 @@ export default function ConnectPageDetailScreen() {
                             <Ionicons name="checkmark-circle" size={26} color={isDark ? '#50C878' : '#107C41'} />
                           </TouchableOpacity>
                           <TouchableOpacity
+                            disabled={membersActionBusy}
                             onPress={async () => {
+                              setMembersActionBusy(true);
                               try {
                                 await rejectGroupAdmin(chatId!, item._id);
                                 await refreshMembersList();
+                                setMembersFeedback({ type: 'success', text: 'Nomination rejected' });
                               } catch (e: any) {
-                                Alert.alert('Error', e?.message || 'Failed to reject');
+                                setMembersFeedback({ type: 'error', text: e?.message || 'Failed to reject' });
+                              } finally {
+                                setMembersActionBusy(false);
                               }
                             }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -2084,10 +2140,14 @@ export default function ConnectPageDetailScreen() {
                       )}
                       {canPromote && (
                         <TouchableOpacity
+                          disabled={membersActionBusy}
                           onPress={() => { void doPromote(); }}
                           style={[
                             styles.memberActionChip,
-                            { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.1)' },
+                            {
+                              backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.1)',
+                              opacity: membersActionBusy ? 0.5 : 1,
+                            },
                           ]}
                         >
                           <Text style={[styles.memberActionChipText, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
@@ -2097,24 +2157,19 @@ export default function ConnectPageDetailScreen() {
                       )}
                       {canDemote && (
                         <TouchableOpacity
+                          disabled={membersActionBusy}
                           onPress={() => { void doDemote(); }}
                           style={[
                             styles.memberActionChip,
-                            { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' },
+                            {
+                              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                              opacity: membersActionBusy ? 0.5 : 1,
+                            },
                           ]}
                         >
                           <Text style={[styles.memberActionChipText, { color: theme.colors.textSecondary }]}>
                             Demote
                           </Text>
-                        </TouchableOpacity>
-                      )}
-                      {(canPromote || canDemote) && (
-                        <TouchableOpacity
-                          onPress={openMemberActions}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          style={styles.memberMoreBtn}
-                        >
-                          <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.textSecondary} />
                         </TouchableOpacity>
                       )}
                     </View>
@@ -3277,6 +3332,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    zIndex: 2,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -3295,6 +3351,17 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  membersFeedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
   followerItem: {
     flexDirection: 'row',
@@ -3378,11 +3445,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
-  },
-  memberMoreBtn: {
-    padding: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   // Price Modal
   priceModalOverlay: {
