@@ -594,13 +594,34 @@ exports.getChatByRoomId = async (req, res) => {
     // Filter out null participants (e.g. admin-created pages with SuperAdmin userId)
     chat.participants = (chat.participants || []).filter(p => p != null);
 
-    // Verify the requesting user is a participant (connect_page chats are open to all)
+    // Verify the requesting user is a participant. Connect group chats require
+    // owner or *active* ConnectFollow — no auto-join (private pending must not bypass).
     const isParticipant = chat.participants.some(
       (p) => (p._id || p).toString() === userId.toString()
     );
     if (!isParticipant) {
-      if (chat.type === 'connect_page') {
-        // Auto-join: add user as participant for connect_page group chats
+      if (chat.type === 'connect_page' && chat.connectPageId) {
+        const ConnectPage = require('../models/ConnectPage');
+        const ConnectFollow = require('../models/ConnectFollow');
+        const pageId = chat.connectPageId._id || chat.connectPageId;
+        const page = await ConnectPage.findById(pageId).select('userId type').lean();
+        const isOwner = page?.userId && page.userId.toString() === userId.toString();
+        let isActiveFollower = false;
+        if (!isOwner && page) {
+          const follow = await ConnectFollow.findOne({
+            followerId: userId,
+            connectPageId: pageId,
+            status: 'active',
+          }).select('_id').lean();
+          isActiveFollower = !!follow;
+        }
+        const audienceOk =
+          isOwner ||
+          isActiveFollower ||
+          (page && page.type !== 'private' && page.type !== 'followers');
+        if (!audienceOk) {
+          return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not allowed to join this chat');
+        }
         await Chat.findByIdAndUpdate(chatId, { $addToSet: { participants: userId } });
         const joiningUser = await mongoose.model('User').findById(userId).select('fullName username profilePic profilePicStorageKey').lean();
         if (joiningUser) chat.participants.push(joiningUser);

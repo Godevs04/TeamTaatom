@@ -193,6 +193,19 @@ const createSubscription = async (req, res) => {
       return sendError(res, 'BUSINESS_INVALID_OPERATION', 'You cannot subscribe to your own page');
     }
 
+    // Audience gate: private/followers pages require an active Connect follow
+    if (page.type === 'private' || page.type === 'followers') {
+      const ConnectFollow = require('../models/ConnectFollow');
+      const follow = await ConnectFollow.findOne({
+        followerId: userId,
+        connectPageId,
+        status: 'active',
+      }).select('_id').lean();
+      if (!follow) {
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Follow this community before subscribing');
+      }
+    }
+
     // Must have subscription feature enabled and an approved price
     if (!page.features.subscription) {
       return sendError(res, 'BUSINESS_INVALID_OPERATION', 'This page does not have subscriptions enabled');

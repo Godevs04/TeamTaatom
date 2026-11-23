@@ -31,6 +31,8 @@ import {
   getPageDetail,
   followConnectPage,
   unfollowConnectPage,
+  acceptConnectFollowRequest,
+  rejectConnectFollowRequest,
   deleteConnectPage,
   updateConnectPage,
   getPageFollowers,
@@ -56,6 +58,7 @@ import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
 import { WEB_SHARE_URL } from '../../../utils/config';
+import { getConnectShortUrl } from '../../../services/shortUrl';
 import { useSubscription } from '../../../context/SubscriptionContext';
 import { NativeModules } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -187,6 +190,8 @@ export default function ConnectPageDetailScreen() {
   const [page, setPage] = useState<ConnectPageType | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followRequestPending, setFollowRequestPending] = useState(false);
+  const [isPrivateLocked, setIsPrivateLocked] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [showFollowers, setShowFollowers] = useState(false);
   const [followers, setFollowers] = useState<ConnectFollowerUser[]>([]);
@@ -249,6 +254,16 @@ export default function ConnectPageDetailScreen() {
       setPage(response.page);
       setIsOwner(response.isOwner);
       setIsFollowing(response.isFollowing);
+      const locked =
+        response.isPrivateLocked ??
+        response.page?.isPrivateLocked ??
+        false;
+      const pending =
+        response.followRequestPending ??
+        response.page?.followRequestPending ??
+        false;
+      setIsPrivateLocked(!!locked);
+      setFollowRequestPending(!!pending);
       setDisplayPrices((response as any).subscriptionDisplayPrices);
       // Record view (non-critical, fire and forget)
       recordPageView(id);
@@ -564,28 +579,48 @@ export default function ConnectPageDetailScreen() {
     if (!page || followLoading) return;
     try {
       setFollowLoading(true);
-      // Optimistic update
       const wasFollowing = isFollowing;
-      setIsFollowing(!wasFollowing);
-      setPage(prev =>
-        prev
-          ? { ...prev, followerCount: prev.followerCount + (wasFollowing ? -1 : 1) }
-          : prev
-      );
+      const wasPending = followRequestPending;
 
-      if (wasFollowing) {
+      if (wasFollowing || wasPending) {
+        // Unfollow / cancel pending request
+        setIsFollowing(false);
+        setFollowRequestPending(false);
+        if (wasFollowing) {
+          setIsPrivateLocked(page.type === 'private' || page.type === 'followers');
+          setPage(prev =>
+            prev ? { ...prev, followerCount: Math.max(0, prev.followerCount - 1) } : prev
+          );
+        }
         await unfollowConnectPage(page._id);
       } else {
-        await followConnectPage(page._id);
+        const wantsRequest = page.type === 'private';
+        if (wantsRequest) {
+          setFollowRequestPending(true);
+          setIsFollowing(false);
+        } else {
+          setIsFollowing(true);
+          setFollowRequestPending(false);
+          setIsPrivateLocked(false);
+          setPage(prev =>
+            prev ? { ...prev, followerCount: prev.followerCount + 1 } : prev
+          );
+        }
+        const result = await followConnectPage(page._id);
+        const pending = !!(result.followRequestPending || result.status === 'pending');
+        const following = !!(result.isFollowing || result.status === 'active');
+        setFollowRequestPending(pending);
+        setIsFollowing(following);
+        setIsPrivateLocked(!following && (page.type === 'private' || page.type === 'followers'));
+        if (following && wantsRequest) {
+          setPage(prev =>
+            prev ? { ...prev, followerCount: prev.followerCount + 1 } : prev
+          );
+        }
       }
     } catch (error) {
-      // Revert optimistic update
-      setIsFollowing(isFollowing);
-      setPage(prev =>
-        prev
-          ? { ...prev, followerCount: prev.followerCount + (isFollowing ? 0 : -1) }
-          : prev
-      );
+      // Reload authoritative state
+      await loadPageDetail();
       logger.error('Error toggling follow:', error);
     } finally {
       setFollowLoading(false);
@@ -646,11 +681,22 @@ export default function ConnectPageDetailScreen() {
 
   const handleSharePage = async () => {
     if (!page) return;
-    const shareUrl = `${WEB_SHARE_URL.replace(/\/$/, '')}/connect/page/${page._id}`;
+    const longUrl = `${WEB_SHARE_URL.replace(/\/$/, '')}/connect/page/${page._id}`;
+    let shareUrl = longUrl;
+    try {
+      shareUrl = await getConnectShortUrl(page._id);
+    } catch {
+      // Fall back to long Universal Link if shortener is unavailable
+      shareUrl = longUrl;
+    }
     const label = isCommunity ? 'community' : 'group';
     try {
       await Share.share({
-        message: `Check out ${page.name} on Taatom\n${shareUrl}`,
+        // iOS appends `url` after `message` — omit URL from message to avoid duplicates.
+        message:
+          Platform.OS === 'ios'
+            ? `Check out ${page.name} on Taatom`
+            : `Check out ${page.name} on Taatom\n${shareUrl}`,
         title: `Share ${page.name}`,
         ...(Platform.OS === 'ios' ? { url: shareUrl } : {}),
       });
@@ -1006,27 +1052,22 @@ export default function ConnectPageDetailScreen() {
           style={[
             styles.headerContainer,
             {
+              paddingTop: insets.top,
               backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-              top: 0,
-              paddingTop: insets.top,
-              height: 52 + insets.top,
-              marginTop: 0,
-              marginHorizontal: 0,
-              borderBottomLeftRadius: 24,
-              borderBottomRightRadius: 24,
-              borderTopLeftRadius: 0,
-              borderTopRightRadius: 0,
-              borderWidth: 0,
               borderBottomWidth: 1,
-              shadowOpacity: isDark ? 0.3 : 0.1,
-            }
+            },
           ]}
         >
           <BlurView
-            intensity={80}
+            intensity={95}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFill}
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+              },
+            ]}
           />
           <View style={styles.headerInner}>
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
@@ -1104,36 +1145,29 @@ export default function ConnectPageDetailScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Floating Glass Header */}
+      {/* Glass header in document flow (not absolute) so banner never covers
+          the status bar / Dynamic Island — matches NavBar / profile chrome. */}
       <View
         style={[
           styles.headerContainer,
           {
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            zIndex: 100,
             paddingTop: insets.top,
-            height: 52 + insets.top,
-            borderWidth: 0,
             borderBottomWidth: 1,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-            backgroundColor: 'transparent',
-          }
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(28, 115, 180, 0.15)',
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+          },
         ]}
       >
         <BlurView
-          intensity={75}
+          intensity={95}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFill}
-          {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
-        />
-        <View
           style={[
             StyleSheet.absoluteFill,
-            { backgroundColor: isDark ? 'rgba(15, 15, 15, 0.35)' : 'rgba(255, 255, 255, 0.1)' }
+            {
+              backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+            },
           ]}
+          {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
         />
         <View style={styles.headerInner}>
           <TouchableOpacity
@@ -1162,6 +1196,9 @@ export default function ConnectPageDetailScreen() {
         style={styles.scrollContent}
         contentContainerStyle={{ paddingTop: 0 }}
         showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
+        bounces
       >
         {/* Banner */}
         {page.bannerImage ? (
@@ -1305,6 +1342,7 @@ export default function ConnectPageDetailScreen() {
 
           {/* Stats & Actions Row */}
           <View style={styles.actionRow}>
+            {!isPrivateLocked && (
             <TouchableOpacity
               style={[
                 styles.statsButton,
@@ -1325,6 +1363,7 @@ export default function ConnectPageDetailScreen() {
                 Members
               </Text>
             </TouchableOpacity>
+            )}
 
             {isOwner && (
               <TouchableOpacity
@@ -1355,7 +1394,7 @@ export default function ConnectPageDetailScreen() {
               disabled={followLoading}
               activeOpacity={0.7}
             >
-              {isFollowing ? (
+              {isFollowing || followRequestPending ? (
                 <View
                   style={[
                     styles.followButtonInner,
@@ -1370,12 +1409,12 @@ export default function ConnectPageDetailScreen() {
                   ) : (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons
-                        name="checkmark-circle"
+                        name={followRequestPending ? 'time-outline' : 'checkmark-circle'}
                         size={18}
                         color={isDark ? '#38BDF8' : '#1C73B4'}
                       />
                       <Text style={[styles.followMainButtonText, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
-                        Following
+                        {followRequestPending ? 'Requested' : 'Following'}
                       </Text>
                     </View>
                   )}
@@ -1392,12 +1431,12 @@ export default function ConnectPageDetailScreen() {
                   ) : (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons
-                        name="add-circle-outline"
+                        name={page.type === 'private' ? 'lock-closed-outline' : 'add-circle-outline'}
                         size={18}
                         color="#FFFFFF"
                       />
                       <Text style={[styles.followMainButtonText, { color: '#FFFFFF' }]}>
-                        Follow
+                        {page.type === 'private' ? 'Request to Join' : 'Follow'}
                       </Text>
                     </View>
                   )}
@@ -1407,8 +1446,47 @@ export default function ConnectPageDetailScreen() {
           )}
         </View>
 
+        {/* Privacy lock — card fields only until active follow */}
+        {isPrivateLocked && !isOwner && (
+          <View
+            style={[
+              styles.section,
+              {
+                alignItems: 'center',
+                paddingVertical: 28,
+                marginTop: 12,
+                overflow: 'hidden',
+                backgroundColor: 'transparent',
+                borderWidth: 1,
+                borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
+                borderRightColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
+              },
+            ]}
+          >
+            <BlurView
+              intensity={45}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFill}
+              {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+            />
+            <Ionicons name="lock-closed-outline" size={48} color={isDark ? '#38BDF8' : '#1C73B4'} />
+            <Text style={[styles.sectionTitle, { color: theme.colors.text, marginTop: 12, textAlign: 'center' }]}>
+              {page.type === 'private' ? 'Private community' : 'Followers only'}
+            </Text>
+            <Text style={[styles.chatDescription, { color: theme.colors.textSecondary, textAlign: 'center', marginTop: 6, paddingHorizontal: 16 }]}>
+              {followRequestPending
+                ? 'Your request is pending. Content unlocks after the owner accepts.'
+                : page.type === 'private'
+                  ? 'Request to join to see website, chat, and other content.'
+                  : 'Follow this community to see website, chat, and other content.'}
+            </Text>
+          </View>
+        )}
+
         {/* Website Section */}
-        {page.features?.website && (
+        {!isPrivateLocked && page.features?.website && (
           <TouchableOpacity
             style={[
               styles.section,
@@ -1472,7 +1550,7 @@ export default function ConnectPageDetailScreen() {
         )}
 
         {/* Group Chat Section */}
-        {page.features?.groupChat && (
+        {!isPrivateLocked && page.features?.groupChat && (
           <TouchableOpacity
             style={[
               styles.section,
@@ -1537,7 +1615,7 @@ export default function ConnectPageDetailScreen() {
         )}
 
         {/* Subscription / Buy Items Section */}
-        {page.features?.subscription && (
+        {!isPrivateLocked && page.features?.subscription && (
           // COMPLIANCE HOLD: card is non-tappable while SUBSCRIPTION_COMING_SOON is true
           <View
             style={[
@@ -1780,6 +1858,7 @@ export default function ConnectPageDetailScreen() {
                   <TouchableOpacity
                     style={styles.followerItem}
                     onPress={() => {
+                      if (item.role === 'pending') return;
                       setShowFollowers(false);
                       router.push(`/profile/${item._id}`);
                     }}
@@ -1802,11 +1881,48 @@ export default function ConnectPageDetailScreen() {
                             <Text style={[styles.adminBadgeText, { color: theme.colors.primary }]}>Admin</Text>
                           </View>
                         )}
+                        {item.role === 'pending' && (
+                          <View style={[styles.adminBadge, { backgroundColor: (isDark ? '#F59E0B' : '#D97706') + '22' }]}>
+                            <Text style={[styles.adminBadgeText, { color: isDark ? '#F59E0B' : '#D97706' }]}>Pending</Text>
+                          </View>
+                        )}
                       </View>
                       <Text style={[styles.followerUsername, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                         @{item.username}
                       </Text>
                     </View>
+                    {isOwner && item.role === 'pending' && page && (
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            try {
+                              await acceptConnectFollowRequest(page._id, item._id);
+                              setFollowers((prev) =>
+                                prev.map((f) => (f._id === item._id ? { ...f, role: 'member' } : f))
+                              );
+                            } catch (e: any) {
+                              Alert.alert('Error', e?.message || 'Failed to accept');
+                            }
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="checkmark-circle" size={26} color={isDark ? '#50C878' : '#107C41'} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            try {
+                              await rejectConnectFollowRequest(page._id, item._id);
+                              setFollowers((prev) => prev.filter((f) => f._id !== item._id));
+                            } catch (e: any) {
+                              Alert.alert('Error', e?.message || 'Failed to reject');
+                            }
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="close-circle" size={26} color={theme.colors.error || '#EF4444'} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 )}
                 contentContainerStyle={{ paddingBottom: 20 }}
@@ -2288,19 +2404,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 56,
-    zIndex: 10,
-    borderRadius: 24,
+    width: '100%',
+    zIndex: 20,
+    // Flush to top — bottom corners only (match NavBar). Not absolute so
+    // scroll/banner content cannot paint over the status bar / header.
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
-    elevation: 4,
+    elevation: 8,
   },
   headerInner: {
     flexDirection: 'row',

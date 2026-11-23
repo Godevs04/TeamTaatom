@@ -515,6 +515,16 @@ function RootLayoutInner() {
           logger.debug('Update service not available (development mode):', error.message);
         }
 
+        // Store binary update prompt (App Store / Play) — separate from OTA
+        try {
+          const { checkStoreUpdate } = require('../services/storeUpdateService');
+          checkStoreUpdate({ force: false }).catch((error: any) => {
+            logger.debug('Store update check failed (non-critical):', error);
+          });
+        } catch (error: any) {
+          logger.debug('Store update service not available:', error?.message);
+        }
+
         const user = await initializeAuth();
         backgroundStartup.catch(() => {});
         

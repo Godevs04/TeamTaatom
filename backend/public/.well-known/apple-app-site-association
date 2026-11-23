@@ -1,0 +1,24 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TXFJ8ZSWUN.com.taatom.app",
+        "paths": [
+          "/s/*",
+          "/connect/page/*",
+          "/post/*",
+          "/journey/*",
+          "/trip/*",
+          "/journeys/*",
+          "/watch/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "TXFJ8ZSWUN.com.taatom.app"
+    ]
+  }
+}

@@ -2,6 +2,16 @@ const rateLimit = require('express-rate-limit');
 const RedisStore = require('rate-limit-redis').default;
 const { redisClient, reportRedisError } = require('../utils/cache');
 
+// Local Expo/web remounts + Fast Refresh can burn through the production
+// general budget in minutes. Skip global IP limiting outside production
+// (still keep endpoint-specific money/auth limiters unless explicitly disabled).
+const RATE_LIMIT_DISABLED =
+  process.env.RATE_LIMIT_DISABLED === 'true' ||
+  process.env.NODE_ENV === 'development' ||
+  process.env.NODE_ENV === 'test';
+
+const skipWhenDisabled = () => RATE_LIMIT_DISABLED;
+
 // Custom resilient store that delegates to RedisStore if Redis is ready,
 // and falls back to express-rate-limit's built-in MemoryStore otherwise.
 class ResilientRedisStore {
@@ -124,7 +134,7 @@ const isHlsMediaRequest = (req) =>
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 1000, // 1000 requests per 15 minutes
-  skip: isHlsMediaRequest,
+  skip: (req) => RATE_LIMIT_DISABLED || isHlsMediaRequest(req),
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -139,6 +149,7 @@ const generalLimiter = rateLimit({
 const strictLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // 5 requests per 15 minutes
+  skip: skipWhenDisabled,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -155,6 +166,7 @@ const createUserLimiter = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
   return rateLimit({
     windowMs,
     max: maxRequests,
+    skip: skipWhenDisabled,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -172,6 +184,7 @@ const createIPLimiter = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
   return rateLimit({
     windowMs,
     max: maxRequests,
+    skip: skipWhenDisabled,
     standardHeaders: true,
     legacyHeaders: false,
     message: {

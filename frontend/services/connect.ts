@@ -90,6 +90,10 @@ export interface ConnectPageType {
   buyItems: BuyItem[];
   status: string;
   isFollowing?: boolean;
+  /** Audience lock: private/followers page without active follow */
+  isPrivateLocked?: boolean;
+  /** Viewer has a pending join request on a private page */
+  followRequestPending?: boolean;
   // True for pages created by the current viewer. Set server-side by
   // /connect-pages so the client can hide the Follow button without an
   // extra getMyPages round-trip.
@@ -131,7 +135,7 @@ export interface ConnectFollowerUser {
   username: string;
   fullName: string;
   profilePic: string;
-  role: 'admin' | 'member';
+  role: 'admin' | 'member' | 'pending';
 }
 
 export interface ConnectFollowersResponse {
@@ -224,6 +228,9 @@ export const getPageDetail = async (pageId: string): Promise<{
   page: ConnectPageType;
   isOwner: boolean;
   isFollowing: boolean;
+  isPrivateLocked?: boolean;
+  followRequestPending?: boolean;
+  isSubscribed?: boolean;
 }> => {
   try {
     const response = await api.get(`/api/v1/connect/page/${pageId}`);
@@ -323,9 +330,14 @@ export const findUsers = async (params: {
 // Follow System (ConnectFollow)
 // ─────────────────────────────────────────────
 
-export const followConnectPage = async (connectPageId: string): Promise<void> => {
+export const followConnectPage = async (connectPageId: string): Promise<{
+  status?: 'active' | 'pending';
+  followRequestPending?: boolean;
+  isFollowing?: boolean;
+}> => {
   try {
-    await api.post('/api/v1/connect/follow', { connectPageId });
+    const response = await api.post('/api/v1/connect/follow', { connectPageId });
+    return response.data || {};
   } catch (error: any) {
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
@@ -335,6 +347,30 @@ export const followConnectPage = async (connectPageId: string): Promise<void> =>
 export const unfollowConnectPage = async (connectPageId: string): Promise<void> => {
   try {
     await api.post('/api/v1/connect/unfollow', { connectPageId });
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const acceptConnectFollowRequest = async (
+  connectPageId: string,
+  followerId: string,
+): Promise<void> => {
+  try {
+    await api.post('/api/v1/connect/follow/accept', { connectPageId, followerId });
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const rejectConnectFollowRequest = async (
+  connectPageId: string,
+  followerId: string,
+): Promise<void> => {
+  try {
+    await api.post('/api/v1/connect/follow/reject', { connectPageId, followerId });
   } catch (error: any) {
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);

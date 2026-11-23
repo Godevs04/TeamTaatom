@@ -47,6 +47,8 @@ const PUBLIC_READ_PATTERNS = [
   /^\/locale\/[^/]+\/?$/,
   /^\/trip\/[^/]+\/?$/,
   /^\/profile\/[^/]+\/?$/,
+  // Connect page detail — privacy still enforced by API (isPrivateLocked)
+  /^\/connect\/page\/[^/]+\/?$/,
 ];
 
 function isPublicRead(pathname: string) {
@@ -125,6 +127,8 @@ export async function middleware(req: NextRequest) {
             } else if (path.startsWith("/post/")) {
               const id = path.substring("/post/".length);
               path = `/trip/${id}`;
+            } else if (path.startsWith("/connect/page/")) {
+              // keep /connect/page/:id (now public-read)
             }
             const redirectUrl = req.nextUrl.clone();
             redirectUrl.pathname = path;

@@ -78,6 +78,8 @@ export type ConnectPage = {
   followerCount?: number;
   viewCount?: number;
   isFollowing?: boolean;
+  isPrivateLocked?: boolean;
+  followRequestPending?: boolean;
   status?: string;
   createdAt?: string;
   buyItems?: BuyItem[];

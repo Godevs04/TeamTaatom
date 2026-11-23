@@ -23,6 +23,8 @@ import {
   connectGetPageDetail,
   connectFollowPage,
   connectUnfollowPage,
+  connectAcceptFollowRequest,
+  connectRejectFollowRequest,
   connectRecordView,
   connectSubscribe,
   connectGetSubscriptionStatus,
@@ -160,6 +162,10 @@ export default function ConnectPageDetailPage() {
   const page = detailQ.data?.page;
   const isOwner = detailQ.data?.isOwner ?? false;
   const isFollowing = detailQ.data?.isFollowing ?? page?.isFollowing ?? false;
+  const followRequestPending =
+    detailQ.data?.followRequestPending ?? page?.followRequestPending ?? false;
+  const isPrivateLocked =
+    detailQ.data?.isPrivateLocked ?? page?.isPrivateLocked ?? false;
   const isCommunityPage = page?.category === "community" || page?.isAdminPage === true;
 
   React.useEffect(() => {
@@ -254,12 +260,16 @@ export default function ConnectPageDetailPage() {
     if (!page) return;
     setFollowBusy(true);
     try {
-      if (isFollowing) {
+      if (isFollowing || followRequestPending) {
         await connectUnfollowPage(page._id);
-        toast.success("Unfollowed");
+        toast.success(followRequestPending ? "Request cancelled" : "Unfollowed");
       } else {
-        await connectFollowPage(page._id);
-        toast.success("Following");
+        const result = await connectFollowPage(page._id);
+        if (result.followRequestPending || result.status === "pending") {
+          toast.success("Join request sent");
+        } else {
+          toast.success("Following");
+        }
       }
       await qc.invalidateQueries({ queryKey: ["connect-page", id] });
     } catch (e) {
@@ -426,6 +436,7 @@ export default function ConnectPageDetailPage() {
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                  {!isPrivateLocked && (
                   <button
                     type="button"
                     onClick={() => setFollowersOpen((v) => !v)}
@@ -433,6 +444,7 @@ export default function ConnectPageDetailPage() {
                   >
                     {(page.followerCount ?? 0) + 1} Members
                   </button>
+                  )}
                   <span>{page.viewCount ?? 0} views</span>
                   {hasPrice && priceApproved && (
                     <span className="font-semibold text-primary">
@@ -499,10 +511,23 @@ export default function ConnectPageDetailPage() {
                 </>
               ) : (
                 <>
-                  <Button size="sm" variant={isFollowing ? "outline" : "default"} disabled={followBusy} onClick={handleFollow}>
-                    {followBusy ? "…" : isFollowing ? "Unfollow" : "Follow"}
+                  <Button
+                    size="sm"
+                    variant={isFollowing || followRequestPending ? "outline" : "default"}
+                    disabled={followBusy}
+                    onClick={handleFollow}
+                  >
+                    {followBusy
+                      ? "…"
+                      : isFollowing
+                        ? "Unfollow"
+                        : followRequestPending
+                          ? "Requested"
+                          : page.type === "private"
+                            ? "Request to Join"
+                            : "Follow"}
                   </Button>
-                  {showSubTab && hasPrice && priceApproved && (
+                  {!isPrivateLocked && showSubTab && hasPrice && priceApproved && (
                     <>
                       {subQ.data?.isSubscribed && subQ.data.subscription?.status === "active" ? (
                         <Button size="sm" variant="outline" onClick={handleCancelSub}>
@@ -564,21 +589,33 @@ export default function ConnectPageDetailPage() {
                   <p className="text-sm text-slate-500 dark:text-zinc-400">No followers yet.</p>
                 ) : (
                   (followersQ.data?.followers ?? []).map((f: ConnectFollower) => (
-                    <Link
+                    <div
                       key={f._id}
-                      href={`/profile/${f._id}`}
                       className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-slate-50 dark:hover:bg-zinc-800/50"
                     >
-                      <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
-                        {f.profilePic ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
-                            <User className="h-4 w-4" />
-                          </div>
-                        )}
-                      </div>
+                      {f.role === "pending" ? (
+                        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                          {f.profilePic ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
+                              <User className="h-4 w-4" />
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <Link href={`/profile/${f._id}`} className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                          {f.profilePic ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
+                              <User className="h-4 w-4" />
+                            </div>
+                          )}
+                        </Link>
+                      )}
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
                           {f.fullName ?? f.username ?? "User"}
@@ -592,14 +629,74 @@ export default function ConnectPageDetailPage() {
                           Admin
                         </span>
                       )}
-                    </Link>
+                      {f.role === "pending" && isOwner && (
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                await connectAcceptFollowRequest(page._id, f._id);
+                                toast.success("Request accepted");
+                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
+                                await qc.invalidateQueries({ queryKey: ["connect-page", id] });
+                              } catch (e) {
+                                toast.error(getFriendlyErrorMessage(e));
+                              }
+                            }}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={async () => {
+                              try {
+                                await connectRejectFollowRequest(page._id, f._id);
+                                toast.success("Request rejected");
+                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
+                              } catch (e) {
+                                toast.error(getFriendlyErrorMessage(e));
+                              }
+                            }}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                      {f.role === "pending" && !isOwner && (
+                        <span className="shrink-0 rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                          Pending
+                        </span>
+                      )}
+                    </div>
                   ))
                 )}
               </CardContent>
             </Card>
           )}
 
-          {page.features?.groupChat && page.chatRoomId && (
+          {isPrivateLocked && !isOwner && (
+            <Card className="mt-6 border-slate-200 dark:border-zinc-700">
+              <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                  <Users className="h-6 w-6 text-primary" />
+                </div>
+                <p className="text-base font-semibold text-slate-900 dark:text-white">
+                  {page.type === "private" ? "Private community" : "Followers only"}
+                </p>
+                <p className="max-w-md text-sm text-slate-500 dark:text-zinc-400">
+                  {followRequestPending
+                    ? "Your request is pending. Content unlocks after the owner accepts."
+                    : page.type === "private"
+                      ? "Request to join to see website, chat, and other content."
+                      : "Follow this community to see website, chat, and other content."}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {!isPrivateLocked && page.features?.groupChat && page.chatRoomId && (
             <Link
               href={`/chat/room/${page.chatRoomId}`}
               className="mt-6 flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 transition hover:border-primary/30 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/50 dark:hover:border-primary/30"
@@ -684,7 +781,7 @@ export default function ConnectPageDetailPage() {
             </Card>
           )}
 
-          {(page.features?.website || showSubTab) && (
+          {!isPrivateLocked && (page.features?.website || showSubTab) && (
             <div className="mt-8 border-t border-slate-100 pt-6 dark:border-zinc-800">
               <div className="flex gap-2 border-b border-slate-100 dark:border-zinc-800">
                 {page.features?.website && (

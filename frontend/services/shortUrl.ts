@@ -128,3 +128,55 @@ export const getJourneyShortUrl = async (journeyId: string): Promise<string> => 
     throw error;
   }
 };
+
+/**
+ * Create or get a short URL for a Connect page
+ */
+export const createConnectShortUrl = async (connectPageId: string): Promise<string> => {
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout')), 10000);
+    });
+
+    const response = await Promise.race([
+      api.post<CreateShortUrlResponse>('/api/v1/short-url/create', {
+        connectPageId,
+      }),
+      timeoutPromise,
+    ]);
+
+    if (response.data.success && response.data.data?.shortUrl) {
+      return response.data.data.shortUrl;
+    }
+
+    throw new Error('Failed to create Connect short URL');
+  } catch (error: any) {
+    logger.error('Error creating Connect short URL:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get short URL for a Connect page (with caching)
+ */
+export const getConnectShortUrl = async (connectPageId: string): Promise<string> => {
+  try {
+    const cacheKey = `connect_${connectPageId}`;
+    const cached = shortUrlCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return cached.url;
+    }
+
+    const shortUrl = await createConnectShortUrl(connectPageId);
+
+    shortUrlCache.set(cacheKey, {
+      url: shortUrl,
+      timestamp: Date.now(),
+    });
+
+    return shortUrl;
+  } catch (error: any) {
+    logger.error('Error in getConnectShortUrl:', error);
+    throw error;
+  }
+};

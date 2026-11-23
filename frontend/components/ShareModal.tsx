@@ -206,20 +206,24 @@ export default function ShareModal({
     return '';
   };
 
-  // Generate share text
-  const getShareText = () => {
+  // Generate share text. On iOS, omit the URL from message when also passing `url`
+  // to Share.share — otherwise the sheet duplicates the link.
+  const getShareText = (includeUrl: boolean) => {
+    let body = '';
     if (isJourneyShare && journey?.title) {
       const dist = journey.distanceTraveled
         ? journey.distanceTraveled >= 1000
           ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
           : `${Math.round(journey.distanceTraveled)} m`
         : '';
-      return `${journey.title}${dist ? ` • ${dist}` : ''}\n\n${getShareUrl()}`;
+      body = `${journey.title}${dist ? ` • ${dist}` : ''}`;
+    } else if (post?.caption) {
+      body = post.caption;
     }
-    if (post?.caption) {
-      return `${post.caption}\n\n${getShareUrl()}`;
-    }
-    return getShareUrl();
+    const url = getShareUrl();
+    if (!includeUrl) return body || url;
+    if (!body) return url;
+    return `${body}\n\n${url}`;
   };
 
   // Track share count
@@ -242,10 +246,11 @@ export default function ShareModal({
       const shareTitle = isJourneyShare
         ? journey?.title || 'Check out my journey on Taatom'
         : post?.caption || 'Check out this post on Taatom';
+      const shareUrl = getShareUrl();
       const result = await Share.share({
-        message: getShareText(),
-        url: getShareUrl(),
+        message: getShareText(Platform.OS !== 'ios'),
         title: shareTitle,
+        ...(Platform.OS === 'ios' ? { url: shareUrl } : {}),
       });
 
       if (result.action === Share.sharedAction) {

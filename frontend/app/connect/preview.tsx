@@ -131,6 +131,7 @@ export default function ContentPreviewScreen() {
   const [pageTextColor, setPageTextColor] = useState<string>('');
   const [pageData, setPageData] = useState<ConnectPageType | null>(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [audienceLocked, setAudienceLocked] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
@@ -176,42 +177,60 @@ export default function ContentPreviewScreen() {
       if (!pageId) return;
       try {
         setLoading(true);
-        const [contentResponse, pageResponse] = await Promise.all([
-          isWebsite
-            ? getWebsiteContent(pageId)
-            : getSubscriptionContent(pageId),
-          (isWebsite || isSubscription) ? getPageDetail(pageId).catch(() => null) : Promise.resolve(null),
-        ]);
-        const data = isWebsite
-          ? (contentResponse as any).websiteContent
-          : (contentResponse as any).subscriptionContent;
-        setContent(data || []);
-        setPageBackground(
-          isWebsite
-            ? ((contentResponse as any).websiteBackground || '')
-            : ((contentResponse as any).subscriptionBackground || '')
-        );
-        setPageTextColor(
-          isWebsite
-            ? ((contentResponse as any).websiteTextColor || '')
-            : ((contentResponse as any).subscriptionTextColor || '')
-        );
-        if (pageResponse) {
-          setPageData(pageResponse.page);
-          setIsOwner(pageResponse.isOwner);
-          setDisplayPrices((pageResponse as any).subscriptionDisplayPrices);
-          // Load subscription status for non-owners
-          if (!pageResponse.isOwner && pageResponse.page.features?.subscription && pageResponse.page.subscriptionPrice) {
-            try {
-              const status = await getSubscriptionStatus(pageId);
-              setSubscriptionStatus(status);
-            } catch (err) {
-              logger.warn('Error loading subscription status:', err);
-            }
+        let contentResponse: any = null;
+        let contentDenied = false;
+        try {
+          contentResponse = isWebsite
+            ? await getWebsiteContent(pageId)
+            : await getSubscriptionContent(pageId);
+        } catch (contentErr: any) {
+          const msg = String(contentErr?.message || contentErr || '');
+          if (/private|permission|forbidden|403/i.test(msg)) {
+            contentDenied = true;
+          } else {
+            throw contentErr;
           }
         }
-        if (isWebsite) {
-          logContentView(pageId, 'website', { type: 'website', pageId });
+        const pageResponse = (isWebsite || isSubscription)
+          ? await getPageDetail(pageId).catch(() => null)
+          : null;
+        if (contentDenied || pageResponse?.isPrivateLocked || pageResponse?.page?.isPrivateLocked) {
+          setContent([]);
+          setPageData(pageResponse?.page || null);
+          setIsOwner(!!pageResponse?.isOwner);
+          setAudienceLocked(true);
+        } else {
+          setAudienceLocked(false);
+          const data = isWebsite
+            ? contentResponse?.websiteContent
+            : contentResponse?.subscriptionContent;
+          setContent(data || []);
+          setPageBackground(
+            isWebsite
+              ? (contentResponse?.websiteBackground || '')
+              : (contentResponse?.subscriptionBackground || '')
+          );
+          setPageTextColor(
+            isWebsite
+              ? (contentResponse?.websiteTextColor || '')
+              : (contentResponse?.subscriptionTextColor || '')
+          );
+          if (pageResponse) {
+            setPageData(pageResponse.page);
+            setIsOwner(pageResponse.isOwner);
+            setDisplayPrices((pageResponse as any).subscriptionDisplayPrices);
+            if (!pageResponse.isOwner && pageResponse.page.features?.subscription && pageResponse.page.subscriptionPrice) {
+              try {
+                const status = await getSubscriptionStatus(pageId);
+                setSubscriptionStatus(status);
+              } catch (err) {
+                logger.warn('Error loading subscription status:', err);
+              }
+            }
+          }
+          if (isWebsite) {
+            logContentView(pageId, 'website', { type: 'website', pageId });
+          }
         }
       } catch (error) {
         logger.error('Error loading preview content:', error);
@@ -752,35 +771,22 @@ export default function ContentPreviewScreen() {
       style={[styles.container, { backgroundColor: screenBg }]}
     >
       <StatusBar barStyle={isEmpty ? 'dark-content' : (isDark ? 'light-content' : 'dark-content')} />
-      {/* Floating Glass Header */}
+      {/* Glass header in document flow — content cannot cover status bar */}
       <View
         style={[
           styles.headerContainer,
           {
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            zIndex: 100,
             paddingTop: insets.top,
-            height: 52 + insets.top,
-            backgroundColor: 'rgba(15, 15, 15, 0.4)',
+            backgroundColor: 'rgba(15, 15, 15, 0.9)',
             borderColor: 'rgba(255, 255, 255, 0.08)',
-            borderWidth: 0,
             borderBottomWidth: 1,
-          }
+          },
         ]}
       >
         <BlurView
-          intensity={85}
+          intensity={95}
           tint="dark"
-          style={StyleSheet.absoluteFill}
-        />
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: 'rgba(15, 15, 15, 0.4)' }
-          ]}
+          style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(15, 22, 35, 0.85)' }]}
         />
         <View style={styles.headerInner}>
           <TouchableOpacity
@@ -828,6 +834,16 @@ export default function ContentPreviewScreen() {
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
+      ) : audienceLocked ? (
+        <View style={[styles.emptyContainer, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="lock-closed-outline" size={48} color={theme.colors.primary} />
+          <Text style={[styles.emptyText, { color: theme.colors.text, fontFamily: getFontFamily('600'), fontWeight: '600', fontSize: 16, marginTop: 12 }]}>
+            {pageData?.type === 'private' ? 'Private community' : 'Followers only'}
+          </Text>
+          <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 24 }}>
+            Follow or get accepted to view this content.
+          </Text>
+        </View>
       ) : isEmpty ? (
         <View style={[styles.emptyContainer, { backgroundColor: theme.colors.background }]}>
           <Text style={[styles.emptyText, { color: theme.colors.text, fontFamily: getFontFamily('600'), fontWeight: '600', fontSize: 16 }]}>
@@ -837,8 +853,10 @@ export default function ContentPreviewScreen() {
       ) : (
         <ScrollView
           style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
-          contentContainerStyle={[styles.contentContainer, { paddingTop: 52 + insets.top + 16 }]}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: 16 }]}
           showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
         >
           {/* Buy Items Listing for Community Category */}
           {hasBuyItems && (
@@ -1224,19 +1242,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   headerContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 56,
-    zIndex: 10,
-    borderRadius: 24,
+    width: '100%',
+    zIndex: 20,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     overflow: 'hidden',
-    borderWidth: 1,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
-    elevation: 4,
+    elevation: 8,
   },
   headerInner: {
     flexDirection: 'row',

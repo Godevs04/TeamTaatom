@@ -47,16 +47,37 @@ export async function connectGetPageDetail(pageId: string) {
     page: ConnectPage;
     isOwner?: boolean;
     isFollowing?: boolean;
+    isPrivateLocked?: boolean;
+    followRequestPending?: boolean;
   };
   return d;
 }
 
 export async function connectFollowPage(connectPageId: string) {
-  await api.post("/connect/follow", { connectPageId });
+  const res = await api.post("/connect/follow", { connectPageId });
+  return (res.data || {}) as {
+    status?: "active" | "pending";
+    followRequestPending?: boolean;
+    isFollowing?: boolean;
+  };
 }
 
 export async function connectUnfollowPage(connectPageId: string) {
   await api.post("/connect/unfollow", { connectPageId });
+}
+
+export async function connectAcceptFollowRequest(
+  connectPageId: string,
+  followerId: string,
+) {
+  await api.post("/connect/follow/accept", { connectPageId, followerId });
+}
+
+export async function connectRejectFollowRequest(
+  connectPageId: string,
+  followerId: string,
+) {
+  await api.post("/connect/follow/reject", { connectPageId, followerId });
 }
 
 export async function connectRecordView(pageId: string) {
@@ -137,7 +158,7 @@ export type ConnectFollower = {
   username?: string;
   fullName?: string;
   profilePic?: string;
-  role: "admin" | "member";
+  role: "admin" | "member" | "pending";
 };
 
 export async function connectGetPageFollowers(pageId: string, page = 1, limit = 20) {

@@ -57,6 +57,8 @@ router.get('/find-users', authMiddleware, connectController.findUsers);
 // ─────────────────────────────────────────────
 router.post('/follow', authMiddleware, connectController.followPage);
 router.post('/unfollow', authMiddleware, connectController.unfollowPage);
+router.post('/follow/accept', authMiddleware, connectController.acceptFollowRequest);
+router.post('/follow/reject', authMiddleware, connectController.rejectFollowRequest);
 router.post('/archive', authMiddleware, connectController.archivePage);
 router.post('/unarchive', authMiddleware, connectController.unarchivePage);
 router.get('/following', authMiddleware, connectController.getFollowing);
