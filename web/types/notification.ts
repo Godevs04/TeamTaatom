@@ -37,6 +37,10 @@ export type Notification = {
     postType?: string;
     postOwnerId?: string;
     connectPageId?: string;
+    /** Distinguishes community join requests from profile follows. */
+    kind?: string;
+    pageName?: string;
+    audience?: string;
   };
   createdAt?: string;
   updatedAt?: string;

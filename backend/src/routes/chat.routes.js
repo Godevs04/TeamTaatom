@@ -116,6 +116,9 @@ router.post('/room/:chatId/admins/promote', authMiddleware, chatController.promo
 router.post('/room/:chatId/admins/accept', authMiddleware, chatController.acceptGroupAdmin);
 router.post('/room/:chatId/admins/reject', authMiddleware, chatController.rejectGroupAdmin);
 router.post('/room/:chatId/admins/demote', authMiddleware, chatController.demoteGroupAdmin);
+router.post('/room/:chatId/leave', authMiddleware, chatController.leaveGroupChat);
+router.post('/room/:chatId/members/remove', authMiddleware, chatController.removeGroupMember);
+router.patch('/room/:chatId/send-permission', authMiddleware, chatController.updateGroupSendPermission);
 
 // Specific routes must come before parameterized routes
 /**

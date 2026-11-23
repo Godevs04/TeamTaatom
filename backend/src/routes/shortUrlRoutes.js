@@ -1,6 +1,6 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/authMiddleware');
-const { createShortUrl, redirectShortUrl } = require('../controllers/shortUrlController');
+const { createShortUrl, redirectShortUrl, resolveShortUrl } = require('../controllers/shortUrlController');
 
 const router = express.Router();
 
@@ -31,6 +31,9 @@ const router = express.Router();
  *         description: Invalid request
  */
 router.post('/create', authMiddleware, createShortUrl);
+
+/** Public: resolve short code → in-app path (used by mobile Universal Links on /s/:code). */
+router.get('/resolve/:shortCode', resolveShortUrl);
 
 // Create redirect router with the route
 const redirectRouter = express.Router();

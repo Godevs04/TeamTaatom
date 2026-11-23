@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.4.32",
+    "version": "26.4.33",
     "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -22,6 +22,7 @@
       "bundleIdentifier": "com.taatom.app",
       "associatedDomains": [
         "applinks:taatom.com",
+        "applinks:www.taatom.com",
         "applinks:*.taatom.com"
       ],
       "infoPlist": {
@@ -94,21 +95,27 @@
         },
         {
           "action": "VIEW",
-          "data": [
-            {
-              "scheme": "https",
-              "host": "taatom.com"
-            },
-            {
-              "scheme": "https",
-              "host": "*.taatom.com"
-            }
-          ],
+          "autoVerify": true,
           "category": [
             "BROWSABLE",
             "DEFAULT"
           ],
-          "autoVerify": true
+          "data": [
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/s" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/post" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/trip" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/connect/page" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/journey" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/journeys" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/watch" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/s" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/post" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/trip" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/connect/page" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/journey" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/journeys" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/watch" }
+          ]
         }
       ],
       "permissions": [
@@ -254,7 +261,7 @@
     },
     "extra": {
       "API_BASE_URL": "https://api.taatom.com",
-      "WEB_SHARE_URL": "https://taatom.com",
+      "WEB_SHARE_URL": "https://www.taatom.com",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",

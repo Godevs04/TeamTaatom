@@ -180,3 +180,37 @@ export const getConnectShortUrl = async (connectPageId: string): Promise<string>
     throw error;
   }
 };
+
+export type ResolvedShortUrl = {
+  type: 'post' | 'journey' | 'connect_page';
+  path: string;
+  postId?: string;
+  journeyId?: string;
+  connectPageId?: string;
+};
+
+/**
+ * Resolve a short code to an in-app path (public API).
+ * Used when Universal Links open https://taatom.com/s/:code inside the app.
+ */
+export const resolveShortCode = async (shortCode: string): Promise<ResolvedShortUrl> => {
+  const code = String(shortCode || '').trim();
+  if (!/^[A-Za-z0-9]{4,16}$/.test(code)) {
+    throw new Error('Invalid short code');
+  }
+
+  const response = await api.get(`/api/v1/short-url/resolve/${encodeURIComponent(code)}`);
+  const body = response.data as {
+    success?: boolean;
+    data?: ResolvedShortUrl;
+    path?: string;
+    type?: ResolvedShortUrl['type'];
+  };
+
+  // sendSuccess wraps payload under data; tolerate flat shapes too
+  const payload = (body?.data && typeof body.data === 'object' ? body.data : body) as ResolvedShortUrl;
+  if (!payload?.path) {
+    throw new Error('Failed to resolve short URL');
+  }
+  return payload;
+};

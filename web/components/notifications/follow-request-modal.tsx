@@ -4,10 +4,32 @@ import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { User2, X } from "lucide-react";
 import { approveFollowRequest, rejectFollowRequest } from "../../lib/api";
+import {
+  connectAcceptFollowRequest,
+  connectRejectFollowRequest,
+} from "../../lib/connect-api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { Button } from "../ui/button";
 import { toast } from "sonner";
-import type { Notification, NotificationResponse } from "../../types/notification";
+import type {
+  Notification,
+  NotificationResponse,
+  NotificationType,
+} from "../../types/notification";
+
+function isConnectPageFollow(n: Notification | null): boolean {
+  return !!(n?.metadata?.kind === "connect_page_follow" || n?.metadata?.connectPageId);
+}
+
+function isAlreadyProcessedError(e: unknown): boolean {
+  const msg = getFriendlyErrorMessage(e).toLowerCase();
+  return (
+    msg.includes("already processed") ||
+    msg.includes("already approved") ||
+    msg.includes("no pending") ||
+    msg.includes("not found")
+  );
+}
 
 /**
  * Inline approve/decline for a follow_request notification, mirroring mobile's
@@ -33,57 +55,125 @@ export function FollowRequestModal({
       : null;
   const requesterId = requester?._id;
 
+  const isConnect = isConnectPageFollow(notification);
+  const connectPageId = notification?.metadata?.connectPageId;
+  const pageName = notification?.metadata?.pageName || "this community";
+
   /**
-   * Patches the notification out of the cached list rather than refetching.
-   * The backend rewrites this notification's own `type` to
-   * follow_request_accepted/rejected on approve/reject (a value this app's
-   * NotificationType union doesn't model), so a refetch here would render it
-   * as an unrecognized "New notification" — removing it sidesteps that
-   * entirely rather than trying to render a type the UI has no label for.
+   * Backend rewrites this row to follow_request_accepted / rejected — keep it in
+   * the list (same as mobile) so the owner still sees the outcome, and clear the
+   * unread badge if needed.
    */
-  const removeFromList = () => {
-    if (!notification) return;
+  const markResolved = (action: "accepted" | "rejected") => {
+    if (!notification || !requesterId) return;
+    const nextType: NotificationType =
+      action === "accepted" ? "follow_request_accepted" : "follow_request_rejected";
+
     qc.setQueriesData<NotificationResponse>({ queryKey: ["notifications"] }, (old) => {
       if (!old) return old;
-      const removed = old.notifications.find((n) => n._id === notification._id);
-      const notifications = old.notifications.filter((n) => n._id !== notification._id);
+      let unreadDelta = 0;
+      const notifications = old.notifications.map((n) => {
+        const fromId =
+          n.fromUser && typeof n.fromUser === "object" ? n.fromUser._id : undefined;
+        const sameNotif = n._id === notification._id;
+        const sameConnectPending =
+          isConnect &&
+          n.type === "follow_request" &&
+          isConnectPageFollow(n) &&
+          n.metadata?.connectPageId === connectPageId &&
+          fromId === requesterId;
+        const sameProfilePending =
+          !isConnect &&
+          n.type === "follow_request" &&
+          !isConnectPageFollow(n) &&
+          fromId === requesterId;
+        if (!sameNotif && !sameConnectPending && !sameProfilePending) return n;
+        if (!n.isRead) unreadDelta += 1;
+        return {
+          ...n,
+          type: nextType,
+          isRead: true,
+          metadata: {
+            ...(n.metadata || {}),
+            ...(isConnect && connectPageId
+              ? { kind: "connect_page_follow", connectPageId, audience: "owner" }
+              : {}),
+          },
+        };
+      });
       const unreadCount =
-        removed && !removed.isRead && typeof old.unreadCount === "number"
-          ? Math.max(old.unreadCount - 1, 0)
+        typeof old.unreadCount === "number"
+          ? Math.max(old.unreadCount - unreadDelta, 0)
           : old.unreadCount;
       return { ...old, notifications, unreadCount };
     });
+
     if (!notification.isRead) {
       qc.setQueryData<{ unreadCount: number }>(["notificationsUnreadCount"], (old) => ({
         unreadCount: Math.max(0, (old?.unreadCount ?? 1) - 1),
       }));
     }
+
+    if (isConnect && connectPageId) {
+      void qc.invalidateQueries({ queryKey: ["connect-page-followers", connectPageId] });
+      void qc.invalidateQueries({ queryKey: ["connect-page", connectPageId] });
+    }
   };
 
   const approveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!requesterId) throw new Error("Missing requester");
-      return approveFollowRequest(requesterId);
+      if (isConnect) {
+        if (!connectPageId) throw new Error("Missing community page");
+        await connectAcceptFollowRequest(connectPageId, requesterId);
+        return;
+      }
+      await approveFollowRequest(requesterId);
     },
     onSuccess: () => {
-      removeFromList();
-      toast.success(`You accepted ${requester?.fullName || requester?.username || "their"} follow request`);
+      markResolved("accepted");
+      toast.success(
+        isConnect
+          ? `Accepted ${requester?.fullName || requester?.username || "their"} join request`
+          : `Accepted ${requester?.fullName || requester?.username || "their"} follow request`,
+      );
       onClose();
     },
-    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+    onError: (e: unknown) => {
+      if (isAlreadyProcessedError(e)) {
+        markResolved("accepted");
+        toast.success("Request was already processed");
+        onClose();
+        return;
+      }
+      toast.error(getFriendlyErrorMessage(e));
+    },
   });
 
   const rejectMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!requesterId) throw new Error("Missing requester");
-      return rejectFollowRequest(requesterId);
+      if (isConnect) {
+        if (!connectPageId) throw new Error("Missing community page");
+        await connectRejectFollowRequest(connectPageId, requesterId);
+        return;
+      }
+      await rejectFollowRequest(requesterId);
     },
     onSuccess: () => {
-      removeFromList();
-      toast.success("Request declined");
+      markResolved("rejected");
+      toast.success(isConnect ? "Join request declined" : "Request declined");
       onClose();
     },
-    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+    onError: (e: unknown) => {
+      if (isAlreadyProcessedError(e)) {
+        markResolved("rejected");
+        toast.success("Request was already processed");
+        onClose();
+        return;
+      }
+      toast.error(getFriendlyErrorMessage(e));
+    },
   });
 
   if (!open || !notification) return null;
@@ -102,10 +192,12 @@ export function FollowRequestModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Follow request"
+        aria-label={isConnect ? "Community join request" : "Follow request"}
       >
         <div className="flex items-center justify-between border-b border-slate-100 p-4 dark:border-zinc-800">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">Follow request</h3>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">
+            {isConnect ? "Community join request" : "Follow request"}
+          </h3>
           <Button
             variant="ghost"
             size="icon"
@@ -140,7 +232,9 @@ export function FollowRequestModal({
               <p className="text-sm text-slate-500 dark:text-zinc-400">@{requester.username}</p>
             )}
           </div>
-          <p className="text-sm text-slate-500 dark:text-zinc-400">wants to follow you</p>
+          <p className="text-sm text-slate-500 dark:text-zinc-400">
+            {isConnect ? `requested to join ${pageName}` : "wants to follow you"}
+          </p>
         </div>
 
         <div className="flex gap-2 border-t border-slate-100 p-4 dark:border-zinc-800">

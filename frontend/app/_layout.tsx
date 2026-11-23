@@ -107,7 +107,17 @@ if (Platform.OS !== 'web') {
 }
 
 const POST_NOTIFICATION_TYPES = new Set(['like', 'comment', 'mention', 'post_mention', 'share', 'trip_created', 'trip_approved']);
-const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_request', 'follow_approved']);
+const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_approved']);
+const CONNECT_NOTIFICATION_TYPES = new Set([
+  'subscription_active',
+  'connect_follow_request',
+  'connect_follow_accepted',
+]);
+const REQUEST_INBOX_TYPES = new Set([
+  'follow_request',
+  'follow_request_accepted',
+  'follow_request_rejected',
+]);
 
 /** Maps a push notification's data payload (Expo or FCM) to the in-app route it should open. */
 function notificationTargetPath(data: Record<string, unknown> | undefined | null): string | null {
@@ -124,29 +134,54 @@ function notificationTargetPath(data: Record<string, unknown> | undefined | null
   }
 
   const type = str(data.type);
-  const screen = str(data.screen) || str(data.path) || str(data.url);
-  const postId = str(data.postId) || str(data.post_id) || str(data.entityId);
+  const rawScreen = str(data.screen) || str(data.path) || str(data.url);
+  // Legacy pushes used /home as a dead-end fallback — treat it as "no screen"
+  const screen = rawScreen && rawScreen !== '/home' && rawScreen !== 'home' ? rawScreen : null;
+  const postId = str(data.postId) || str(data.post_id) ||
+    (type && POST_NOTIFICATION_TYPES.has(type) ? str(data.entityId) : null);
   const userId =
     str(data.userId) || str(data.user_id) || str(data.profileId) || str(data.profile_id) ||
     str(data.fromUserId) || str(data.senderId);
   const chatWith = str(data.chatWith);
   const chatId = str(data.chatId);
+  const isConnectKind =
+    str(data.kind) === 'connect_page_follow' || metadata?.kind === 'connect_page_follow';
   const connectPageId =
-    str(data.connectPageId) || str(metadata?.connectPageId) ||
-    (type === 'subscription_active' ? str(data.entityId) : null);
+    str(data.connectPageId) ||
+    str(metadata?.connectPageId) ||
+    (type && CONNECT_NOTIFICATION_TYPES.has(type) ? str(data.entityId) : null) ||
+    (isConnectKind ? str(data.entityId) : null);
 
   if (chatWith) return `/chat/thread?userId=${encodeURIComponent(chatWith)}`;
   if (chatId) return `/chat/thread?chatId=${encodeURIComponent(chatId)}`;
-  // The server's screen already accounts for content type (watch / shorts / post); '/home' is its "unknown" fallback
-  if (screen && screen !== '/home') return screen.startsWith('/') ? screen : `/${screen}`;
-  if (type === 'subscription_active' && connectPageId) return `/connect/page/${connectPageId}`;
+
+  // Community join / subscription — before generic screen so a stale /home never wins
+  if (connectPageId && ((type && CONNECT_NOTIFICATION_TYPES.has(type)) || isConnectKind)) {
+    return `/connect/page/${connectPageId}`;
+  }
+  if (connectPageId && type === 'follow_request') {
+    return `/connect/page/${connectPageId}`;
+  }
+
+  // Explicit deep link from server (already validated above that it isn't /home)
+  if (screen) return screen.startsWith('/') ? screen : `/${screen}`;
+
   if (postId && type && POST_NOTIFICATION_TYPES.has(type)) {
     return contentRoute(postId, str(data.postType), str(data.postOwnerId), { openComments: type === 'comment' });
   }
-  if (userId && type && PROFILE_NOTIFICATION_TYPES.has(type)) return `/profile/${userId}`;
+
+  // Follow / join requests open the in-app inbox so Approve/Decline is available
+  if (type && REQUEST_INBOX_TYPES.has(type)) {
+    return '/notifications';
+  }
+
+  if (userId && type && PROFILE_NOTIFICATION_TYPES.has(type)) {
+    return `/profile/${userId}`;
+  }
   if (postId) return contentRoute(postId, str(data.postType), str(data.postOwnerId));
   if (userId) return `/profile/${userId}`;
-  return screen;
+  // Last resort: notifications list, never home
+  return type ? '/notifications' : null;
 }
 
 function RootLayoutInner() {
@@ -235,29 +270,81 @@ function RootLayoutInner() {
   
   const handleDeepLink = (url: string) => {
     try {
-      const parsed = Linking.parse(url);
-      let targetPath = parsed.path;
-      
+      if (!url || typeof url !== 'string') return;
+
+      // Guard empty custom-scheme URLs that previously crashed production
+      // (e.g. broken taatom:/// handoff → Unmatched Route).
+      const trimmed = url.trim();
+      if (
+        trimmed === 'taatom://' ||
+        trimmed === 'taatom:///' ||
+        /^taatom:\/{0,3}$/.test(trimmed)
+      ) {
+        logger.warn('[DeepLinking] Ignoring empty custom-scheme URL:', trimmed);
+        return;
+      }
+
+      const parsed = Linking.parse(trimmed);
+      let targetPath = parsed.path || '';
+
       // For custom scheme (taatom://), if hostname is present (e.g. 'post', 'navigate', 'connect'),
       // prepend it to the targetPath as Linking.parse treats the first path segment as the hostname.
+      // Also handles legacy taatom:///post/id (empty hostname, path already /post/id).
       if (parsed.scheme === 'taatom' && parsed.hostname && parsed.hostname !== '') {
-        targetPath = parsed.hostname + (targetPath ? '/' + targetPath : '');
+        // Ignore web hosts mistakenly attached to custom scheme
+        if (parsed.hostname === 'taatom.com' || parsed.hostname === 'www.taatom.com') {
+          // path already holds /s/... or /post/...
+        } else {
+          targetPath = parsed.hostname + (targetPath ? '/' + targetPath.replace(/^\//, '') : '');
+        }
       }
-      
-      if (!targetPath) return;
+
+      // HTTPS Universal / App Links: use pathname from the URL directly
+      if (
+        (parsed.scheme === 'https' || parsed.scheme === 'http') &&
+        (!targetPath || targetPath === '/')
+      ) {
+        try {
+          const u = new URL(trimmed);
+          targetPath = u.pathname || '';
+        } catch {
+          /* keep parsed.path */
+        }
+      }
+
+      if (!targetPath || targetPath === '/') {
+        logger.warn('[DeepLinking] No usable path in URL:', trimmed);
+        return;
+      }
 
       if (!targetPath.startsWith('/')) {
         targetPath = '/' + targetPath;
       }
 
-      // Reconstruct query parameters
-      if (parsed.queryParams && Object.keys(parsed.queryParams).length > 0) {
+      // Normalize known web aliases → in-app routes
+      if (targetPath.startsWith('/trip/')) {
+        targetPath = `/post/${targetPath.slice('/trip/'.length)}`;
+      } else if (targetPath.startsWith('/journeys/')) {
+        const id = targetPath.slice('/journeys/'.length).split(/[/?#]/)[0];
+        targetPath = `/navigate/detail?journeyId=${id}`;
+      } else if (targetPath.startsWith('/journey/')) {
+        const id = targetPath.slice('/journey/'.length).split(/[/?#]/)[0];
+        targetPath = `/navigate/detail?journeyId=${id}`;
+      }
+
+      // Reconstruct query parameters (unless already present, e.g. journey rewrite)
+      if (
+        !targetPath.includes('?') &&
+        parsed.queryParams &&
+        Object.keys(parsed.queryParams).length > 0
+      ) {
         const queryString = Object.entries(parsed.queryParams)
           .map(([key, val]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(val))}`)
           .join('&');
         targetPath = `${targetPath}?${queryString}`;
       }
 
+      // /s/:code is handled by app/s/[code].tsx (resolves via API)
       logger.debug('[DeepLinking] Parsed deep link target:', targetPath);
       openOrQueueRoute(targetPath);
     } catch (err) {
@@ -1152,6 +1239,7 @@ function RootLayoutInner() {
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
           <Stack.Screen name="post/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
+          <Stack.Screen name="s/[code]" options={{ presentation: 'card', headerShown: false, gestureEnabled: true }} />
           <Stack.Screen name="profile/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* Direct routes */}
           <Stack.Screen name="search" options={{ presentation: 'card' }} />

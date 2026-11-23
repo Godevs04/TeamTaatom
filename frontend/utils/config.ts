@@ -113,11 +113,23 @@ export const getApiBaseUrl = (): string => {
 // API Configuration - Use getter function for dynamic evaluation
 export const API_BASE_URL = getApiBaseUrl();
 
-// Web Share URL (for sharing posts externally)
-export const WEB_SHARE_URL =
-  process.env.EXPO_PUBLIC_WEB_SHARE_URL ||
-  Constants.expoConfig?.extra?.WEB_SHARE_URL ||
-  API_BASE_URL.replace('http://', 'https://').replace(':3000', '');
+// Web Share URL (for sharing posts externally).
+// Prefer www — apex taatom.com 307→www on Vercel, which breaks Universal Links
+// (AASA/assetlinks must be HTTP 200 with no redirect on the shared host).
+function resolveWebShareUrl(): string {
+  const raw =
+    process.env.EXPO_PUBLIC_WEB_SHARE_URL ||
+    Constants.expoConfig?.extra?.WEB_SHARE_URL ||
+    API_BASE_URL.replace('http://', 'https://').replace(':3000', '');
+  try {
+    const u = new URL(String(raw).includes('://') ? String(raw) : `https://${raw}`);
+    if (u.hostname === 'taatom.com') u.hostname = 'www.taatom.com';
+    return u.origin;
+  } catch {
+    return 'https://www.taatom.com';
+  }
+}
+export const WEB_SHARE_URL = resolveWebShareUrl();
 
 // Logo Image local asset (white bg compass logo)
 export const LOGO_IMAGE = require('../assets/images/current_logo.png');

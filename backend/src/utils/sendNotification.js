@@ -15,17 +15,19 @@ const fetch = (...args) => (typeof globalThis.fetch === 'function'
  *   data: {
  *     type: 'like' | 'comment' | 'post_mention' | 'follow' | 'follow_request' | 'follow_approved'
  *         | 'trip_created' | 'trip_approved' | 'route_access_request' | 'route_access_approved'
- *         | 'subscription_active' | 'creator_program' | 'message',
+ *         | 'subscription_active' | 'creator_program' | 'message'
+ *         | 'connect_follow_request' | 'connect_follow_accepted',
  *     screen: string,     // Expo Router path the tap should open
  *     entityId: string,   // Post ID, User ID, etc.
  *     senderId: string,   // User ID of the sender
- *     postId?, postType?, chatWith?, chatId?, metadata?
+ *     postId?, postType?, chatWith?, chatId?, connectPageId?, fromUserId?, metadata?
  *   }
  * }
  */
 
 const POST_NOTIFICATION_TYPES = ['like', 'comment', 'post_mention', 'trip_created', 'trip_approved'];
-const USER_NOTIFICATION_TYPES = ['follow', 'follow_request', 'follow_approved', 'route_access_approved'];
+// Profile social types that open a user profile (not follow_request — that opens Notifications to approve)
+const USER_NOTIFICATION_TYPES = ['follow', 'follow_approved', 'route_access_approved'];
 
 const SETTING_FOR_TYPE = {
   like: 'likesNotifications',
@@ -33,6 +35,8 @@ const SETTING_FOR_TYPE = {
   follow: 'followsNotifications',
   follow_request: 'followRequestNotifications',
   follow_approved: 'followApprovalNotifications',
+  connect_follow_request: 'followRequestNotifications',
+  connect_follow_accepted: 'followApprovalNotifications',
   trip_created: 'tripNotifications',
   trip_approved: 'tripNotifications',
   post_mention: 'mentionsNotifications',
@@ -71,8 +75,42 @@ const contentScreen = (postId, postType, ownerId, { openComments = false } = {})
  * @param {Object} notificationData - postId/post, postType, postOwnerId, fromUserId/fromUser, chatWith, chatId, etc.
  * @returns {string} Screen path for Expo Router navigation
  */
+const resolveConnectPageId = (notificationData = {}) => {
+  if (notificationData.connectPageId) return String(notificationData.connectPageId);
+  if (notificationData.entityId && String(notificationData.type || '').includes('connect')) {
+    return String(notificationData.entityId);
+  }
+  const meta = notificationData.metadata;
+  if (meta && typeof meta === 'object' && meta.connectPageId) return String(meta.connectPageId);
+  if (typeof meta === 'string') {
+    try {
+      const parsed = JSON.parse(meta);
+      if (parsed?.connectPageId) return String(parsed.connectPageId);
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+};
+
+const isConnectPageFollowKind = (notificationData = {}) => {
+  if (notificationData.kind === 'connect_page_follow') return true;
+  const meta = notificationData.metadata;
+  if (meta && typeof meta === 'object' && meta.kind === 'connect_page_follow') return true;
+  if (typeof meta === 'string') {
+    try {
+      return JSON.parse(meta)?.kind === 'connect_page_follow';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
 const getScreenForType = (type, notificationData = {}) => {
-  if (notificationData.screen) return notificationData.screen;
+  if (notificationData.screen && notificationData.screen !== '/home') {
+    return notificationData.screen;
+  }
 
   const postId = notificationData.postId ||
     toId(notificationData.post) ||
@@ -82,19 +120,36 @@ const getScreenForType = (type, notificationData = {}) => {
     toId(notificationData.fromUser) ||
     notificationData.senderId;
 
+  const connectPageId = resolveConnectPageId({ ...notificationData, type });
+
+  // Community join / accept — never fall through to /home
+  if (
+    type === 'connect_follow_request' ||
+    type === 'connect_follow_accepted' ||
+    type === 'subscription_active' ||
+    (isConnectPageFollowKind(notificationData) && connectPageId)
+  ) {
+    if (connectPageId) return `/connect/page/${connectPageId}`;
+  }
+
   if (POST_NOTIFICATION_TYPES.includes(type)) {
     if (postId) {
       const openComments = type === 'comment' || (type === 'post_mention' && !!notificationData.commentId);
       return contentScreen(postId, notificationData.postType, notificationData.postOwnerId, { openComments });
     }
     logger.warn(`No post ID found for ${type} notification`);
-    return '/home';
+    return '/notifications';
+  }
+
+  // Profile follow requests open the in-app list so the owner can Approve/Decline
+  if (type === 'follow_request') {
+    return '/notifications';
   }
 
   if (USER_NOTIFICATION_TYPES.includes(type)) {
     if (fromUserId) return `/profile/${fromUserId}`;
     logger.warn(`No fromUser ID found for ${type} notification`);
-    return '/home';
+    return '/notifications';
   }
 
   switch (type) {
@@ -109,31 +164,38 @@ const getScreenForType = (type, notificationData = {}) => {
     case 'creator_program':
       return '/creator-monetization';
 
-    case 'subscription_active': {
-      const connectPageId = notificationData.connectPageId ||
-        notificationData.entityId ||
-        (notificationData.metadata && typeof notificationData.metadata === 'object' ? notificationData.metadata.connectPageId : null);
-      return connectPageId ? `/connect/page/${connectPageId}` : '/home';
-    }
+    case 'follow_request_accepted':
+    case 'follow_request_rejected':
+      return connectPageId ? `/connect/page/${connectPageId}` : '/notifications';
 
     default:
       logger.warn(`Unknown notification type: ${type}`);
-      return '/home';
+      // Prefer notifications inbox over a dead-end home redirect
+      return '/notifications';
   }
 };
 
 /** Data sent with the push; every value is a string so the same shape works for FCM. */
 const buildPushData = (data) => {
+  const screen = getScreenForType(data.type, data);
   const payload = {
     type: String(data.type || ''),
-    screen: getScreenForType(data.type, data),
-    entityId: String(data.entityId || ''),
-    senderId: String(data.senderId || ''),
+    screen: String(screen || '/notifications'),
+    entityId: String(data.entityId || data.connectPageId || data.fromUserId || ''),
+    senderId: String(data.senderId || data.fromUserId || ''),
   };
-  for (const key of ['postId', 'postType', 'chatWith', 'chatId', 'connectPageId']) {
-    if (data[key]) payload[key] = String(data[key]);
+  for (const key of ['postId', 'postType', 'chatWith', 'chatId', 'connectPageId', 'fromUserId', 'kind', 'pageName']) {
+    if (data[key] != null && data[key] !== '') payload[key] = String(data[key]);
   }
-  if (data.metadata) payload.metadata = JSON.stringify(data.metadata);
+  if (!payload.connectPageId) {
+    const resolved = resolveConnectPageId(data);
+    if (resolved) payload.connectPageId = resolved;
+  }
+  if (data.metadata) {
+    payload.metadata = typeof data.metadata === 'string'
+      ? data.metadata
+      : JSON.stringify(data.metadata);
+  }
   return payload;
 };
 

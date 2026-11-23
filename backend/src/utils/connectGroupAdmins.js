@@ -65,6 +65,23 @@ const attachGroupRolesToParticipants = (participants = [], admins = []) => {
   });
 };
 
+/** Normalize sendPermission; unknown/missing → everyone */
+const normalizeSendPermission = (value) => {
+  if (value === 'admins' || value === 'owner' || value === 'everyone') return value;
+  return 'everyone';
+};
+
+/**
+ * Whether a user with the given groupRole may send messages under sendPermission.
+ */
+const canRoleSendMessages = (sendPermission, groupRole) => {
+  const perm = normalizeSendPermission(sendPermission);
+  if (perm === 'everyone') return true;
+  if (perm === 'owner') return groupRole === 'owner';
+  if (perm === 'admins') return groupRole === 'owner' || groupRole === 'admin';
+  return true;
+};
+
 module.exports = {
   MAX_CO_ADMINS,
   ownerAdminEntry,
@@ -73,4 +90,6 @@ module.exports = {
   ensureOwnerAdmin,
   resolveGroupRole,
   attachGroupRolesToParticipants,
+  normalizeSendPermission,
+  canRoleSendMessages,
 };
