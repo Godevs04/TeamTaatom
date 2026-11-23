@@ -33,6 +33,7 @@ import {
   unfollowConnectPage,
   acceptConnectFollowRequest,
   rejectConnectFollowRequest,
+  ConnectGroupRole,
   deleteConnectPage,
   updateConnectPage,
   getPageFollowers,
@@ -52,7 +53,14 @@ import {
   ConnectFollowerUser,
   SubscriptionStatus,
 } from '../../../services/connect';
-import { getRoomMuteStatus, toggleMuteRoom } from '../../../services/chat';
+import {
+  getRoomMuteStatus,
+  toggleMuteRoom,
+  promoteGroupAdmin,
+  acceptGroupAdmin,
+  rejectGroupAdmin,
+  demoteGroupAdmin,
+} from '../../../services/chat';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
@@ -196,6 +204,8 @@ export default function ConnectPageDetailScreen() {
   const [showFollowers, setShowFollowers] = useState(false);
   const [followers, setFollowers] = useState<ConnectFollowerUser[]>([]);
   const [followersLoading, setFollowersLoading] = useState(false);
+  const [myGroupRole, setMyGroupRole] = useState<'owner' | 'admin' | 'member' | 'pending_admin'>('member');
+  const [membersChatRoomId, setMembersChatRoomId] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [showSubscriptionManagementModal, setShowSubscriptionManagementModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
@@ -830,10 +840,42 @@ export default function ConnectPageDetailScreen() {
         }
       }
       setFollowers(list);
+      setMyGroupRole(response.myGroupRole || (isOwner ? 'owner' : 'member'));
+      const roomId = response.chatRoomId || page?.chatRoomId || null;
+      setMembersChatRoomId(roomId);
+      if (roomId && page && !page.chatRoomId) {
+        setPage({ ...page, chatRoomId: roomId, features: { ...page.features, groupChat: true } });
+      }
     } catch (error) {
       logger.error('Error loading followers:', error);
     } finally {
       setFollowersLoading(false);
+    }
+  };
+
+  const roleBadgeLabel = (role: ConnectGroupRole) => {
+    switch (role) {
+      case 'owner': return 'Owner';
+      case 'admin': return 'Admin';
+      case 'pending_admin': return 'Pending admin';
+      case 'pending': return 'Pending';
+      default: return null;
+    }
+  };
+
+  const refreshMembersList = async () => {
+    if (!id) return;
+    try {
+      const response = await getPageFollowers(id);
+      setFollowers((response.followers || []).filter(Boolean));
+      setMyGroupRole(response.myGroupRole || (isOwner ? 'owner' : 'member'));
+      const roomId = response.chatRoomId || page?.chatRoomId || null;
+      setMembersChatRoomId(roomId);
+      if (roomId && page && !page.chatRoomId) {
+        setPage({ ...page, chatRoomId: roomId, features: { ...page.features, groupChat: true } });
+      }
+    } catch (e) {
+      logger.warn('Failed to refresh members:', e);
     }
   };
 
@@ -1854,77 +1896,231 @@ export default function ConnectPageDetailScreen() {
               <FlatList
                 data={followers}
                 keyExtractor={(item) => item._id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.followerItem}
-                    onPress={() => {
-                      if (item.role === 'pending') return;
-                      setShowFollowers(false);
-                      router.push(`/profile/${item._id}`);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    {item.profilePic ? (
-                      <Image source={{ uri: item.profilePic }} style={styles.followerAvatar} />
-                    ) : (
-                      <View style={[styles.followerAvatarPlaceholder, { backgroundColor: theme.colors.border }]}>
-                        <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
-                      </View>
-                    )}
-                    <View style={styles.followerInfo}>
-                      <View style={styles.followerNameRow}>
-                        <Text style={[styles.followerName, { color: theme.colors.text }]} numberOfLines={1}>
-                          {item.fullName}
-                        </Text>
-                        {item.role === 'admin' && (
-                          <View style={[styles.adminBadge, { backgroundColor: theme.colors.primary + '18' }]}>
-                            <Text style={[styles.adminBadgeText, { color: theme.colors.primary }]}>Admin</Text>
-                          </View>
+                renderItem={({ item }) => {
+                  const badge = roleBadgeLabel(item.role);
+                  const chatId = membersChatRoomId || page?.chatRoomId || null;
+                  // Page owner always counts as group owner for admin actions
+                  const effectiveGroupRole = isOwner ? 'owner' : myGroupRole;
+                  const isGroupOwner = effectiveGroupRole === 'owner';
+                  const canManageAdmins = isGroupOwner || effectiveGroupRole === 'admin';
+                  const activeAdminCount = followers.filter((f) => f.role === 'admin').length;
+                  const seatsOpen = activeAdminCount < 2;
+                  const canPromote = !!chatId && canManageAdmins && item.role === 'member' && seatsOpen;
+                  const canDemote = !!chatId && isGroupOwner && item.role === 'admin';
+                  const canDecideAdminNomination =
+                    !!chatId && isGroupOwner && item.role === 'pending_admin';
+                  const showAdminActions = canPromote || canDemote || canDecideAdminNomination
+                    || (isOwner && item.role === 'pending');
+
+                  const openProfile = () => {
+                    setShowFollowers(false);
+                    router.push(`/profile/${item._id}`);
+                  };
+
+                  const doPromote = async () => {
+                    if (!chatId) {
+                      Alert.alert('Group chat needed', 'Open Members again to set up group chat, then retry.');
+                      await refreshMembersList();
+                      return;
+                    }
+                    try {
+                      await promoteGroupAdmin(chatId, item._id);
+                      await refreshMembersList();
+                      showSuccess(
+                        isGroupOwner
+                          ? 'Member promoted to admin'
+                          : 'Admin nomination sent to owner'
+                      );
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message || 'Failed to promote');
+                    }
+                  };
+
+                  const doDemote = async () => {
+                    if (!chatId) return;
+                    try {
+                      await demoteGroupAdmin(chatId, item._id);
+                      await refreshMembersList();
+                      showSuccess('Admin demoted');
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message || 'Failed to demote');
+                    }
+                  };
+
+                  const openMemberActions = () => {
+                    if (item.role === 'pending' || item.role === 'pending_admin') return;
+                    if (!canPromote && !canDemote) {
+                      openProfile();
+                      return;
+                    }
+                    const buttons: {
+                      text: string;
+                      style?: 'cancel' | 'destructive' | 'default';
+                      onPress?: () => void;
+                    }[] = [
+                      { text: 'View profile', onPress: openProfile },
+                    ];
+                    if (canPromote) {
+                      buttons.push({
+                        text: isGroupOwner ? 'Make group admin' : 'Nominate as admin',
+                        onPress: () => { void doPromote(); },
+                      });
+                    }
+                    if (canDemote) {
+                      buttons.push({
+                        text: 'Dismiss as admin',
+                        style: 'destructive',
+                        onPress: () => { void doDemote(); },
+                      });
+                    }
+                    buttons.push({ text: 'Cancel', style: 'cancel' });
+                    Alert.alert(item.fullName || item.username || 'Member', undefined, buttons);
+                  };
+
+                  const badgeBg = item.role === 'owner'
+                    ? (isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)')
+                    : item.role === 'pending' || item.role === 'pending_admin'
+                      ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.12)')
+                      : theme.colors.primary + '18';
+                  const badgeColor = item.role === 'owner' || item.role === 'pending' || item.role === 'pending_admin'
+                    ? (isDark ? '#F59E0B' : '#D97706')
+                    : theme.colors.primary;
+
+                  return (
+                  <View style={styles.followerItem}>
+                    <TouchableOpacity
+                      style={styles.followerMainTap}
+                      onPress={showAdminActions && (canPromote || canDemote) ? openMemberActions : openProfile}
+                      activeOpacity={0.7}
+                    >
+                      {item.profilePic ? (
+                        <Image source={{ uri: item.profilePic }} style={styles.followerAvatar} />
+                      ) : (
+                        <View style={[styles.followerAvatarPlaceholder, { backgroundColor: theme.colors.border }]}>
+                          <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
+                        </View>
+                      )}
+                      <View style={styles.followerInfo}>
+                        <View style={styles.followerNameRow}>
+                          <Text style={[styles.followerName, { color: theme.colors.text }]} numberOfLines={1}>
+                            {item.fullName || item.username}
+                          </Text>
+                          {badge ? (
+                            <View style={[styles.adminBadge, { backgroundColor: badgeBg }]}>
+                              <Text style={[styles.adminBadgeText, { color: badgeColor }]}>{badge}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        {!!item.username && (
+                          <Text style={[styles.followerUsername, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                            @{item.username}
+                          </Text>
                         )}
-                        {item.role === 'pending' && (
-                          <View style={[styles.adminBadge, { backgroundColor: (isDark ? '#F59E0B' : '#D97706') + '22' }]}>
-                            <Text style={[styles.adminBadgeText, { color: isDark ? '#F59E0B' : '#D97706' }]}>Pending</Text>
-                          </View>
-                        )}
                       </View>
-                      <Text style={[styles.followerUsername, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                        @{item.username}
-                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.followerActions}>
+                      {isOwner && item.role === 'pending' && page && (
+                        <>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              try {
+                                await acceptConnectFollowRequest(page._id, item._id);
+                                setFollowers((prev) =>
+                                  prev.map((f) => (f._id === item._id ? { ...f, role: 'member' } : f))
+                                );
+                              } catch (e: any) {
+                                Alert.alert('Error', e?.message || 'Failed to accept');
+                              }
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="checkmark-circle" size={26} color={isDark ? '#50C878' : '#107C41'} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              try {
+                                await rejectConnectFollowRequest(page._id, item._id);
+                                setFollowers((prev) => prev.filter((f) => f._id !== item._id));
+                              } catch (e: any) {
+                                Alert.alert('Error', e?.message || 'Failed to reject');
+                              }
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="close-circle" size={26} color={theme.colors.error || '#EF4444'} />
+                          </TouchableOpacity>
+                        </>
+                      )}
+                      {canDecideAdminNomination && (
+                        <>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              try {
+                                await acceptGroupAdmin(chatId!, item._id);
+                                await refreshMembersList();
+                              } catch (e: any) {
+                                Alert.alert('Error', e?.message || 'Failed to accept');
+                              }
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="checkmark-circle" size={26} color={isDark ? '#50C878' : '#107C41'} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              try {
+                                await rejectGroupAdmin(chatId!, item._id);
+                                await refreshMembersList();
+                              } catch (e: any) {
+                                Alert.alert('Error', e?.message || 'Failed to reject');
+                              }
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="close-circle" size={26} color={theme.colors.error || '#EF4444'} />
+                          </TouchableOpacity>
+                        </>
+                      )}
+                      {canPromote && (
+                        <TouchableOpacity
+                          onPress={() => { void doPromote(); }}
+                          style={[
+                            styles.memberActionChip,
+                            { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.1)' },
+                          ]}
+                        >
+                          <Text style={[styles.memberActionChipText, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+                            {isGroupOwner ? 'Make admin' : 'Nominate'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {canDemote && (
+                        <TouchableOpacity
+                          onPress={() => { void doDemote(); }}
+                          style={[
+                            styles.memberActionChip,
+                            { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' },
+                          ]}
+                        >
+                          <Text style={[styles.memberActionChipText, { color: theme.colors.textSecondary }]}>
+                            Demote
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {(canPromote || canDemote) && (
+                        <TouchableOpacity
+                          onPress={openMemberActions}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={styles.memberMoreBtn}
+                        >
+                          <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      )}
                     </View>
-                    {isOwner && item.role === 'pending' && page && (
-                      <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            try {
-                              await acceptConnectFollowRequest(page._id, item._id);
-                              setFollowers((prev) =>
-                                prev.map((f) => (f._id === item._id ? { ...f, role: 'member' } : f))
-                              );
-                            } catch (e: any) {
-                              Alert.alert('Error', e?.message || 'Failed to accept');
-                            }
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="checkmark-circle" size={26} color={isDark ? '#50C878' : '#107C41'} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            try {
-                              await rejectConnectFollowRequest(page._id, item._id);
-                              setFollowers((prev) => prev.filter((f) => f._id !== item._id));
-                            } catch (e: any) {
-                              Alert.alert('Error', e?.message || 'Failed to reject');
-                            }
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="close-circle" size={26} color={theme.colors.error || '#EF4444'} />
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                )}
+                  </View>
+                  );
+                }}
                 contentContainerStyle={{ paddingBottom: 20 }}
               />
             )}
@@ -3103,14 +3299,22 @@ const styles = StyleSheet.create({
   followerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 12,
+    gap: 10,
+  },
+  followerMainTap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
     gap: 12,
   },
   followerAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
+    flexShrink: 0,
   },
   followerAvatarPlaceholder: {
     width: 44,
@@ -3118,35 +3322,67 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   followerInfo: {
     flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
     gap: 2,
   },
   followerNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    flexWrap: 'nowrap',
+    gap: 6,
+    minWidth: 0,
   },
   followerName: {
     fontSize: 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     flexShrink: 1,
+    lineHeight: 20,
   },
   adminBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: 8,
+    flexShrink: 0,
+    alignSelf: 'center',
   },
   adminBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    lineHeight: 14,
   },
   followerUsername: {
     fontSize: isTablet ? 14 : 13,
     fontFamily: getFontFamily('400'),
+    lineHeight: 18,
+  },
+  followerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 6,
+    marginLeft: 4,
+  },
+  memberActionChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  memberActionChipText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  memberMoreBtn: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   // Price Modal
   priceModalOverlay: {

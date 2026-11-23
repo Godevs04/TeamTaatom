@@ -25,6 +25,10 @@ import {
   connectUnfollowPage,
   connectAcceptFollowRequest,
   connectRejectFollowRequest,
+  connectPromoteGroupAdmin,
+  connectAcceptGroupAdmin,
+  connectRejectGroupAdmin,
+  connectDemoteGroupAdmin,
   connectRecordView,
   connectSubscribe,
   connectGetSubscriptionStatus,
@@ -588,12 +592,28 @@ export default function ConnectPageDetailPage() {
                 ) : (followersQ.data?.followers ?? []).length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-zinc-400">No followers yet.</p>
                 ) : (
-                  (followersQ.data?.followers ?? []).map((f: ConnectFollower) => (
+                  (() => {
+                    const members = followersQ.data?.followers ?? [];
+                    const myGroupRole = followersQ.data?.myGroupRole ?? (isOwner ? "owner" : "member");
+                    const effectiveRole = isOwner ? "owner" : myGroupRole;
+                    const chatRoomId = followersQ.data?.chatRoomId || page.chatRoomId || null;
+                    const activeAdminCount = members.filter((m) => m.role === "admin").length;
+                    const seatsOpen = activeAdminCount < 2;
+                    const canManageAdmins = effectiveRole === "owner" || effectiveRole === "admin";
+                    const isGroupOwner = effectiveRole === "owner";
+                    const roleLabel = (role: ConnectFollower["role"]) => {
+                      if (role === "owner") return "Owner";
+                      if (role === "admin") return "Admin";
+                      if (role === "pending_admin") return "Pending admin";
+                      if (role === "pending") return "Pending";
+                      return null;
+                    };
+                    return members.map((f: ConnectFollower) => (
                     <div
                       key={f._id}
                       className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-slate-50 dark:hover:bg-zinc-800/50"
                     >
-                      {f.role === "pending" ? (
+                      {f.role === "pending" || f.role === "pending_admin" ? (
                         <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
                           {f.profilePic ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
@@ -617,18 +637,27 @@ export default function ConnectPageDetailPage() {
                         </Link>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
-                          {f.fullName ?? f.username ?? "User"}
-                        </p>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="truncate text-sm font-medium leading-5 text-slate-900 dark:text-white">
+                            {f.fullName ?? f.username ?? "User"}
+                          </p>
+                          {roleLabel(f.role) && (
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                                f.role === "owner" || f.role === "pending" || f.role === "pending_admin"
+                                  ? "bg-amber-500/10 text-amber-600"
+                                  : "bg-primary/10 text-primary",
+                              )}
+                            >
+                              {roleLabel(f.role)}
+                            </span>
+                          )}
+                        </div>
                         {f.username && (
-                          <p className="truncate text-xs text-slate-500 dark:text-zinc-400">@{f.username}</p>
+                          <p className="truncate text-xs leading-[18px] text-slate-500 dark:text-zinc-400">@{f.username}</p>
                         )}
                       </div>
-                      {f.role === "admin" && (
-                        <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                          Admin
-                        </span>
-                      )}
                       {f.role === "pending" && isOwner && (
                         <div className="flex shrink-0 gap-1">
                           <Button
@@ -664,13 +693,81 @@ export default function ConnectPageDetailPage() {
                           </Button>
                         </div>
                       )}
-                      {f.role === "pending" && !isOwner && (
-                        <span className="shrink-0 rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
-                          Pending
-                        </span>
+                      {chatRoomId && isGroupOwner && f.role === "pending_admin" && (
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                await connectAcceptGroupAdmin(chatRoomId, f._id);
+                                toast.success("Admin approved");
+                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
+                              } catch (e) {
+                                toast.error(getFriendlyErrorMessage(e));
+                              }
+                            }}
+                          >
+                            Approve admin
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={async () => {
+                              try {
+                                await connectRejectGroupAdmin(chatRoomId, f._id);
+                                toast.success("Nomination rejected");
+                                await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
+                              } catch (e) {
+                                toast.error(getFriendlyErrorMessage(e));
+                              }
+                            }}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                      {chatRoomId && canManageAdmins && f.role === "member" && seatsOpen && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await connectPromoteGroupAdmin(chatRoomId, f._id);
+                              toast.success(
+                                isGroupOwner
+                                  ? "Promoted to admin"
+                                  : "Nomination sent to owner",
+                              );
+                              await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
+                            } catch (e) {
+                              toast.error(getFriendlyErrorMessage(e));
+                            }
+                          }}
+                        >
+                          {isGroupOwner ? "Make admin" : "Nominate"}
+                        </Button>
+                      )}
+                      {chatRoomId && isGroupOwner && f.role === "admin" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            try {
+                              await connectDemoteGroupAdmin(chatRoomId, f._id);
+                              toast.success("Admin demoted");
+                              await qc.invalidateQueries({ queryKey: ["connect-page-followers", id] });
+                            } catch (e) {
+                              toast.error(getFriendlyErrorMessage(e));
+                            }
+                          }}
+                        >
+                          Demote
+                        </Button>
                       )}
                     </div>
-                  ))
+                    ));
+                  })()
                 )}
               </CardContent>
             </Card>

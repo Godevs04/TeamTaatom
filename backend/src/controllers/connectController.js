@@ -15,6 +15,7 @@ const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('..
 const { escapeRegex } = require('../utils/regexEscape');
 const Notification = require('../models/Notification');
 const { sendNotificationToUser } = require('../utils/sendNotification');
+const { ownerAdminEntry } = require('../utils/connectGroupAdmins');
 
 /** Audience-restricted Connect page types (profile-like privacy). */
 const isAudienceRestrictedType = (type) => type === 'private' || type === 'followers';
@@ -343,7 +344,8 @@ const createPage = async (req, res) => {
         type: 'connect_page',
         connectPageId: page._id,
         messages: [],
-        status: 'open'
+        status: 'open',
+        admins: [ownerAdminEntry(userId)],
       });
       await chatRoom.save();
       page.chatRoomId = chatRoom._id;
@@ -644,7 +646,8 @@ const updatePage = async (req, res) => {
         type: 'connect_page',
         connectPageId: pageId,
         messages: [],
-        status: 'open'
+        status: 'open',
+        admins: [ownerAdminEntry(userId)],
       });
       await chatRoom.save();
       updates.chatRoomId = chatRoom._id;
@@ -1251,7 +1254,7 @@ const followPage = async (req, res) => {
       await syncFollowerCount(connectPageId);
       if (page.chatRoomId) {
         await Chat.findByIdAndUpdate(page.chatRoomId, {
-          $addToSet: { participants: followerId }
+          $addToSet: { participants: followerId },
         });
       }
       return sendSuccess(res, 200, 'Followed successfully', {
@@ -1330,7 +1333,10 @@ const unfollowPage = async (req, res) => {
       const page = await ConnectPage.findById(connectPageId).select('chatRoomId');
       if (page?.chatRoomId) {
         await Chat.findByIdAndUpdate(page.chatRoomId, {
-          $pull: { participants: followerId }
+          $pull: {
+            participants: followerId,
+            admins: { userId: followerId },
+          },
         });
       }
     }
@@ -1602,7 +1608,7 @@ const getPageFollowers = async (req, res) => {
     // Get the page to find the creator AND check audience privacy.
     const connectPage = await ConnectPage.findById(pageId)
       .populate('userId', 'username fullName profilePic profilePicStorageKey')
-      .select('userId type')
+      .select('userId type category chatRoomId')
       .lean();
 
     if (!connectPage) {
@@ -1690,15 +1696,84 @@ const getPageFollowers = async (req, res) => {
       }
     }
 
-    // Add role to each follower and prepend the creator as admin on page 1
+    // Resolve group admin roles from Chat.admins (Owner / Admin / Pending admin).
+    // Page owners can manage admins from Members — lazily create the connect
+    // group chat if the page never had groupChat enabled.
+    const { ensureOwnerAdmin, resolveGroupRole } = require('../utils/connectGroupAdmins');
+    let chatAdmins = [];
+    let myGroupRole = viewerIsOwner ? 'owner' : 'member';
+    let resolvedChatRoomId = connectPage.chatRoomId || null;
+
+    if (viewerIsOwner && !resolvedChatRoomId) {
+      try {
+        const ownerId = ownerIdForList;
+        const chatRoom = new Chat({
+          participants: [ownerId],
+          type: 'connect_page',
+          connectPageId: pageId,
+          messages: [],
+          status: 'open',
+          admins: [ownerAdminEntry(ownerId)],
+        });
+        await chatRoom.save();
+        const followerIds = follows
+          .map((f) => f.followerId?._id || f.followerId)
+          .filter(Boolean);
+        if (followerIds.length > 0) {
+          await Chat.findByIdAndUpdate(chatRoom._id, {
+            $addToSet: { participants: { $each: followerIds } },
+          });
+        }
+        await ConnectPage.findByIdAndUpdate(pageId, {
+          $set: {
+            chatRoomId: chatRoom._id,
+            'features.groupChat': true,
+          },
+        });
+        resolvedChatRoomId = chatRoom._id;
+        chatAdmins = chatRoom.admins || [];
+        myGroupRole = 'owner';
+      } catch (ensureErr) {
+        logger.warn('[getPageFollowers] Failed to ensure group chat:', ensureErr?.message);
+      }
+    }
+
+    if (resolvedChatRoomId && chatAdmins.length === 0) {
+      const groupChat = await Chat.findById(resolvedChatRoomId).select('admins type').lean();
+      if (groupChat) {
+        if (!Array.isArray(groupChat.admins)) groupChat.admins = [];
+        const ownerId = connectPage.userId?._id || connectPage.userId;
+        if (ownerId && ensureOwnerAdmin(groupChat, ownerId)) {
+          await Chat.updateOne(
+            { _id: resolvedChatRoomId },
+            { $set: { admins: groupChat.admins } }
+          ).catch(() => {});
+        }
+        chatAdmins = groupChat.admins || [];
+        if (currentUserIdForOwner) {
+          myGroupRole = resolveGroupRole(chatAdmins, currentUserIdForOwner);
+          if (viewerIsOwner) myGroupRole = 'owner';
+        }
+      }
+    }
+
+    const mapGroupRole = (userId) => {
+      const gr = resolveGroupRole(chatAdmins, userId);
+      if (gr === 'owner') return 'owner';
+      if (gr === 'admin') return 'admin';
+      if (gr === 'pending_admin') return 'pending_admin';
+      return 'member';
+    };
+
     const membersWithRole = followers.map(f => ({
       _id: f._id,
       username: f.username,
       fullName: f.fullName,
       profilePic: f.profilePic,
-      role: 'member',
+      role: mapGroupRole(f._id),
     }));
 
+    // Follow-request pending (private page join), not admin nomination
     const pendingMembers = pendingUsers.map((u) => ({
       _id: u._id,
       username: u.username,
@@ -1707,7 +1782,6 @@ const getPageFollowers = async (req, res) => {
       role: 'pending',
     }));
 
-    // On page 1, prepend creator as admin (filter out if also in followers list)
     let members = membersWithRole;
     const isCommunity = connectPage.category === 'community' || connectPage.type === 'community';
     if (page === 1 && creator && !isCommunity) {
@@ -1718,19 +1792,51 @@ const getPageFollowers = async (req, res) => {
         username: creator.username,
         fullName: creator.fullName,
         profilePic: creator.profilePic,
-        role: 'admin',
+        role: 'owner',
       });
     }
+
+    // Pending admin nominations (from Chat.admins) — show for owner/admins
+    const pendingAdminEntries = (chatAdmins || []).filter((a) => a.status === 'pending');
+    if (page === 1 && pendingAdminEntries.length) {
+      const User = require('../models/User');
+      const pendingAdminIds = pendingAdminEntries.map((a) => a.userId);
+      const pendingAdminUsers = await User.find({ _id: { $in: pendingAdminIds } })
+        .select('username fullName profilePic profilePicStorageKey')
+        .lean();
+      for (const u of pendingAdminUsers) {
+        if (u.profilePicStorageKey) {
+          try {
+            u.profilePic = await generateSignedUrl(u.profilePicStorageKey, 'PROFILE');
+          } catch { /* keep */ }
+        }
+      }
+      const pendingAdminMembers = pendingAdminUsers.map((u) => ({
+        _id: u._id,
+        username: u.username,
+        fullName: u.fullName,
+        profilePic: u.profilePic,
+        role: 'pending_admin',
+      }));
+      // Drop duplicates if they also appear as members
+      const pendingAdminIdSet = new Set(pendingAdminMembers.map((m) => m._id.toString()));
+      members = members.filter((m) => !pendingAdminIdSet.has(m._id.toString()));
+      const ownerRow = members[0]?.role === 'owner' ? [members[0]] : [];
+      const rest = ownerRow.length ? members.slice(1) : members;
+      members = [...ownerRow, ...pendingAdminMembers, ...rest];
+    }
+
     if (page === 1 && pendingMembers.length) {
-      // Pending requests sit just under admin so owner can accept/reject
-      const admin = members[0]?.role === 'admin' ? [members[0]] : [];
-      const rest = admin.length ? members.slice(1) : members;
-      members = [...admin, ...pendingMembers, ...rest];
+      const ownerRow = members[0]?.role === 'owner' ? [members[0]] : [];
+      const rest = ownerRow.length ? members.slice(1) : members;
+      members = [...ownerRow, ...pendingMembers, ...rest];
     }
 
     const finalTotal = (page === 1 && creator && !isCommunity) ? total + 1 : total;
     return sendSuccess(res, 200, 'Followers fetched', {
       followers: members,
+      myGroupRole,
+      chatRoomId: resolvedChatRoomId || null,
       pagination: { page, limit, total: finalTotal, totalPages: Math.ceil(finalTotal / limit) }
     });
   } catch (error) {

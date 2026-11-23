@@ -130,17 +130,21 @@ export interface ConnectPagesResponse {
   pagination: PaginationType;
 }
 
+export type ConnectGroupRole = 'owner' | 'admin' | 'member' | 'pending' | 'pending_admin';
+
 export interface ConnectFollowerUser {
   _id: string;
   username: string;
   fullName: string;
   profilePic: string;
-  role: 'admin' | 'member' | 'pending';
+  role: ConnectGroupRole;
 }
 
 export interface ConnectFollowersResponse {
   followers: ConnectFollowerUser[];
   pagination: PaginationType;
+  myGroupRole?: 'owner' | 'admin' | 'member' | 'pending_admin';
+  chatRoomId?: string | null;
 }
 
 export interface FindUsersResponse {

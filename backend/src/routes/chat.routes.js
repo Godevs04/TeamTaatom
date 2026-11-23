@@ -111,6 +111,11 @@ router.post('/room/:chatId/mark-all-seen', authMiddleware, chatController.markAl
 router.get('/room/:chatId/mute-status', authMiddleware, chatController.getRoomMuteStatus);
 router.post('/room/:chatId/mute', authMiddleware, chatController.toggleMuteRoom);
 router.delete('/room/:chatId', authMiddleware, chatController.deleteChatById);
+// Connect group admin roles
+router.post('/room/:chatId/admins/promote', authMiddleware, chatController.promoteGroupAdmin);
+router.post('/room/:chatId/admins/accept', authMiddleware, chatController.acceptGroupAdmin);
+router.post('/room/:chatId/admins/reject', authMiddleware, chatController.rejectGroupAdmin);
+router.post('/room/:chatId/admins/demote', authMiddleware, chatController.demoteGroupAdmin);
 
 // Specific routes must come before parameterized routes
 /**

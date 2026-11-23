@@ -1685,12 +1685,40 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 
               let resolvedSenderName = item.senderName || '';
               let resolvedSenderPic = item.senderProfilePic || '';
-              if (isGroupChat && !resolvedSenderName && senderId && participants) {
+              let senderGroupRole =
+                item.senderGroupRole ||
+                (isOwn ? (participants?.find((p: any) => normalizeId(p?._id || p) === myUserId)?.groupRole) : null) ||
+                'member';
+              if (isGroupChat && senderId && participants) {
                 const senderParticipant = participants.find((p: any) => normalizeId(p?._id || p) === senderId);
                 if (senderParticipant) {
-                  resolvedSenderName = senderParticipant.fullName || '';
+                  if (!resolvedSenderName) resolvedSenderName = senderParticipant.fullName || '';
                   if (!resolvedSenderPic) resolvedSenderPic = senderParticipant.profilePic || '';
+                  if (senderParticipant.groupRole) senderGroupRole = senderParticipant.groupRole;
                 }
+              }
+              const isAdminSender =
+                isGroupChat && (senderGroupRole === 'owner' || senderGroupRole === 'admin');
+
+              if (isGroupChat && item.isSystem) {
+                return (
+                  <View style={{ alignItems: 'center', paddingVertical: 8, paddingHorizontal: 24 }}>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: theme.colors.textSecondary,
+                        textAlign: 'center',
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {String(item.text || '')}
+                    </Text>
+                  </View>
+                );
               }
 
               let showSenderInfo = false;
@@ -1726,13 +1754,46 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                     colors={['#1C73B4', '#50C878']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={[bubbleStyles.bubbleOut, { maxWidth: CHAT_BUBBLE_MAX_WIDTH }]}
+                    style={[
+                      bubbleStyles.bubbleOut,
+                      { maxWidth: CHAT_BUBBLE_MAX_WIDTH },
+                      isAdminSender ? { borderWidth: 1.5, borderColor: 'rgba(245, 158, 11, 0.55)' } : null,
+                    ]}
                   >
                     {children}
                   </LinearGradient>
                 ) : (
-                  <View style={[bubbleStyles.bubbleIn, { maxWidth: CHAT_BUBBLE_MAX_WIDTH }]}>{children}</View>
+                  <View
+                    style={[
+                      bubbleStyles.bubbleIn,
+                      { maxWidth: CHAT_BUBBLE_MAX_WIDTH },
+                      isAdminSender
+                        ? {
+                            borderWidth: 1.5,
+                            borderColor: isDark ? 'rgba(245, 158, 11, 0.45)' : 'rgba(217, 119, 6, 0.4)',
+                          }
+                        : null,
+                    ]}
+                  >
+                    {children}
+                  </View>
                 );
+
+              const roleChip = isAdminSender ? (
+                <View
+                  style={{
+                    marginLeft: 6,
+                    paddingHorizontal: 6,
+                    paddingVertical: 1,
+                    borderRadius: 6,
+                    backgroundColor: isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)',
+                  }}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: isDark ? '#F59E0B' : '#D97706' }}>
+                    {senderGroupRole === 'owner' ? 'Owner' : 'Admin'}
+                  </Text>
+                </View>
+              ) : null;
 
               return (
                 <View
@@ -1765,10 +1826,17 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                       { alignItems: isOwn ? 'flex-end' : 'flex-start' },
                     ]}
                   >
-                    {isGroupChat && !isOwn && showSenderInfo && resolvedSenderName ? (
-                      <Text style={[bubbleStyles.senderName, { marginLeft: 0 }]} numberOfLines={1}>
-                        {resolvedSenderName}
-                      </Text>
+                    {isGroupChat && showSenderInfo && (resolvedSenderName || isOwn) ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 0, marginBottom: 2 }}>
+                        <Text style={[bubbleStyles.senderName, { marginLeft: 0 }]} numberOfLines={1}>
+                          {isOwn ? 'You' : resolvedSenderName}
+                        </Text>
+                        {roleChip}
+                      </View>
+                    ) : isGroupChat && isOwn && isAdminSender ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                        {roleChip}
+                      </View>
                     ) : null}
                   <>
                     {postShare ? (
