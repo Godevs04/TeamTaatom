@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Heart, Pause, Play, RotateCcw } from "lucide-react";
+import { Heart, Loader2, Pause, Play, RotateCcw } from "lucide-react";
 import { ShortsSlideMedia } from "./shorts-slide-media";
 
 /** Matches mobile ShortsCellFeed double-tap window. */
@@ -30,6 +30,7 @@ export function ShortVideoStage({
   isPaused,
   muted,
   failed,
+  processing = false,
   onTogglePause,
   onDoubleTapLike,
   onError,
@@ -44,6 +45,8 @@ export function ShortVideoStage({
   isPaused: boolean;
   muted: boolean;
   failed: boolean;
+  /** Raw upload still waiting for HLS — show processing instead of hard failure. */
+  processing?: boolean;
   onTogglePause: () => void;
   onDoubleTapLike: () => void;
   onError: () => void;
@@ -108,7 +111,7 @@ export function ShortVideoStage({
     if (el && Number.isFinite(value)) el.currentTime = value;
   };
 
-  if (failed) {
+  if (failed && !processing) {
     return (
       <div className="relative h-full w-full">
         {poster ? (
@@ -128,6 +131,25 @@ export function ShortVideoStage({
           </span>
           <span className="text-sm font-medium">Couldn’t play this short. Tap to retry</span>
         </button>
+      </div>
+    );
+  }
+
+  if (processing) {
+    return (
+      <div className="relative h-full w-full">
+        {poster ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={poster} alt={caption || "Short"} className="h-full w-full object-cover opacity-60" />
+        ) : (
+          <div className="h-full w-full bg-zinc-800" />
+        )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/35 bg-black/50 backdrop-blur">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </span>
+          <span className="text-sm font-medium">Processing video…</span>
+        </div>
       </div>
     );
   }

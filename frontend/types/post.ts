@@ -13,6 +13,11 @@ export interface PostType {
   images?: string[]; // Multiple images for carousel
   videoUrl?: string;
   mediaUrl?: string; // Virtual field from backend
+  /** R2/S3 object key; HLS shorts end with index.m3u8, raw uploads live under shorts/raw/. */
+  storageKey?: string;
+  storageKeys?: string[];
+  /** False until HLS is ready — raw progressive playback often fails on iOS. */
+  playbackReady?: boolean;
   cloudinaryPublicId?: string;
   cloudinaryPublicIds?: string[]; // Multiple public IDs
   tags?: string[];

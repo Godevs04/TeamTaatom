@@ -74,9 +74,11 @@ function LongVideoCard({ post }: LongVideoCardProps) {
               <Ionicons name="play" size={28} color="#fff" style={{ marginLeft: 3 }} />
             </View>
           </View>
-          {!!duration && (
+          {(post.playbackReady === false || !!duration) && (
             <View style={[styles.durationBadge, { backgroundColor: colors.badgeBg }]}>
-              <Text style={styles.durationText}>{duration}</Text>
+              <Text style={styles.durationText}>
+                {post.playbackReady === false ? 'Processing' : duration}
+              </Text>
             </View>
           )}
         </View>

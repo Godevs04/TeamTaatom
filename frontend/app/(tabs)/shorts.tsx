@@ -577,7 +577,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const lastViewTimeRef = useRef<number>(0);
   const VIEW_DEBOUNCE_MS = SHORT_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
-  const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
+  const loadShortsRef = useRef<((isSilent?: boolean, forceRefresh?: boolean) => Promise<void>) | null>(null);
   // Number of loadShorts calls currently running. The focus handler checks it so it
   // does not start a second load while the first one is still fetching.
   const loadInFlightRef = useRef(0);
@@ -864,15 +864,37 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       const refreshTimer = setTimeout(() => {
         if (effectiveUserId || props.isSavedShorts || effectiveShortId) return;
-        if (shortsRef.current.length === 0) {
-          // The mount effect already started the first load; do not fetch the feed twice.
-          if (loadInFlightRef.current > 0) return;
-          logger.debug('Shorts screen focused - loading empty feed');
-          loadShortsRef.current?.();
-        } else if (Date.now() - globalCachedAt > SHORTS_STALE_MS) {
-          logger.debug('Shorts screen focused - feed is stale, refreshing');
-          refreshToTopRef.current?.();
-        }
+        // After uploading a short, post.tsx sets this so the feed reloads immediately
+        // instead of waiting for the 5-minute stale window.
+        AsyncStorage.getItem('shorts_feed_needs_refresh')
+          .then((flag) => {
+            if (flag === 'true') {
+              AsyncStorage.removeItem('shorts_feed_needs_refresh').catch(() => {});
+              logger.debug('Shorts screen focused - post-upload refresh');
+              if (refreshToTopRef.current) {
+                refreshToTopRef.current();
+              } else {
+                loadShortsRef.current?.(true, true);
+              }
+              return;
+            }
+            if (shortsRef.current.length === 0) {
+              if (loadInFlightRef.current > 0) return;
+              logger.debug('Shorts screen focused - loading empty feed');
+              loadShortsRef.current?.();
+            } else if (Date.now() - globalCachedAt > SHORTS_STALE_MS) {
+              logger.debug('Shorts screen focused - feed is stale, refreshing');
+              refreshToTopRef.current?.();
+            }
+          })
+          .catch(() => {
+            if (shortsRef.current.length === 0) {
+              if (loadInFlightRef.current > 0) return;
+              loadShortsRef.current?.();
+            } else if (Date.now() - globalCachedAt > SHORTS_STALE_MS) {
+              refreshToTopRef.current?.();
+            }
+          });
       }, 300);
 
       return () => {
@@ -1177,9 +1199,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const handleUrlRefetch = useCallback(async (shortId: string) => {
     const freshShort = await refetchShortWithFreshUrl(shortId);
     if (freshShort) {
+      videoCacheRef.current.delete(shortId);
       setShorts(prev => prev.map(s =>
         s._id === shortId
-          ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
+          ? {
+              ...s,
+              mediaUrl: freshShort.mediaUrl,
+              videoUrl: freshShort.videoUrl || s.videoUrl,
+              imageUrl: freshShort.imageUrl || s.imageUrl,
+              thumbnailUrl: freshShort.thumbnailUrl || s.thumbnailUrl,
+              storageKey: freshShort.storageKey ?? s.storageKey,
+              storageKeys: freshShort.storageKeys ?? s.storageKeys,
+              playbackReady:
+                typeof freshShort.playbackReady === 'boolean'
+                  ? freshShort.playbackReady
+                  : s.playbackReady,
+            }
           : s
       ));
       return freshShort;
@@ -1632,8 +1667,20 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const shortId = payload?.shortId;
       if (!shortId) return;
       const hlsUrl = `${getApiBaseUrl()}/api/v1/shorts?hls=master&postId=${shortId}&ext=.m3u8`;
+      const hlsKey = `shorts/hls/${shortId}/index.m3u8`;
+      videoCacheRef.current.delete(shortId);
       const repoint = (list: PostType[]) =>
-        list.map((s) => (String(s._id) === shortId ? { ...s, videoUrl: hlsUrl } : s));
+        list.map((s) =>
+          String(s._id) === shortId
+            ? {
+                ...s,
+                videoUrl: hlsUrl,
+                mediaUrl: hlsUrl,
+                storageKey: hlsKey,
+                playbackReady: true,
+              }
+            : s
+        );
       if (globalCachedShorts.some((s) => String(s._id) === shortId)) {
         globalCachedShorts = repoint(globalCachedShorts);
       }

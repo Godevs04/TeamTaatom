@@ -1,0 +1,14 @@
+---
+description: When the user reports a bug, fix all related scenarios end-to-end with no lint
+alwaysApply: true
+---
+
+# Thorough issue fixes
+
+When the user reports a problem:
+
+1. **Do not stop at the single symptom.** Trace the full flow (UI → API → push/in-app/state) and fix every related broken path for the same feature.
+2. **Cover related scenarios** such as: owner vs member, app vs web, push tap vs in-app tap, cold start vs warm, optimistic UI vs reload, accept/reject/cancel, and error/already-processed cases.
+3. **Keep push and in-app notification copy + deep links in sync** whenever notifications are involved.
+4. **Ship with no lint / type errors** on touched files; verify before finishing.
+5. Prefer a complete fix over a partial patch that leaves edge cases broken.

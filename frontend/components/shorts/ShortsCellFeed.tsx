@@ -47,6 +47,11 @@ import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
 import { getLocalVideoUriSync } from '../../src/utils/videoCache';
+import {
+  isShortPlaybackReady,
+  isShortStillProcessing,
+  shortPlayableSourceKey,
+} from '../../utils/shortsPlayback';
 
 import { MarqueeText } from './MarqueeText';
 import { CyclingMetadata } from './CyclingMetadata';
@@ -250,7 +255,45 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const videoFrameRef = useRef<ComponentRef<typeof View>>(null);
   const [videoFrameSize, setVideoFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [videoProcessing, setVideoProcessing] = useState(() => isShortStillProcessing(item));
   const urlRefetchAttemptedRef = useRef(false);
+  const processingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const processingStartedAtRef = useRef<number>(0);
+  const playableSourceKey = shortPlayableSourceKey(item);
+
+  const clearProcessingPoll = useCallback(() => {
+    if (processingPollRef.current) {
+      clearInterval(processingPollRef.current);
+      processingPollRef.current = null;
+    }
+  }, []);
+
+  const refetchShortRef = useRef(handlers.refetchShortWithFreshUrl);
+  refetchShortRef.current = handlers.refetchShortWithFreshUrl;
+
+  const startProcessingPoll = useCallback(() => {
+    if (processingPollRef.current) return;
+    processingStartedAtRef.current = Date.now();
+    processingPollRef.current = setInterval(() => {
+      if (Date.now() - processingStartedAtRef.current > 120000) {
+        clearProcessingPoll();
+        setVideoProcessing(false);
+        setVideoFailed(true);
+        return;
+      }
+      refetchShortRef.current(item._id).then((freshShort: PostType | null) => {
+        if (!freshShort) return;
+        if (isShortPlaybackReady(freshShort)) {
+          clearProcessingPoll();
+          setVideoProcessing(false);
+          setVideoFailed(false);
+          urlRefetchAttemptedRef.current = false;
+          setSourceVersion((prev) => prev + 1);
+          setVideoReady(false);
+        }
+      }).catch(() => {});
+    }, 3000);
+  }, [clearProcessingPoll, item._id]);
 
   // Clean up timeouts on unmount
   useEffect(() => {
@@ -258,16 +301,37 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
       if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
       if (likeAnimTimeoutRef.current) clearTimeout(likeAnimTimeoutRef.current);
       if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+      clearProcessingPoll();
     };
-  }, []);
+  }, [clearProcessingPoll]);
 
   // BUG 15: Reset video ready state & opacity when cell is recycled for a new item
   useEffect(() => {
     setVideoReady(false);
     setVideoFailed(false);
+    setVideoProcessing(isShortStillProcessing(item));
     urlRefetchAttemptedRef.current = false;
+    clearProcessingPoll();
     videoOpacity.setValue(0);
   }, [item._id]);
+
+  // When HLS lands (short:transcoded / refetch), clear sticky fail and remount the player.
+  useEffect(() => {
+    setVideoFailed(false);
+    urlRefetchAttemptedRef.current = false;
+    setVideoReady(false);
+    videoOpacity.setValue(0);
+    if (isShortPlaybackReady(item)) {
+      setVideoProcessing(false);
+      clearProcessingPoll();
+    } else if (isShortStillProcessing(item)) {
+      setVideoProcessing(true);
+      startProcessingPoll();
+    }
+    setSourceVersion((prev) => prev + 1);
+    // playableSourceKey encodes the fields that matter; item/startProcessingPoll are intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playableSourceKey]);
 
   // Neighbors keep their player mounted (paused) for smooth reverse swipes.
   // Do not clear videoReady on deactivate — that forced a black flash / remount on swipe-back.
@@ -439,11 +503,15 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     const delay = 300;
     const videoId = item._id;
 
-    if (videoFailed) {
+    if (videoFailed || videoProcessing) {
       urlRefetchAttemptedRef.current = false;
       setVideoFailed(false);
+      setVideoProcessing(isShortStillProcessing(item));
       setVideoReady(false);
       setSourceVersion(prev => prev + 1);
+      if (isShortStillProcessing(item) || !isShortPlaybackReady(item)) {
+        startProcessingPoll();
+      }
       return;
     }
 
@@ -588,12 +656,34 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                     errorDomain === 'NSURLErrorDomain' ||
                     /(-1001|NSURLErrorDomain)/.test(errorMessage);
                   const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
+                  // Raw shorts often fail on iOS AVPlayer (-11819) before HLS exists.
+                  const looksLikeRawPlaybackFailure =
+                    /(-11819|AVFoundationErrorDomain|cannot decode|not playable|media format)/i.test(
+                      `${errorMessage} ${errorCode || ''} ${errorDomain || ''}`
+                    );
+                  const stillProcessing =
+                    item.playbackReady === false ||
+                    isShortStillProcessing(item) ||
+                    (looksLikeRawPlaybackFailure && !isShortPlaybackReady(item));
 
                   if (isTimeoutError) {
-                    // Network drop, not a broken video: the fresh-URL retry below handles it
                     logger.warn(`Video ${item._id} failed to load (network error): ${errorMessage}`);
                   } else {
                     logger.error(`Video ${item._id} failed to load:`, error);
+                  }
+
+                  if (stillProcessing) {
+                    logger.warn(`Video ${item._id} not HLS-ready yet — waiting for transcode`, {
+                      errorCode,
+                      errorDomain,
+                      errorMessage,
+                      storageKey: item.storageKey,
+                      playbackReady: item.playbackReady,
+                    });
+                    setVideoFailed(false);
+                    setVideoProcessing(true);
+                    startProcessingPoll();
+                    return;
                   }
 
                   // At most one fresh-URL attempt per activation; after that keep the thumbnail and show the fallback.
@@ -607,6 +697,9 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                         if (!freshShort || !freshVideoUrl) {
                           setVideoFailed(true);
                           return;
+                        }
+                        if (isShortPlaybackReady(freshShort)) {
+                          setVideoProcessing(false);
                         }
                         setSourceVersion(prev => prev + 1);
                         setVideoReady(false);
@@ -763,6 +856,12 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   </View>
                 )}
               </View>
+              {videoProcessing && !videoFailed && (
+                <View style={styles.videoFailedOverlay} pointerEvents="none">
+                  <ActivityIndicator size="small" color="rgba(255,255,255,0.9)" />
+                  <Text style={styles.videoFailedText}>Processing video…</Text>
+                </View>
+              )}
               {videoFailed && (
                 <View style={styles.videoFailedOverlay} pointerEvents="none">
                   <Ionicons name="alert-circle-outline" size={28} color="rgba(255,255,255,0.85)" />

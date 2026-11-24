@@ -119,7 +119,17 @@ export const handleNotificationClick = async (notification: any): Promise<{
           contentUnavailable: true
         };
 
-      case 'follow_request':
+      case 'follow_request': {
+        const meta = notification.metadata || {};
+        const connectPageId = meta.connectPageId || notification.connectPageId;
+        if (meta.kind === 'connect_page_follow' && connectPageId) {
+          return {
+            success: true,
+            message: 'Opening community...',
+            shouldNavigate: true,
+            navigationPath: `/connect/page/${connectPageId}`,
+          };
+        }
         // In-app list opens FollowRequestPopup; from handler (e.g. push) navigate to requester profile
         if (notification.fromUserId || notification.fromUser?._id) {
           const userId = notification.fromUserId || notification.fromUser?._id;
@@ -135,9 +145,20 @@ export const handleNotificationClick = async (notification: any): Promise<{
           message: 'This user account is no longer available.',
           shouldNavigate: false
         };
+      }
 
       case 'follow_approved':
-      case 'route_access_approved':
+      case 'route_access_approved': {
+        const meta = notification.metadata || {};
+        const connectPageId = meta.connectPageId || notification.connectPageId;
+        if (meta.kind === 'connect_page_follow' && connectPageId) {
+          return {
+            success: true,
+            message: 'Opening community...',
+            shouldNavigate: true,
+            navigationPath: `/connect/page/${connectPageId}`,
+          };
+        }
         // Navigate to approver's profile
         if (notification.fromUserId || notification.fromUser?._id) {
           const userId = notification.fromUserId || notification.fromUser?._id;
@@ -153,6 +174,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
           message: 'This user account is no longer available.',
           shouldNavigate: false
         };
+      }
 
       case 'route_access_request':
         // Navigate to Route Access Requests screen under settings

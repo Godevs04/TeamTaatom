@@ -165,7 +165,7 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, connectPageId, participants, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, connectPageId, participants, canSendMessages = true, sendPermission = 'everyone', onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
   otherUser: any,
   onClose: () => void,
   messages: any[],
@@ -174,6 +174,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   chatType?: string,
   connectPageId?: any,
   participants?: any[],
+  canSendMessages?: boolean,
+  sendPermission?: 'everyone' | 'admins' | 'owner',
   onVoiceCall: (user: any) => void,
   onVideoCall: (user: any) => void,
   isCalling: boolean,
@@ -1026,8 +1028,18 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   }, [sortedMessages, otherUser, chatId]);
 
   const handleSend = async () => {
+    if (chatType === 'connect_page' && !canSendMessages) {
+      Alert.alert(
+        'Messaging restricted',
+        sendPermission === 'owner'
+          ? 'Only the owner can send messages in this group.'
+          : 'Only admins can send messages in this group.'
+      );
+      return;
+    }
     if (!input.trim() && pendingAttachments.length === 0) return;
-    const messageText = input;
+    // Trim so trailing newlines don't inflate bubble height
+    const messageText = input.trim();
     const attachmentsToSend = [...pendingAttachments];
     
     markMessagesAsSeenIfNeeded();
@@ -1552,111 +1564,146 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           }
           typingText={isTyping ? 'typing…' : null}
           onTitlePress={() => {
-            if (chatType === 'connect_page' && connectPageId?._id && router) {
-              router.push(`/connect/page/${connectPageId._id}`);
+            if (chatType === 'connect_page' && chatId && router) {
+              router.push(`/chat/group-info?chatId=${chatId}`);
             } else if (otherUser?._id && router) {
               router.push(`/profile/${otherUser._id}`);
             }
           }}
           rightAction={
             <ThreeDotMenu
-              items={[
-                {
-                  label: 'View Profile',
-                  icon: 'person-outline',
-                  onPress: () => {
-                    if (chatType === 'connect_page' && connectPageId?._id && router) {
-                      router.push(`/connect/page/${connectPageId._id}`);
-                    } else if (otherUser?._id && router) {
-                      router.push(`/profile/${otherUser._id}`);
-                    }
-                  },
-                },
-                {
-                  label: 'Clear Chat',
-                  icon: 'trash-outline',
-                  onPress: () => {
-                    Alert.alert(
-                      'Clear Chat',
-                      'Are you sure you want to clear all messages in this chat? This action cannot be undone.',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Clear',
-                          style: 'destructive',
-                          onPress: async () => {
-                            try {
-                              if (otherUser?._id) {
-                                await clearChat(otherUser._id);
-                                if (onClearChat) {
-                                  onClearChat();
-                                }
-                                Alert.alert('Success', 'Chat cleared successfully');
-                              }
-                            } catch (error: any) {
-                              const { sanitizeErrorForDisplay } = await import('../../utils/errorSanitizer');
-                              Alert.alert('Error', sanitizeErrorForDisplay(error, 'chat.clearChat'));
-                            }
-                          },
+              iconName={chatType === 'connect_page' ? 'settings-outline' : 'ellipsis-vertical'}
+              items={
+                chatType === 'connect_page'
+                  ? [
+                      {
+                        label: 'Group info',
+                        icon: 'information-circle-outline',
+                        onPress: () => {
+                          if (chatId && router) {
+                            router.push(`/chat/group-info?chatId=${chatId}`);
+                          }
                         },
-                      ]
-                    );
-                  },
-                },
-                {
-                  label: isMuted ? 'Unmute Notifications' : 'Mute Notifications',
-                  icon: isMuted ? 'notifications-outline' : 'notifications-off-outline',
-                  onPress: async () => {
-                    try {
-                      if (chatType === 'connect_page' && chatId) {
-                        const result = await toggleMuteRoom(chatId);
-                        setIsMuted(result.muted);
-                        Alert.alert('Success', result.message);
-                      } else if (otherUser?._id) {
-                        const result = await toggleMuteChat(otherUser._id);
-                        setIsMuted(result.muted);
-                        Alert.alert('Success', result.message);
-                      }
-                    } catch (error: any) {
-                      Alert.alert('Error', sanitizeErrorForDisplay(error, 'chat.toggleMute'));
-                    }
-                  },
-                },
-                {
-                  label: isBlocked ? 'Unblock User' : 'Block User',
-                  icon: 'ban-outline',
-                  onPress: () => {
-                    Alert.alert(
-                      isBlocked ? 'Unblock User' : 'Block User',
-                      isBlocked
-                        ? `Are you sure you want to unblock ${otherUser?.fullName || 'this user'}?`
-                        : `Are you sure you want to block ${otherUser?.fullName || 'this user'}? You won't be able to send or receive messages from them.`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: isBlocked ? 'Unblock' : 'Block',
-                          style: isBlocked ? 'default' : 'destructive',
-                          onPress: async () => {
-                            try {
-                              if (otherUser?._id) {
-                                const result = await toggleBlockUser(otherUser._id);
-                                setIsBlocked(result.isBlocked);
-                                Alert.alert('Success', result.message);
-                                if (result.isBlocked) {
-                                  onClose();
-                                }
-                              }
-                            } catch (error: any) {
-                              Alert.alert('Error', sanitizeErrorForDisplay(error, 'chat.updateBlockStatus'));
+                      },
+                      ...(connectPageId?._id
+                        ? [
+                            {
+                              label: 'View community',
+                              icon: 'globe-outline' as const,
+                              onPress: () => {
+                                if (router) router.push(`/connect/page/${connectPageId._id}`);
+                              },
+                            },
+                          ]
+                        : []),
+                      {
+                        label: isMuted ? 'Unmute Notifications' : 'Mute Notifications',
+                        icon: isMuted ? 'notifications-outline' : 'notifications-off-outline',
+                        onPress: async () => {
+                          try {
+                            if (chatId) {
+                              const result = await toggleMuteRoom(chatId);
+                              setIsMuted(result.muted);
+                              Alert.alert('Success', result.message);
                             }
-                          },
+                          } catch (error: any) {
+                            Alert.alert('Error', sanitizeErrorForDisplay(error, 'chat.toggleMute'));
+                          }
                         },
-                      ]
-                    );
-                  },
-                  destructive: Boolean(!isBlocked),
-                },
-              ]}
+                      },
+                    ]
+                  : [
+                      {
+                        label: 'View Profile',
+                        icon: 'person-outline',
+                        onPress: () => {
+                          if (otherUser?._id && router) {
+                            router.push(`/profile/${otherUser._id}`);
+                          }
+                        },
+                      },
+                      {
+                        label: 'Clear Chat',
+                        icon: 'trash-outline',
+                        onPress: () => {
+                          Alert.alert(
+                            'Clear Chat',
+                            'Are you sure you want to clear all messages in this chat? This action cannot be undone.',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Clear',
+                                style: 'destructive',
+                                onPress: async () => {
+                                  try {
+                                    if (otherUser?._id) {
+                                      await clearChat(otherUser._id);
+                                      if (onClearChat) {
+                                        onClearChat();
+                                      }
+                                      Alert.alert('Success', 'Chat cleared successfully');
+                                    }
+                                  } catch (error: any) {
+                                    const { sanitizeErrorForDisplay: sanitize } = await import('../../utils/errorSanitizer');
+                                    Alert.alert('Error', sanitize(error, 'chat.clearChat'));
+                                  }
+                                },
+                              },
+                            ]
+                          );
+                        },
+                      },
+                      {
+                        label: isMuted ? 'Unmute Notifications' : 'Mute Notifications',
+                        icon: isMuted ? 'notifications-outline' : 'notifications-off-outline',
+                        onPress: async () => {
+                          try {
+                            if (otherUser?._id) {
+                              const result = await toggleMuteChat(otherUser._id);
+                              setIsMuted(result.muted);
+                              Alert.alert('Success', result.message);
+                            }
+                          } catch (error: any) {
+                            Alert.alert('Error', sanitizeErrorForDisplay(error, 'chat.toggleMute'));
+                          }
+                        },
+                      },
+                      {
+                        label: isBlocked ? 'Unblock User' : 'Block User',
+                        icon: 'ban-outline',
+                        onPress: () => {
+                          Alert.alert(
+                            isBlocked ? 'Unblock User' : 'Block User',
+                            isBlocked
+                              ? `Are you sure you want to unblock ${otherUser?.fullName || 'this user'}?`
+                              : `Are you sure you want to block ${otherUser?.fullName || 'this user'}? You won't be able to send or receive messages from them.`,
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: isBlocked ? 'Unblock' : 'Block',
+                                style: isBlocked ? 'default' : 'destructive',
+                                onPress: async () => {
+                                  try {
+                                    if (otherUser?._id) {
+                                      const result = await toggleBlockUser(otherUser._id);
+                                      setIsBlocked(result.isBlocked);
+                                      Alert.alert('Success', result.message);
+                                      if (result.isBlocked) {
+                                        onClose();
+                                      }
+                                    }
+                                  } catch (error: any) {
+                                    Alert.alert('Error', sanitizeErrorForDisplay(error, 'chat.updateBlockStatus'));
+                                  }
+                                },
+                              },
+                            ]
+                          );
+                        },
+                        destructive: Boolean(!isBlocked),
+                      },
+                    ]
+              }
               iconColor={theme.colors.text}
               iconSize={20}
             />
@@ -1748,25 +1795,43 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                 return item.seen === true;
               })();
 
+              // Size the bubble from content; paint the gradient as an absolute
+              // fill. Using LinearGradient as the layout box makes iOS stretch
+              // short messages into a tall empty bubble.
               const BubbleWrapper = ({ children }: { children: React.ReactNode }) =>
                 isOwn ? (
-                  <LinearGradient
-                    colors={['#1C73B4', '#50C878']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
+                  <View
                     style={[
                       bubbleStyles.bubbleOut,
-                      { maxWidth: CHAT_BUBBLE_MAX_WIDTH },
+                      {
+                        maxWidth: CHAT_BUBBLE_MAX_WIDTH,
+                        alignSelf: 'flex-end',
+                        flexGrow: 0,
+                        flexShrink: 1,
+                        position: 'relative',
+                      },
                       isAdminSender ? { borderWidth: 1.5, borderColor: 'rgba(245, 158, 11, 0.55)' } : null,
                     ]}
                   >
+                    <LinearGradient
+                      colors={['#1C73B4', '#50C878']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
                     {children}
-                  </LinearGradient>
+                  </View>
                 ) : (
                   <View
                     style={[
                       bubbleStyles.bubbleIn,
-                      { maxWidth: CHAT_BUBBLE_MAX_WIDTH },
+                      {
+                        maxWidth: CHAT_BUBBLE_MAX_WIDTH,
+                        alignSelf: 'flex-start',
+                        flexGrow: 0,
+                        flexShrink: 1,
+                      },
                       isAdminSender
                         ? {
                             borderWidth: 1.5,
@@ -1823,7 +1888,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                   <View
                     style={[
                       bubbleStyles.bubbleColumn,
-                      { alignItems: isOwn ? 'flex-end' : 'flex-start' },
+                      {
+                        alignItems: isOwn ? 'flex-end' : 'flex-start',
+                        alignSelf: isOwn ? 'flex-end' : 'flex-start',
+                        flexGrow: 0,
+                      },
                     ]}
                   >
                     {isGroupChat && showSenderInfo && (resolvedSenderName || isOwn) ? (
@@ -1997,29 +2066,30 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         {(item.text || (!item.text && (!item.attachments || item.attachments.length === 0))) ? (
                           <BubbleWrapper>
                             {item.text ? (
-                              <Text style={isOwn ? bubbleStyles.textOut : bubbleStyles.textIn}>
-                                {String(item.text)}
+                              <Text
+                                style={isOwn ? bubbleStyles.textOut : bubbleStyles.textIn}
+                              >
+                                {String(item.text).trimEnd()}
                               </Text>
                             ) : null}
                             <View style={{
                               flexDirection: 'row',
                               alignItems: 'center',
                               justifyContent: 'flex-end',
-                              marginTop: 2,
+                              alignSelf: 'flex-end',
+                              marginTop: item.text ? 4 : 0,
                               gap: 3,
                             }}>
                               <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.timeIn}>
                                 {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                               </Text>
-                              {isOwn && (
-                                <View>
-                                  {isSeenByAll ? (
-                                    <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
-                                  ) : (
-                                    <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
-                                  )}
-                                </View>
-                              )}
+                              {isOwn ? (
+                                isSeenByAll ? (
+                                  <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
+                                ) : (
+                                  <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
+                                )
+                              ) : null}
                             </View>
                           </BubbleWrapper>
                         ) : (
@@ -2085,23 +2155,71 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           />
         )}
 
-        <CloudInputDock
-          value={input}
-          onChangeText={handleInput}
-          onSend={handleSend}
-          onAttach={() => setShowAttachmentPicker(true)}
-          placeholder="Type a message…"
-          bottomInset={Math.max(insets.bottom, 10)}
-          canSend={Boolean(input.trim()) || pendingAttachments.length > 0}
-        />
+        {chatType === 'connect_page' && !canSendMessages ? (
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingTop: 10,
+              paddingBottom: Math.max(insets.bottom, 12),
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: theme.colors.border,
+              backgroundColor: theme.colors.background,
+              alignItems: 'center',
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderRadius: 14,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                maxWidth: '100%',
+              }}
+            >
+              <Ionicons name="lock-closed-outline" size={16} color={theme.colors.textSecondary} />
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  fontWeight: '600',
+                  color: theme.colors.textSecondary,
+                }}
+              >
+                {sendPermission === 'owner'
+                  ? 'Only the owner can send messages'
+                  : 'Only admins can send messages'}
+              </Text>
+              {chatId && router ? (
+                <TouchableOpacity onPress={() => router.push(`/chat/group-info?chatId=${chatId}`)}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#1C73B4' }}>Info</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <>
+            <CloudInputDock
+              value={input}
+              onChangeText={handleInput}
+              onSend={handleSend}
+              onAttach={() => setShowAttachmentPicker(true)}
+              placeholder="Type a message…"
+              bottomInset={Math.max(insets.bottom, 10)}
+              canSend={Boolean(input.trim()) || pendingAttachments.length > 0}
+            />
 
-        <ChatAttachmentPicker
-          visible={showAttachmentPicker}
-          onClose={() => setShowAttachmentPicker(false)}
-          onAttachmentsReady={(attachments) => {
-            setPendingAttachments(prev => [...prev, ...attachments]);
-          }}
-        />
+            <ChatAttachmentPicker
+              visible={showAttachmentPicker}
+              onClose={() => setShowAttachmentPicker(false)}
+              onAttachmentsReady={(attachments) => {
+                setPendingAttachments(prev => [...prev, ...attachments]);
+              }}
+            />
+          </>
+        )}
       </KeyboardAvoidingView>
     </View>
     
@@ -2352,6 +2470,61 @@ export default function ChatThreadScreen() {
     }
   }, [params.userId, params.chatId]);
 
+  // Refresh send-permission / roles when returning from Group info
+  useFocusEffect(
+    useCallback(() => {
+      const roomId = activeChat?._id || (params.chatId as string) || '';
+      if (!roomId || activeChat?.type !== 'connect_page') return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const chatRes = await api.get(`/chat/room/${roomId}`);
+          const chat = chatRes.data?.chat;
+          if (!cancelled && chat) {
+            setActiveChat((prev: any) => ({
+              ...(prev || {}),
+              ...chat,
+              messages: prev?.messages,
+            }));
+          }
+        } catch {
+          // ignore soft refresh failures
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [activeChat?._id, activeChat?.type, params.chatId])
+  );
+
+  useEffect(() => {
+    const roomId = activeChat?._id;
+    if (!roomId || activeChat?.type !== 'connect_page') return;
+    const onChatUpdate = (payload: any) => {
+      if (!payload || normalizeId(payload.chatId) !== normalizeId(roomId)) return;
+      if (payload.sendPermission) {
+        setActiveChat((prev: any) => {
+          if (!prev) return prev;
+          const myRole = prev.myGroupRole || 'member';
+          const perm = payload.sendPermission;
+          const canSend =
+            perm === 'everyone' ||
+            (perm === 'owner' && myRole === 'owner') ||
+            (perm === 'admins' && (myRole === 'owner' || myRole === 'admin'));
+          return {
+            ...prev,
+            sendPermission: perm,
+            canSendMessages: canSend,
+          };
+        });
+      }
+    };
+    socketService.subscribe('chat:update', onChatUpdate);
+    return () => {
+      socketService.unsubscribe('chat:update', onChatUpdate);
+    };
+  }, [activeChat?._id, activeChat?.type]);
+
   useEffect(() => {
     const unsubscribe = callService.onCallStateChange((state) => {
       setGlobalCallState(state);
@@ -2597,6 +2770,12 @@ export default function ChatThreadScreen() {
       chatType={activeChat?.type}
       connectPageId={activeChat?.connectPageId}
       participants={activeChat?.participants}
+      canSendMessages={
+        activeChat?.type === 'connect_page'
+          ? activeChat?.canSendMessages !== false
+          : true
+      }
+      sendPermission={activeChat?.sendPermission || 'everyone'}
       onVoiceCall={handleVoiceCall}
       onVideoCall={handleVideoCall}
       isCalling={isCalling}

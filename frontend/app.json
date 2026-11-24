@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.4.32",
+    "version": "26.4.33",
     "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -17,6 +17,7 @@
       "bundleIdentifier": "com.taatom.app",
       "associatedDomains": [
         "applinks:taatom.com",
+        "applinks:www.taatom.com",
         "applinks:*.taatom.com"
       ],
       "infoPlist": {
@@ -89,21 +90,27 @@
         },
         {
           "action": "VIEW",
-          "data": [
-            {
-              "scheme": "https",
-              "host": "taatom.com"
-            },
-            {
-              "scheme": "https",
-              "host": "*.taatom.com"
-            }
-          ],
+          "autoVerify": true,
           "category": [
             "BROWSABLE",
             "DEFAULT"
           ],
-          "autoVerify": true
+          "data": [
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/s" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/post" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/trip" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/connect/page" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/journey" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/journeys" },
+            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/watch" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/s" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/post" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/trip" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/connect/page" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/journey" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/journeys" },
+            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/watch" }
+          ]
         }
       ],
       "permissions": [

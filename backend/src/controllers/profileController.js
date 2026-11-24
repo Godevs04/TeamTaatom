@@ -872,9 +872,10 @@ const toggleFollow = async (req, res) => {
         });
 
         // Send push notification
+        // Push body matches in-app: "{name} wants to follow you"
         await sendNotificationToUser({
           userId: id.toString(),
-          title: 'New Follow Request',
+          title: 'Follow request',
           body: `${currentUser.fullName} wants to follow you`,
           data: {
             type: 'follow_request',
@@ -1668,9 +1669,10 @@ const approveFollowRequest = async (req, res) => {
           });
 
           // Send push notification
+          // Push body matches in-app: "{name} approved your follow request"
           await sendNotificationToUser({
             userId: requesterId.toString(),
-            title: 'Follow Request Approved',
+            title: 'Follow request approved',
             body: `${user.fullName} approved your follow request`,
             data: {
               type: 'follow_approved',

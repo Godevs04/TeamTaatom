@@ -77,4 +77,8 @@ export type Chat = {
   connectPageId?: string | ConnectPageRef;
   /** Viewer's role in connect group chat */
   myGroupRole?: ChatGroupRole;
+  /** Who may send messages: everyone | admins | owner */
+  sendPermission?: "everyone" | "admins" | "owner";
+  /** Whether the current viewer may send messages */
+  canSendMessages?: boolean;
 };

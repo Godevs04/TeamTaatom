@@ -21,6 +21,7 @@ import CustomAlert from '../components/CustomAlert';
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, handleNotificationClick } from '../services/notifications';
 import { socketService } from '../services/socket';
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
+import { acceptConnectFollowRequest, rejectConnectFollowRequest } from '../services/connect';
 import { Notification } from '../types/notification';
 import { triggerRefreshHaptic } from '../utils/hapticFeedback';
 import { theme } from '../constants/theme';
@@ -29,6 +30,17 @@ import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../components/ImageEdit
 import { getApiUrl } from '../utils/config';
 import { contentNoun } from '../utils/contentRoutes';
 import * as ExpoNotifications from 'expo-notifications';
+
+const isConnectPageFollowNotification = (n?: Notification | null) =>
+  !!(n?.metadata && (n.metadata.kind === 'connect_page_follow' || n.metadata.connectPageId));
+
+const followRequestDedupeKey = (n: Notification) => {
+  const fromId = n.fromUser?._id || 'unknown';
+  if (isConnectPageFollowNotification(n)) {
+    return `${fromId}-connect-${n.metadata?.connectPageId || 'page'}`;
+  }
+  return `${fromId}-follow_request`;
+};
 
 const resolvePhotoUrl = (url?: string | null): string | undefined => {
   if (!url) return undefined;
@@ -104,12 +116,12 @@ export default function NotificationsScreen() {
         return;
       }
 
-      // Filter out duplicate follow_request notifications (client-side safety check)
+      // Filter out duplicate follow_request notifications (client-side safety check).
+      // Keep profile vs community join requests distinct.
       const seenFollowRequests = new Set<string>();
       const filteredNotifications = rawList.filter((n: Notification) => {
         if (n.type === 'follow_request') {
-          // If we've seen a follow_request from this user before, skip it
-          const key = `${n.fromUser._id}-${n.type}`;
+          const key = followRequestDedupeKey(n);
           if (seenFollowRequests.has(key)) {
             return false;
           }
@@ -138,14 +150,13 @@ export default function NotificationsScreen() {
         setNotifications(prev => {
           const existingIds = new Set(prev.map(n => n._id));
           const newFiltered = withSessionState.filter(n => !existingIds.has(n._id));
-          // Also filter out duplicate follow_request notifications for same user
           const followRequestKeys = new Set<string>();
           const allNotifications = [...prev, ...newFiltered];
           return allNotifications.filter(n => {
             if (n.type === 'follow_request') {
-              const key = `${n.fromUser._id}-${n.type}`;
+              const key = followRequestDedupeKey(n);
               if (followRequestKeys.has(key)) {
-                return false; // Duplicate follow_request from same user
+                return false;
               }
               followRequestKeys.add(key);
             }
@@ -283,43 +294,77 @@ export default function NotificationsScreen() {
     setFollowRequestPopup(prev => ({ ...prev, loading: true }));
 
     try {
-      // Use the requester's user ID directly from the notification
-      const requesterId = followRequestPopup.notification.fromUser._id;
-      logger.debug('Approving follow request for user:', requesterId);
+      const notification = followRequestPopup.notification;
+      const requesterId = notification.fromUser._id;
+      const isConnect = isConnectPageFollowNotification(notification);
+      const connectPageId = notification.metadata?.connectPageId as string | undefined;
+      logger.debug(`Approving follow request for user: ${requesterId} connect=${isConnect} page=${connectPageId || ''}`);
 
-      await approveFollowRequest(requesterId);
+      if (isConnect) {
+        if (!connectPageId) {
+          throw new Error('Missing community page for this join request');
+        }
+        await acceptConnectFollowRequest(connectPageId, requesterId);
+      } else {
+        await approveFollowRequest(requesterId);
+      }
 
-      // Persist in session cache so reload doesn't revert the state
-      processedFollowRequests.set(followRequestPopup.notification._id, 'accepted');
+      processedFollowRequests.set(notification._id, 'accepted');
 
-      // Update the notification in state to show accepted status
       setNotifications(prev =>
         prev.map(n => {
-          if (n._id === followRequestPopup.notification!._id ||
-              (n.type === 'follow_request' && n.fromUser._id === requesterId)) {
-            return { ...n, type: 'follow_request_accepted', isRead: true };
+          const sameNotif = n._id === notification._id;
+          const sameConnectPending =
+            isConnect &&
+            n.type === 'follow_request' &&
+            isConnectPageFollowNotification(n) &&
+            n.metadata?.connectPageId === connectPageId &&
+            n.fromUser._id === requesterId;
+          const sameProfilePending =
+            !isConnect &&
+            n.type === 'follow_request' &&
+            !isConnectPageFollowNotification(n) &&
+            n.fromUser._id === requesterId;
+          if (sameNotif || sameConnectPending || sameProfilePending) {
+            return {
+              ...n,
+              type: 'follow_request_accepted' as const,
+              isRead: true,
+              metadata: {
+                ...(n.metadata || {}),
+                ...(isConnect
+                  ? { kind: 'connect_page_follow', connectPageId, audience: 'owner' }
+                  : {}),
+              },
+            };
           }
           return n;
         })
       );
 
-      // Close popup
       setFollowRequestPopup({
         visible: false,
         notification: null,
         loading: false,
       });
 
-      showSuccess('Follow request approved successfully!');
+      showSuccess(isConnect ? 'Join request accepted' : 'Follow request approved successfully!');
     } catch (error: any) {
       logger.error('Failed to approve follow request:', error);
       const errorMessage = error?.message || '';
-      if (errorMessage.toLowerCase().includes('already processed') ||
-          errorMessage.toLowerCase().includes('already approved')) {
+      if (
+        errorMessage.toLowerCase().includes('already processed') ||
+        errorMessage.toLowerCase().includes('already approved') ||
+        errorMessage.toLowerCase().includes('no pending')
+      ) {
+        const notification = followRequestPopup.notification!;
+        processedFollowRequests.set(notification._id, 'accepted');
         setNotifications(prev =>
           prev.map(n => {
-            if (n._id === followRequestPopup.notification!._id ||
-                (n.type === 'follow_request' && n.fromUser._id === followRequestPopup.notification?.fromUser._id)) {
+            if (
+              n._id === notification._id ||
+              (n.type === 'follow_request' && n.fromUser._id === notification.fromUser._id)
+            ) {
               return { ...n, type: 'follow_request_accepted', isRead: true };
             }
             return n;
@@ -330,9 +375,9 @@ export default function NotificationsScreen() {
           notification: null,
           loading: false,
         });
-        showSuccess('Follow request was already approved!');
+        showSuccess('Request was already processed');
       } else {
-        showError('Failed to approve follow request. Please try again.');
+        showError(errorMessage || 'Failed to approve request. Please try again.');
         setFollowRequestPopup(prev => ({ ...prev, loading: false }));
       }
     }
@@ -344,43 +389,77 @@ export default function NotificationsScreen() {
     setFollowRequestPopup(prev => ({ ...prev, loading: true }));
 
     try {
-      // Use the requester's user ID directly from the notification
-      const requesterId = followRequestPopup.notification.fromUser._id;
-      logger.debug('Rejecting follow request for user:', requesterId);
+      const notification = followRequestPopup.notification;
+      const requesterId = notification.fromUser._id;
+      const isConnect = isConnectPageFollowNotification(notification);
+      const connectPageId = notification.metadata?.connectPageId as string | undefined;
+      logger.debug(`Rejecting follow request for user: ${requesterId} connect=${isConnect} page=${connectPageId || ''}`);
 
-      await rejectFollowRequest(requesterId);
+      if (isConnect) {
+        if (!connectPageId) {
+          throw new Error('Missing community page for this join request');
+        }
+        await rejectConnectFollowRequest(connectPageId, requesterId);
+      } else {
+        await rejectFollowRequest(requesterId);
+      }
 
-      // Persist in session cache so reload doesn't revert the state
-      processedFollowRequests.set(followRequestPopup.notification._id, 'rejected');
+      processedFollowRequests.set(notification._id, 'rejected');
 
-      // Update the notification in state to show rejected status
       setNotifications(prev =>
         prev.map(n => {
-          if (n._id === followRequestPopup.notification!._id ||
-              (n.type === 'follow_request' && n.fromUser._id === requesterId)) {
-            return { ...n, type: 'follow_request_rejected', isRead: true };
+          const sameNotif = n._id === notification._id;
+          const sameConnectPending =
+            isConnect &&
+            n.type === 'follow_request' &&
+            isConnectPageFollowNotification(n) &&
+            n.metadata?.connectPageId === connectPageId &&
+            n.fromUser._id === requesterId;
+          const sameProfilePending =
+            !isConnect &&
+            n.type === 'follow_request' &&
+            !isConnectPageFollowNotification(n) &&
+            n.fromUser._id === requesterId;
+          if (sameNotif || sameConnectPending || sameProfilePending) {
+            return {
+              ...n,
+              type: 'follow_request_rejected' as const,
+              isRead: true,
+              metadata: {
+                ...(n.metadata || {}),
+                ...(isConnect
+                  ? { kind: 'connect_page_follow', connectPageId, audience: 'owner' }
+                  : {}),
+              },
+            };
           }
           return n;
         })
       );
 
-      // Close popup
       setFollowRequestPopup({
         visible: false,
         notification: null,
         loading: false,
       });
 
-      showSuccess('Follow request declined.');
+      showSuccess(isConnect ? 'Join request declined' : 'Follow request declined.');
     } catch (error: any) {
       logger.error('Failed to reject follow request:', error);
       const errorMessage = error?.message || '';
-      if (errorMessage.toLowerCase().includes('already processed') ||
-          errorMessage.toLowerCase().includes('already rejected')) {
+      if (
+        errorMessage.toLowerCase().includes('already processed') ||
+        errorMessage.toLowerCase().includes('already rejected') ||
+        errorMessage.toLowerCase().includes('no pending')
+      ) {
+        const notification = followRequestPopup.notification!;
+        processedFollowRequests.set(notification._id, 'rejected');
         setNotifications(prev =>
           prev.map(n => {
-            if (n._id === followRequestPopup.notification!._id ||
-                (n.type === 'follow_request' && n.fromUser._id === followRequestPopup.notification?.fromUser._id)) {
+            if (
+              n._id === notification._id ||
+              (n.type === 'follow_request' && n.fromUser._id === notification.fromUser._id)
+            ) {
               return { ...n, type: 'follow_request_rejected', isRead: true };
             }
             return n;
@@ -391,9 +470,9 @@ export default function NotificationsScreen() {
           notification: null,
           loading: false,
         });
-        showSuccess('Follow request was already declined.');
+        showSuccess('Request was already processed');
       } else {
-        showError('Failed to reject follow request. Please try again.');
+        showError(errorMessage || 'Failed to reject request. Please try again.');
         setFollowRequestPopup(prev => ({ ...prev, loading: false }));
       }
     }
@@ -502,6 +581,8 @@ export default function NotificationsScreen() {
     const { type, fromUser, metadata } = notification;
     const userName = fromUser?.fullName || 'Someone';
     const noun = contentNoun(notification.post?.type);
+    const isConnect = isConnectPageFollowNotification(notification);
+    const pageName = (metadata?.pageName as string) || 'community';
 
     switch (type) {
       case 'like':
@@ -515,13 +596,23 @@ export default function NotificationsScreen() {
       case 'follow':
         return `${userName} started following you`;
       case 'follow_request':
-        return `${userName} wants to follow you`;
+        // Must match push body for connect_follow_request
+        return isConnect
+          ? `${userName} requested to join ${pageName}`
+          : `${userName} wants to follow you`;
       case 'follow_approved':
-        return `${userName} approved your follow request`;
+        // Must match push body for connect_follow_accepted / Follow Request Approved
+        return isConnect
+          ? `${userName} accepted your request to join ${pageName}`
+          : `${userName} approved your follow request`;
       case 'follow_request_accepted':
-        return `You accepted ${userName}'s follow request`;
+        return isConnect
+          ? `You accepted ${userName}'s request to join ${pageName}`
+          : `You accepted ${userName}'s follow request`;
       case 'follow_request_rejected':
-        return `You declined ${userName}'s follow request`;
+        return isConnect
+          ? `You declined ${userName}'s request to join ${pageName}`
+          : `You declined ${userName}'s follow request`;
       case 'route_access_request':
         return `${userName} requested access to view your traveling routes`;
       case 'route_access_approved':
@@ -654,41 +745,55 @@ export default function NotificationsScreen() {
         </View>
 
         <View style={styles.notificationRight}>
-          {(item.post && (item.post.imageUrl || ['like', 'comment'].includes(item.type))) ? (
-            <View style={[
-              styles.postThumbnailContainer,
-              { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSecondary }
-            ]}>
-              {item.post?.imageUrl && !failedThumbnails.has(item._id) ? (
+          {(() => {
+            const rawThumb =
+              (typeof item.post?.imageUrl === 'string' && item.post.imageUrl.trim()) ||
+              (typeof (item.post as any)?.thumbnailUrl === 'string' &&
+                (item.post as any).thumbnailUrl.trim()) ||
+              '';
+            const thumbUri = rawThumb ? resolvePhotoUrl(rawThumb) : '';
+            const showPostThumb =
+              !!item.post &&
+              !!thumbUri &&
+              !failedThumbnails.has(item._id) &&
+              ['like', 'comment', 'post_mention'].includes(item.type);
+            if (!showPostThumb) return null;
+            return (
+              <View
+                style={[
+                  styles.postThumbnailContainer,
+                  { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSecondary },
+                ]}
+              >
                 <View style={{ position: 'relative' }}>
                   <Image
-                    source={{ uri: resolvePhotoUrl(item.post.imageUrl) }}
+                    source={{ uri: thumbUri }}
                     style={styles.postThumbnail}
                     resizeMode="cover"
                     onError={() => {
-                      setFailedThumbnails(prev => new Set(prev).add(item._id));
+                      setFailedThumbnails((prev) => new Set(prev).add(item._id));
                       if (__DEV__) {
                         logger.warn('Post thumbnail failed to load:', { postId: item.post?._id });
                       }
                     }}
                   />
-                  {(item.post as any).filter && FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType] && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        StyleSheet.absoluteFill,
-                        { backgroundColor: FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType]! },
-                      ]}
-                    />
-                  )}
+                  {(item.post as any).filter &&
+                    FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType] && (
+                      <View
+                        pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFill,
+                          {
+                            backgroundColor:
+                              FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType]!,
+                          },
+                        ]}
+                      />
+                    )}
                 </View>
-              ) : (
-                <View style={[styles.postThumbnailPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}>
-                  <Ionicons name="image-outline" size={isTablet ? 28 : 24} color={theme.colors.textSecondary} />
-                </View>
-              )}
-            </View>
-          ) : null}
+              </View>
+            );
+          })()}
           {!item.isRead && (
             <View style={[
               styles.unreadDot,
@@ -827,6 +932,11 @@ export default function NotificationsScreen() {
         visible={followRequestPopup.visible}
         userName={followRequestPopup.notification?.fromUser?.fullName || ''}
         userEmail={followRequestPopup.notification?.fromUser?.email || ''}
+        message={
+          isConnectPageFollowNotification(followRequestPopup.notification)
+            ? `requested to join ${followRequestPopup.notification?.metadata?.pageName || 'this community'}`
+            : 'wants to follow you'
+        }
         onApprove={handleFollowRequestApprove}
         onReject={handleFollowRequestReject}
         onCancel={handleFollowRequestCancel}
@@ -997,12 +1107,6 @@ const styles = StyleSheet.create({
   postThumbnail: {
     width: isTablet ? 60 : 48,
     height: isTablet ? 60 : 48,
-  },
-  postThumbnailPlaceholder: {
-    width: isTablet ? 60 : 48,
-    height: isTablet ? 60 : 48,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   unreadDot: {
     position: 'absolute',

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { toWebVideoUrl } from "../../lib/post-utils";
 import { HlsVideo } from "../media/hls-video";
+import { RecoverableHlsVideo } from "../media/recoverable-hls-video";
 
 export function PostDetailMedia({
   images,
@@ -13,6 +14,9 @@ export function PostDetailMedia({
   videoUrl,
   posterUrl,
   isLongVideo,
+  postId,
+  playbackReady,
+  storageKey,
 }: {
   images: string[];
   caption?: string;
@@ -20,6 +24,9 @@ export function PostDetailMedia({
   videoUrl?: string;
   posterUrl?: string;
   isLongVideo?: boolean;
+  postId?: string;
+  playbackReady?: boolean;
+  storageKey?: string | null;
 }) {
   const playableUrl = videoUrl ? toWebVideoUrl(videoUrl) : "";
   const [index, setIndex] = React.useState(0);
@@ -48,14 +55,28 @@ export function PostDetailMedia({
   if (isShort && playableUrl) {
     return (
       <div className="relative flex min-h-[280px] w-full items-center justify-center overflow-hidden rounded-2xl bg-black">
-        <HlsVideo
-          src={playableUrl}
-          poster={posterUrl}
-          controls
-          playsInline
-          preload="metadata"
-          className="max-h-[min(70vh,720px)] w-full object-contain"
-        />
+        {postId ? (
+          <RecoverableHlsVideo
+            postId={postId}
+            src={playableUrl}
+            poster={posterUrl}
+            playbackReady={playbackReady}
+            storageKey={storageKey}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-[min(70vh,720px)] w-full object-contain"
+          />
+        ) : (
+          <HlsVideo
+            src={playableUrl}
+            poster={posterUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-[min(70vh,720px)] w-full object-contain"
+          />
+        )}
       </div>
     );
   }
@@ -63,14 +84,28 @@ export function PostDetailMedia({
   if (isLongVideo && playableUrl) {
     return (
       <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black">
-        <HlsVideo
-          src={playableUrl}
-          poster={posterUrl}
-          controls
-          playsInline
-          preload="metadata"
-          className="absolute inset-0 h-full w-full object-contain"
-        />
+        {postId ? (
+          <RecoverableHlsVideo
+            postId={postId}
+            src={playableUrl}
+            poster={posterUrl}
+            playbackReady={playbackReady}
+            storageKey={storageKey}
+            controls
+            playsInline
+            preload="metadata"
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+        ) : (
+          <HlsVideo
+            src={playableUrl}
+            poster={posterUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+        )}
       </div>
     );
   }

@@ -22,8 +22,14 @@ function actorName(n: Notification): string {
   return (fromUser && (fromUser.fullName || fromUser.username)) || "Someone";
 }
 
+function isConnectPageFollow(n: Notification): boolean {
+  return !!(n.metadata?.kind === "connect_page_follow" || n.metadata?.connectPageId);
+}
+
 function actionCopy(n: Notification): string {
   const noun = contentNoun(n.post?.type || n.metadata?.postType);
+  const pageName = (n.metadata?.pageName as string) || "community";
+  const connect = isConnectPageFollow(n);
   switch (n.type) {
     case "like":
       return `liked your ${noun}`;
@@ -32,12 +38,19 @@ function actionCopy(n: Notification): string {
     case "follow":
       return "started following you";
     case "follow_request":
-      return "requested to follow you";
+      return connect ? `requested to join ${pageName}` : "wants to follow you";
     case "follow_approved":
+      return connect
+        ? `accepted your request to join ${pageName}`
+        : "approved your follow request";
     case "follow_request_accepted":
-      return "approved your follow request";
+      return connect
+        ? `— you accepted their request to join ${pageName}`
+        : "— you accepted their follow request";
     case "follow_request_rejected":
-      return "declined your follow request";
+      return connect
+        ? `— you declined their request to join ${pageName}`
+        : "declined your follow request";
     case "post_mention":
       return isCommentMention(n) ? "mentioned you in a comment" : `mentioned you in a ${noun}`;
     case "subscription_active":

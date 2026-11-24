@@ -13,14 +13,20 @@ import {
   editChatMessage,
   deleteChatMessage,
 } from "../../../../../lib/api";
+import {
+  connectLeaveGroupChat,
+  connectUpdateGroupSendPermission,
+  type GroupSendPermission,
+} from "../../../../../lib/connect-api";
 import { getFriendlyErrorMessage } from "../../../../../lib/auth-errors";
 import { useAuth } from "../../../../../context/auth-context";
 import { useConfirm } from "../../../../../context/confirm-context";
 import type { ChatMessage, ConnectPageRef } from "../../../../../types/chat";
 import { Button } from "../../../../../components/ui/button";
-import { ArrowLeft, Users, MoreHorizontal, Edit2, Trash2, X } from "lucide-react";
+import { ArrowLeft, Users, MoreHorizontal, Edit2, Trash2, X, LogOut } from "lucide-react";
 import { Skeleton } from "../../../../../components/ui/skeleton";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { ChatComposer } from "../../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../../components/chat/message-attachments";
 import {
@@ -44,6 +50,7 @@ function normalizeSenderId(sender: ChatMessage["sender"]): string {
 export default function GroupChatRoomPage() {
   const params = useParams();
   const roomId = params.roomId as string;
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { user: me } = useAuth();
   const confirm = useConfirm();
@@ -52,6 +59,9 @@ export default function GroupChatRoomPage() {
   const [editingMessage, setEditingMessage] = React.useState<ChatMessage | null>(null);
   const [activeMsgMenuId, setActiveMsgMenuId] = React.useState<string | null>(null);
   const [typingName, setTypingName] = React.useState<string | null>(null);
+  const [headerMenuOpen, setHeaderMenuOpen] = React.useState(false);
+  const [leaveBusy, setLeaveBusy] = React.useState(false);
+  const [permBusy, setPermBusy] = React.useState(false);
   const typingClearTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: chatData } = useQuery({
@@ -247,6 +257,58 @@ export default function GroupChatRoomPage() {
       : null;
   const groupName = connectPage?.name ?? "Group Chat";
   const groupImage = connectPage?.profileImage;
+  const connectPageId =
+    connectPage && typeof connectPage === "object" && "_id" in connectPage
+      ? (connectPage as ConnectPageRef)._id
+      : null;
+  const myGroupRole = chat?.myGroupRole ?? "member";
+  const canLeave = myGroupRole !== "owner";
+  const canManageSendPermission = myGroupRole === "owner" || myGroupRole === "admin";
+  const sendPermission = (chat?.sendPermission ?? "everyone") as GroupSendPermission;
+  const canSendMessages = chat?.canSendMessages !== false;
+
+  const handleSendPermission = async (next: GroupSendPermission) => {
+    if (!roomId || permBusy || next === sendPermission) return;
+    setPermBusy(true);
+    try {
+      await connectUpdateGroupSendPermission(roomId, next);
+      toast.success(
+        next === "owner"
+          ? "Only owner can send messages"
+          : next === "admins"
+            ? "Only admins can send messages"
+            : "Everyone can send messages",
+      );
+      queryClient.invalidateQueries({ queryKey: ["chat-room", roomId] });
+      setHeaderMenuOpen(false);
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setPermBusy(false);
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!roomId || leaveBusy) return;
+    const ok = await confirm({
+      title: "Leave group?",
+      description: "You will leave this chat and unfollow the community.",
+      confirmText: "Leave",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setLeaveBusy(true);
+    try {
+      await connectLeaveGroupChat(roomId);
+      toast.success("Left the group");
+      router.replace("/chat");
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setLeaveBusy(false);
+      setHeaderMenuOpen(false);
+    }
+  };
 
   if (!myId) {
     return (
@@ -286,6 +348,71 @@ export default function GroupChatRoomPage() {
                     : ""
                 }`}
           </p>
+        </div>
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl"
+            aria-label="Group options"
+            onClick={() => setHeaderMenuOpen((v) => !v)}
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </Button>
+          {headerMenuOpen && (
+            <div className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              {connectPageId ? (
+                <Link
+                  href={`/connect/page/${connectPageId}`}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  onClick={() => setHeaderMenuOpen(false)}
+                >
+                  <Users className="h-4 w-4" />
+                  View community
+                </Link>
+              ) : null}
+              {canManageSendPermission ? (
+                <div className="border-t border-slate-100 px-3 py-2 dark:border-zinc-800">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Who can send
+                  </p>
+                  {(
+                    [
+                      ["everyone", "Everyone"],
+                      ["admins", "Only admins"],
+                      ["owner", "Only owner"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      disabled={permBusy}
+                      className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-zinc-800 ${
+                        sendPermission === value
+                          ? "font-semibold text-primary"
+                          : "text-slate-700 dark:text-zinc-200"
+                      }`}
+                      onClick={() => void handleSendPermission(value)}
+                    >
+                      {label}
+                      {sendPermission === value ? <span className="text-xs">✓</span> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {canLeave ? (
+                <button
+                  type="button"
+                  disabled={leaveBusy}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-slate-50 dark:hover:bg-zinc-800"
+                  onClick={() => void handleLeaveGroup()}
+                >
+                  <LogOut className="h-4 w-4" />
+                  {leaveBusy ? "Leaving…" : "Leave group"}
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
 
@@ -498,16 +625,26 @@ export default function GroupChatRoomPage() {
       ) : null}
 
       {/* Input */}
-      <ChatComposer
-        onSend={(text, files) => sendMutation.mutateAsync({ text, files })}
-        isSending={sendMutation.isPending}
-        onTyping={() => emitSocket("typing", { roomId })}
-        onStopTyping={() => emitSocket("typing:stop", { roomId })}
-        initialText={editingMessage?.text ?? ""}
-        editing={!!editingMessage}
-        onCancelEdit={() => setEditingMessage(null)}
-        placeholder={editingMessage ? "Edit message…" : undefined}
-      />
+      {!canSendMessages ? (
+        <div className="flex items-center justify-center gap-2 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
+          <span>
+            {sendPermission === "owner"
+              ? "Only the owner can send messages"
+              : "Only admins can send messages"}
+          </span>
+        </div>
+      ) : (
+        <ChatComposer
+          onSend={(text, files) => sendMutation.mutateAsync({ text, files })}
+          isSending={sendMutation.isPending}
+          onTyping={() => emitSocket("typing", { roomId })}
+          onStopTyping={() => emitSocket("typing:stop", { roomId })}
+          initialText={editingMessage?.text ?? ""}
+          editing={!!editingMessage}
+          onCancelEdit={() => setEditingMessage(null)}
+          placeholder={editingMessage ? "Edit message…" : undefined}
+        />
+      )}
     </div>
   );
 }

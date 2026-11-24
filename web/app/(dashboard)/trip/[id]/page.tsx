@@ -141,6 +141,9 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           videoUrl={videoUrl}
           posterUrl={posterUrl}
           isLongVideo={false}
+          postId={post._id}
+          playbackReady={post.playbackReady}
+          storageKey={post.storageKey}
         />
 
         <PostDetailActionBar post={post} />

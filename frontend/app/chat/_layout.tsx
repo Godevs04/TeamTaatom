@@ -11,6 +11,7 @@ export default function ChatLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="thread" />
+      <Stack.Screen name="group-info" options={{ presentation: 'card' }} />
     </Stack>
   );
 }

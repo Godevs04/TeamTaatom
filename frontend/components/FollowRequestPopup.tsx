@@ -14,6 +14,8 @@ interface FollowRequestPopupProps {
   visible: boolean;
   userName: string;
   userEmail: string;
+  /** Overrides the default “wants to follow you” copy (e.g. community join). */
+  message?: string;
   onApprove: () => void;
   onReject: () => void;
   onCancel: () => void;
@@ -24,6 +26,7 @@ export default function FollowRequestPopup({
   visible,
   userName,
   userEmail,
+  message = 'wants to follow you',
   onApprove,
   onReject,
   onCancel,
@@ -55,7 +58,7 @@ export default function FollowRequestPopup({
           </View>
 
           <Text style={[styles.message, { color: theme.colors.text }]}>
-            wants to follow you
+            {message}
           </Text>
 
           <View style={styles.actionButtons}>

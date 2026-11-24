@@ -18,6 +18,8 @@ export interface ProgressAlertProps {
   progress: number; // 0-100
   onClose?: () => void;
   type?: 'upload' | 'download' | 'processing';
+  /** Overrides the right-side status under the percent (defaults from title/type). */
+  statusLabel?: string;
   showCancel?: boolean;
   onCancel?: () => void;
 }
@@ -29,6 +31,7 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
   progress,
   onClose,
   type = 'upload',
+  statusLabel,
   showCancel = false,
   onCancel,
 }) => {
@@ -92,6 +95,16 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
 
   const { icon, color } = getIconAndColor();
 
+  const resolvedStatusLabel = (() => {
+    if (progress >= 100) return 'Complete!';
+    if (statusLabel) return statusLabel;
+    const t = (title || '').toLowerCase();
+    if (type === 'processing' || t.includes('compress')) return 'Compressing...';
+    if (t.includes('process')) return 'Processing...';
+    if (type === 'download') return 'Downloading...';
+    return 'Uploading...';
+  })();
+
   const handleCancel = () => {
     if (onCancel) {
       onCancel();
@@ -144,7 +157,7 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
                 {Math.round(progress)}%
               </Text>
               <Text style={[styles.progressSubtext, { color: theme.colors.textSecondary }]}>
-                {progress < 100 ? 'Uploading...' : 'Complete!'}
+                {resolvedStatusLabel}
               </Text>
             </View>
             

@@ -660,6 +660,8 @@ exports.getChatByRoomId = async (req, res) => {
       ensureOwnerAdmin,
       attachGroupRolesToParticipants,
       resolveGroupRole,
+      normalizeSendPermission,
+      canRoleSendMessages,
     } = require('../utils/connectGroupAdmins');
     const isGroupChat = chat.type === 'connect_page';
     if (isGroupChat) {
@@ -678,7 +680,12 @@ exports.getChatByRoomId = async (req, res) => {
         ).catch((e) => logger.warn('Failed to backfill chat admins:', e?.message));
       }
       chat.participants = attachGroupRolesToParticipants(chat.participants, chat.admins || []);
-      chat.myGroupRole = resolveGroupRole(chat.admins || [], userId);
+      chat.myGroupRole =
+        ownerId && ownerId.toString() === userId.toString()
+          ? 'owner'
+          : resolveGroupRole(chat.admins || [], userId);
+      chat.sendPermission = normalizeSendPermission(chat.sendPermission);
+      chat.canSendMessages = canRoleSendMessages(chat.sendPermission, chat.myGroupRole);
     }
 
     // Build participants map for sender info in group chat messages
@@ -736,7 +743,7 @@ exports.getMessagesByRoomId = async (req, res) => {
     }
 
     const chat = await Chat.findById(chatId)
-      .select('messages participants type')
+      .select('messages participants type admins connectPageId')
       .populate('participants', 'fullName username profilePic profilePicStorageKey')
       .lean();
 
@@ -752,13 +759,19 @@ exports.getMessagesByRoomId = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
     }
 
+    const { resolveGroupRole } = require('../utils/connectGroupAdmins');
+
     // Build participants map for sender info lookup (group chats)
     const participantsMap = {};
     if (chat.type === 'connect_page' && chat.participants) {
       for (const p of chat.participants) {
         const pId = (p._id || p).toString();
         const profilePic = await resolveProfilePic(p);
-        participantsMap[pId] = { fullName: p.fullName || '', profilePic: profilePic || '' };
+        participantsMap[pId] = {
+          fullName: p.fullName || '',
+          profilePic: profilePic || '',
+          groupRole: resolveGroupRole(chat.admins || [], pId),
+        };
       }
     }
 
@@ -780,12 +793,14 @@ exports.getMessagesByRoomId = async (req, res) => {
           : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
         deliveredAt: msg.deliveredAt || null,
         readAt: msg.readAt || null,
+        isSystem: !!msg.isSystem,
       };
       // Include sender info and seenBy for group chats
       if (isGroupChat) {
         const senderInfo = participantsMap[senderId] || {};
         formatted.senderName = senderInfo.fullName || '';
         formatted.senderProfilePic = senderInfo.profilePic || '';
+        formatted.senderGroupRole = senderInfo.groupRole || 'member';
         formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
       }
       return formatted;
@@ -825,6 +840,39 @@ exports.sendMessageToRoom = async (req, res) => {
     const participantIds = chat.participants.map(p => p.toString());
     if (!participantIds.includes(userId.toString())) {
       return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    // Enforce who-can-send for connect group chats
+    let senderGroupRole = 'member';
+    if (chat.type === 'connect_page') {
+      const {
+        ensureOwnerAdmin,
+        resolveGroupRole,
+        normalizeSendPermission,
+        canRoleSendMessages,
+      } = require('../utils/connectGroupAdmins');
+      const ConnectPage = require('../models/ConnectPage');
+      const page = chat.connectPageId
+        ? await ConnectPage.findById(chat.connectPageId).select('userId').lean()
+        : null;
+      if (page?.userId) {
+        if (!Array.isArray(chat.admins)) chat.admins = [];
+        if (ensureOwnerAdmin(chat, page.userId)) {
+          await chat.save();
+        }
+      }
+      senderGroupRole = resolveGroupRole(chat.admins || [], userId);
+      if (page?.userId && page.userId.toString() === userId.toString()) {
+        senderGroupRole = 'owner';
+      }
+      const sendPermission = normalizeSendPermission(chat.sendPermission);
+      if (!canRoleSendMessages(sendPermission, senderGroupRole)) {
+        const msg =
+          sendPermission === 'owner'
+            ? 'Only the owner can send messages in this group'
+            : 'Only admins can send messages in this group';
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', msg);
+      }
     }
 
     // Add message
@@ -869,6 +917,7 @@ exports.sendMessageToRoom = async (req, res) => {
       status: savedMessage.status || 'sent',
       senderName,
       senderProfilePic,
+      senderGroupRole,
       seenBy: [],
     };
 
@@ -2402,6 +2451,46 @@ const appendSystemMessage = async (chat, actorId, text) => {
   chat.markModified('messages');
 };
 
+/** Push the latest system line to all participants so open threads update live. */
+const emitLastSystemMessage = (chat) => {
+  try {
+    const last = chat.messages?.[chat.messages.length - 1];
+    if (!last || !last.isSystem) return;
+    const io = getSocketInstance();
+    if (!io || !io.of) return;
+    const nsp = io.of('/app');
+    const chatIdStr = chat._id.toString();
+    const senderId = (last.sender?._id || last.sender)?.toString?.() || String(last.sender || '');
+    const messageToEmit = {
+      _id: last._id ? last._id.toString() : null,
+      sender: senderId,
+      text: last.text || '',
+      timestamp: last.timestamp || new Date(),
+      seen: false,
+      status: 'sent',
+      isSystem: true,
+      seenBy: [],
+    };
+    for (const p of chat.participants || []) {
+      const pid = (p?._id || p)?.toString?.();
+      if (!pid) continue;
+      nsp.to(`user:${pid}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+      nsp.to(`user:${pid}`).emit('chat:update', {
+        chatId: chatIdStr,
+        lastMessage: messageToEmit.text,
+        timestamp: messageToEmit.timestamp,
+      });
+    }
+  } catch (err) {
+    logger.warn('emitLastSystemMessage failed:', err?.message || err);
+  }
+};
+
+const saveChatAndEmitSystem = async (chat) => {
+  await chat.save();
+  emitLastSystemMessage(chat);
+};
+
 /**
  * Owner → active co-admin; Co-admin → pending nomination
  * POST /api/v1/chat/room/:chatId/admins/promote
@@ -2474,7 +2563,7 @@ exports.promoteGroupAdmin = async (req, res) => {
         createdAt: new Date(),
       });
       await appendSystemMessage(chat, actorId, `${targetName} is now an admin`);
-      await chat.save();
+      await saveChatAndEmitSystem(chat);
       return sendSuccess(res, 200, 'Member promoted to admin', {
         groupRole: 'admin',
         admins: chat.admins,
@@ -2490,7 +2579,7 @@ exports.promoteGroupAdmin = async (req, res) => {
       createdAt: new Date(),
     });
     await appendSystemMessage(chat, actorId, `${targetName} was nominated as admin (awaiting owner approval)`);
-    await chat.save();
+    await saveChatAndEmitSystem(chat);
     return sendSuccess(res, 200, 'Admin nomination sent', {
       groupRole: 'pending_admin',
       admins: chat.admins,
@@ -2541,7 +2630,7 @@ exports.acceptGroupAdmin = async (req, res) => {
     const targetUser = await User.findById(targetUserId).select('fullName username').lean();
     const targetName = targetUser?.fullName || targetUser?.username || 'Member';
     await appendSystemMessage(chat, actorId, `${targetName} is now an admin`);
-    await chat.save();
+    await saveChatAndEmitSystem(chat);
 
     return sendSuccess(res, 200, 'Admin nomination accepted', {
       groupRole: 'admin',
@@ -2634,11 +2723,241 @@ exports.demoteGroupAdmin = async (req, res) => {
     const targetUser = await User.findById(targetUserId).select('fullName username').lean();
     const targetName = targetUser?.fullName || targetUser?.username || 'Member';
     await appendSystemMessage(chat, actorId, `${targetName} is no longer an admin`);
-    await chat.save();
+    await saveChatAndEmitSystem(chat);
 
     return sendSuccess(res, 200, 'Admin demoted', { groupRole: 'member' });
   } catch (error) {
     logger.error('Error demoting group admin:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to demote admin');
+  }
+};
+
+/**
+ * Leave a connect group chat (unfollow + leave chat). Owner cannot leave.
+ * POST /api/v1/chat/room/:chatId/leave
+ */
+exports.leaveGroupChat = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat ID');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, page, myRole } = loaded;
+
+    if (myRole === 'owner') {
+      return sendError(
+        res,
+        'BUSINESS_INVALID_OPERATION',
+        'Page owners cannot leave the group. Transfer ownership or archive the community instead.'
+      );
+    }
+
+    const ConnectFollow = require('../models/ConnectFollow');
+    const ConnectPage = require('../models/ConnectPage');
+    const pageId = chat.connectPageId;
+
+    const User = require('../models/User');
+    const actor = await User.findById(actorId).select('fullName username').lean();
+    const actorName = actor?.fullName || actor?.username || 'A member';
+
+    chat.participants = (chat.participants || []).filter(
+      (p) => p && p.toString() !== actorId.toString()
+    );
+    chat.admins = (chat.admins || []).filter(
+      (a) => (a.userId?._id || a.userId)?.toString() !== actorId.toString()
+    );
+    chat.markModified('participants');
+    chat.markModified('admins');
+    await appendSystemMessage(chat, actorId, `${actorName} left`);
+    await saveChatAndEmitSystem(chat);
+
+    await ConnectFollow.deleteOne({
+      followerId: actorId,
+      connectPageId: pageId,
+    });
+
+    try {
+      const liveCount = await ConnectFollow.countDocuments({
+        connectPageId: pageId,
+        status: 'active',
+      });
+      await ConnectPage.findByIdAndUpdate(pageId, { $set: { followerCount: liveCount } });
+    } catch (syncErr) {
+      logger.warn('leaveGroupChat followerCount sync failed:', syncErr?.message);
+    }
+
+    return sendSuccess(res, 200, 'Left the group', {
+      chatId,
+      pageId: pageId?.toString?.() || pageId,
+      pageName: page?.name || '',
+    });
+  } catch (error) {
+    logger.error('Error leaving group chat:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to leave group');
+  }
+};
+
+/**
+ * Remove a member from a connect group (admin/owner). Also unfollows them from the page.
+ * POST /api/v1/chat/room/:chatId/members/remove  { userId }
+ */
+exports.removeGroupMember = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+    const { userId: targetUserId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId) || !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat or user ID');
+    }
+
+    if (actorId.toString() === targetUserId.toString()) {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Use leave to exit the group yourself');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, myRole, findAdminEntry } = loaded;
+
+    if (myRole !== 'owner' && myRole !== 'admin') {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only admins can remove members');
+    }
+
+    const targetEntry = findAdminEntry(chat.admins, targetUserId);
+    if (targetEntry?.role === 'owner') {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Cannot remove the page owner');
+    }
+    // Co-admins may only remove regular members (not other admins)
+    if (myRole === 'admin' && targetEntry && (targetEntry.role === 'admin' || targetEntry.status === 'pending')) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can remove admins');
+    }
+
+    const isParticipant = (chat.participants || []).some(
+      (p) => p && p.toString() === targetUserId.toString()
+    );
+    const ConnectFollow = require('../models/ConnectFollow');
+    const pageId = chat.connectPageId;
+    const hasFollow = await ConnectFollow.findOne({
+      connectPageId: pageId,
+      followerId: targetUserId,
+    }).select('_id').lean();
+
+    if (!isParticipant && !hasFollow) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'User is not in this group');
+    }
+
+    const User = require('../models/User');
+    const targetUser = await User.findById(targetUserId).select('fullName username').lean();
+    const targetName = targetUser?.fullName || targetUser?.username || 'Member';
+
+    chat.participants = (chat.participants || []).filter(
+      (p) => p && p.toString() !== targetUserId.toString()
+    );
+    chat.admins = (chat.admins || []).filter(
+      (a) => (a.userId?._id || a.userId)?.toString() !== targetUserId.toString()
+    );
+    chat.markModified('participants');
+    chat.markModified('admins');
+    await appendSystemMessage(chat, actorId, `${targetName} was removed`);
+    await saveChatAndEmitSystem(chat);
+
+    await ConnectFollow.deleteOne({
+      followerId: targetUserId,
+      connectPageId: pageId,
+    });
+
+    try {
+      const ConnectPage = require('../models/ConnectPage');
+      const liveCount = await ConnectFollow.countDocuments({
+        connectPageId: pageId,
+        status: 'active',
+      });
+      await ConnectPage.findByIdAndUpdate(pageId, { $set: { followerCount: liveCount } });
+    } catch (syncErr) {
+      logger.warn('removeGroupMember followerCount sync failed:', syncErr?.message);
+    }
+
+    return sendSuccess(res, 200, 'Member removed', {
+      removedUserId: targetUserId,
+      chatId,
+    });
+  } catch (error) {
+    logger.error('Error removing group member:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to remove member');
+  }
+};
+
+/**
+ * Set who can send messages in a connect group chat.
+ * Owner or active co-admin. Values: everyone | admins | owner
+ * PATCH /api/v1/chat/room/:chatId/send-permission  { sendPermission }
+ */
+exports.updateGroupSendPermission = async (req, res) => {
+  try {
+    const actorId = req.user._id;
+    const { chatId } = req.params;
+    const { sendPermission } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid chat ID');
+    }
+
+    const { normalizeSendPermission } = require('../utils/connectGroupAdmins');
+    const next = normalizeSendPermission(sendPermission);
+    if (!['everyone', 'admins', 'owner'].includes(sendPermission)) {
+      return sendError(res, 'VALIDATION_FAILED', 'sendPermission must be everyone, admins, or owner');
+    }
+
+    const loaded = await loadConnectGroupChat(chatId, actorId);
+    if (loaded.error) return sendError(res, loaded.error[0], loaded.error[1]);
+    const { chat, myRole } = loaded;
+
+    if (myRole !== 'owner' && myRole !== 'admin') {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only admins can change who can send messages');
+    }
+
+    const prev = normalizeSendPermission(chat.sendPermission);
+    if (prev === next) {
+      return sendSuccess(res, 200, 'Send permission unchanged', { sendPermission: next });
+    }
+
+    chat.sendPermission = next;
+    const label =
+      next === 'owner'
+        ? 'Only the owner can send messages'
+        : next === 'admins'
+          ? 'Only admins can send messages'
+          : 'Everyone can send messages';
+    await appendSystemMessage(chat, actorId, label);
+    await saveChatAndEmitSystem(chat);
+
+    // Notify participants so clients can lock/unlock the composer
+    try {
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const chatIdStr = chat._id.toString();
+        for (const p of chat.participants || []) {
+          const pid = (p?._id || p)?.toString();
+          if (!pid) continue;
+          nsp.to(`user:${pid}`).emit('chat:update', {
+            chatId: chatIdStr,
+            sendPermission: next,
+          });
+        }
+      }
+    } catch (socketErr) {
+      logger.warn('updateGroupSendPermission socket notify failed:', socketErr?.message);
+    }
+
+    return sendSuccess(res, 200, 'Send permission updated', { sendPermission: next });
+  } catch (error) {
+    logger.error('Error updating group send permission:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to update send permission');
   }
 };

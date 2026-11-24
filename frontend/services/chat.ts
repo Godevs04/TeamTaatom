@@ -318,3 +318,41 @@ export const demoteGroupAdmin = async (chatId: string, userId: string) => {
     throw new Error(parsedError.userMessage);
   }
 };
+
+/** Leave a connect group chat (also unfollows the community). Owner cannot leave. */
+export const leaveGroupChat = async (chatId: string) => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/leave`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+/** Admin/owner removes a member from the group (also unfollows them). */
+export const removeGroupMember = async (chatId: string, userId: string) => {
+  try {
+    const response = await api.post(`/chat/room/${chatId}/members/remove`, { userId });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export type GroupSendPermission = 'everyone' | 'admins' | 'owner';
+
+/** Who can send messages in a connect group (owner/admin). */
+export const updateGroupSendPermission = async (
+  chatId: string,
+  sendPermission: GroupSendPermission
+) => {
+  try {
+    const response = await api.patch(`/chat/room/${chatId}/send-permission`, { sendPermission });
+    return response.data as { sendPermission: GroupSendPermission };
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

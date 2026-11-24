@@ -69,9 +69,14 @@ export function getNotificationLink(n: Notification): { href: string; label: str
     case "follow":
     case "follow_approved":
     case "follow_request_accepted":
-    case "route_access_approved":
+    case "route_access_approved": {
+      const connectPageId = n.metadata?.connectPageId;
+      if (n.metadata?.kind === "connect_page_follow" && connectPageId) {
+        return { href: `/connect/page/${connectPageId}`, label: "Open community" };
+      }
       if (fromId) return { href: `/profile/${fromId}`, label: "View profile" };
       return null;
+    }
     case "follow_request":
     case "follow_request_rejected":
     case "route_access_accepted":

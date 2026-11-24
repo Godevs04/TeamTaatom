@@ -245,9 +245,46 @@ export const getPageDetail = async (pageId: string): Promise<{
   }
 };
 
-export const updateConnectPage = async (pageId: string, data: Partial<ConnectPageType>): Promise<{ page: ConnectPageType }> => {
+export const updateConnectPage = async (
+  pageId: string,
+  data: Partial<ConnectPageType> & {
+    profileImageFile?: { uri: string; type?: string; name?: string } | null;
+    bannerImageFile?: { uri: string; type?: string; name?: string } | null;
+  }
+): Promise<{ page: ConnectPageType }> => {
   try {
-    const response = await api.put(`/api/v1/connect/page/${pageId}`, data);
+    const { profileImageFile, bannerImageFile, ...jsonFields } = data;
+    if (profileImageFile || bannerImageFile) {
+      const formData = new FormData();
+      Object.entries(jsonFields).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        if (typeof value === 'object') {
+          formData.append(key, JSON.stringify(value));
+        } else {
+          formData.append(key, String(value));
+        }
+      });
+      if (profileImageFile) {
+        formData.append('profileImage', {
+          uri: profileImageFile.uri,
+          type: profileImageFile.type || 'image/jpeg',
+          name: profileImageFile.name || `connect_${Date.now()}.jpg`,
+        } as any);
+      }
+      if (bannerImageFile) {
+        formData.append('bannerImage', {
+          uri: bannerImageFile.uri,
+          type: bannerImageFile.type || 'image/jpeg',
+          name: bannerImageFile.name || `banner_${Date.now()}.jpg`,
+        } as any);
+      }
+      const response = await api.put(`/api/v1/connect/page/${pageId}`, formData, {
+        timeout: 120000,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    const response = await api.put(`/api/v1/connect/page/${pageId}`, jsonFields);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

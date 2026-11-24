@@ -25,6 +25,8 @@ import { canShowWatchAdBreak, getAdSenseWatchBreakSlot } from "../../lib/adsense
 import { AdSenseUnit } from "../ads/adsense-unit";
 import { ContentViewPing } from "../content-view-ping";
 import { formatViewCount } from "../../lib/number-format";
+import { subscribeSocket, unsubscribeSocket } from "../../lib/socket";
+import { isVideoStillProcessing } from "../../lib/shorts-playback";
 
 function formatDuration(seconds?: number | null): string {
   if (seconds == null || Number.isNaN(Number(seconds))) return "";
@@ -71,6 +73,32 @@ export function WatchDetailClient({ id }: { id: string }) {
     [q.data]
   );
   const postId = post?._id;
+  const isProcessing = !!post && isVideoStillProcessing(post);
+
+  React.useEffect(() => {
+    if (!id) return;
+    const onTranscoded = (payload: { shortId?: string; videoId?: string }) => {
+      const matchId = payload?.videoId || payload?.shortId;
+      if (!matchId || String(matchId) !== String(id)) return;
+      void qc.invalidateQueries({ queryKey: ["long-video", id] });
+    };
+    subscribeSocket<{ shortId?: string; videoId?: string }>("short:transcoded", onTranscoded);
+    subscribeSocket<{ shortId?: string; videoId?: string }>("long:transcoded", onTranscoded);
+    return () => {
+      unsubscribeSocket<{ shortId?: string; videoId?: string }>("short:transcoded", onTranscoded);
+      unsubscribeSocket<{ shortId?: string; videoId?: string }>("long:transcoded", onTranscoded);
+    };
+  }, [id, qc]);
+
+  React.useEffect(() => {
+    if (!isProcessing || !id) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - startedAt > 180000) return;
+      void q.refetch();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [isProcessing, id, q]);
 
   // The comments section only exists once the video has loaded, so the browser's own
   // #comments jump (from a comment notification) lands before it renders.
@@ -192,8 +220,14 @@ export function WatchDetailClient({ id }: { id: string }) {
           posterUrl={posterUrl}
           durationSeconds={post.durationSeconds}
           adSchedule={adSchedule}
+          processing={isProcessing}
+          onProcessingError={() => void q.refetch()}
           onRetry={() => void q.refetch()}
         />
+      ) : isProcessing ? (
+        <Card className="flex aspect-video flex-col items-center justify-center gap-2 bg-black text-sm text-white/80">
+          <span>Processing video…</span>
+        </Card>
       ) : (
         <Card className="flex aspect-video items-center justify-center bg-black text-sm text-white/70">
           Video unavailable

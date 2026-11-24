@@ -103,6 +103,12 @@ const ChatSchema = new Schema({
     status: { type: String, enum: ['active', 'pending'], default: 'active' },
     createdAt: { type: Date, default: Date.now },
   }],
+  // Who may send messages in connect_page group chats
+  sendPermission: {
+    type: String,
+    enum: ['everyone', 'admins', 'owner'],
+    default: 'everyone',
+  },
   // Optional admin assignment (for future scaling)
   assignedAdminId: {
     type: Types.ObjectId,

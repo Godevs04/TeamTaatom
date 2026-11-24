@@ -60,6 +60,7 @@ import {
   acceptGroupAdmin,
   rejectGroupAdmin,
   demoteGroupAdmin,
+  removeGroupMember,
 } from '../../../services/chat';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
@@ -1953,6 +1954,7 @@ export default function ConnectPageDetailScreen() {
             ) : (
               <FlatList
                 data={followers}
+                extraData={`${followers.map((f) => `${f._id}:${f.role}`).join('|')}|${membersActionBusy}`}
                 keyExtractor={(item) => String(item._id)}
                 style={{ flexGrow: 0 }}
                 keyboardShouldPersistTaps="handled"
@@ -1968,6 +1970,12 @@ export default function ConnectPageDetailScreen() {
                   const canDemote = !!chatId && isGroupOwner && item.role === 'admin';
                   const canDecideAdminNomination =
                     !!chatId && isGroupOwner && item.role === 'pending_admin';
+                  const canRemoveMember =
+                    !!chatId &&
+                    canManageAdmins &&
+                    item.role !== 'owner' &&
+                    item.role !== 'pending' &&
+                    !(effectiveGroupRole === 'admin' && (item.role === 'admin' || item.role === 'pending_admin'));
 
                   const openProfile = () => {
                     closeMembersModal();
@@ -2013,6 +2021,23 @@ export default function ConnectPageDetailScreen() {
                       });
                     } catch (e: any) {
                       setMembersFeedback({ type: 'error', text: e?.message || 'Failed to demote' });
+                    } finally {
+                      setMembersActionBusy(false);
+                    }
+                  };
+
+                  const doRemove = async () => {
+                    if (membersActionBusy || !chatId) return;
+                    setMembersActionBusy(true);
+                    try {
+                      await removeGroupMember(chatId, item._id);
+                      setFollowers((prev) => prev.filter((f) => f._id !== item._id));
+                      setMembersFeedback({
+                        type: 'success',
+                        text: `${item.fullName || item.username || 'Member'} was removed`,
+                      });
+                    } catch (e: any) {
+                      setMembersFeedback({ type: 'error', text: e?.message || 'Failed to remove' });
                     } finally {
                       setMembersActionBusy(false);
                     }
@@ -2067,14 +2092,20 @@ export default function ConnectPageDetailScreen() {
                           <TouchableOpacity
                             disabled={membersActionBusy}
                             onPress={async () => {
+                              if (membersActionBusy) return;
+                              setMembersActionBusy(true);
                               try {
                                 await acceptConnectFollowRequest(page._id, item._id);
                                 setFollowers((prev) =>
                                   prev.map((f) => (f._id === item._id ? { ...f, role: 'member' } : f))
                                 );
                                 setMembersFeedback({ type: 'success', text: 'Request accepted' });
+                                await refreshMembersList();
                               } catch (e: any) {
                                 setMembersFeedback({ type: 'error', text: e?.message || 'Failed to accept' });
+                                await refreshMembersList();
+                              } finally {
+                                setMembersActionBusy(false);
                               }
                             }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -2084,12 +2115,18 @@ export default function ConnectPageDetailScreen() {
                           <TouchableOpacity
                             disabled={membersActionBusy}
                             onPress={async () => {
+                              if (membersActionBusy) return;
+                              setMembersActionBusy(true);
                               try {
                                 await rejectConnectFollowRequest(page._id, item._id);
                                 setFollowers((prev) => prev.filter((f) => f._id !== item._id));
                                 setMembersFeedback({ type: 'success', text: 'Request rejected' });
+                                await refreshMembersList();
                               } catch (e: any) {
                                 setMembersFeedback({ type: 'error', text: e?.message || 'Failed to reject' });
+                                await refreshMembersList();
+                              } finally {
+                                setMembersActionBusy(false);
                               }
                             }}
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -2169,6 +2206,23 @@ export default function ConnectPageDetailScreen() {
                         >
                           <Text style={[styles.memberActionChipText, { color: theme.colors.textSecondary }]}>
                             Demote
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {canRemoveMember && (
+                        <TouchableOpacity
+                          disabled={membersActionBusy}
+                          onPress={() => { void doRemove(); }}
+                          style={[
+                            styles.memberActionChip,
+                            {
+                              backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.1)',
+                              opacity: membersActionBusy ? 0.5 : 1,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.memberActionChipText, { color: theme.colors.error || '#EF4444' }]}>
+                            Remove
                           </Text>
                         </TouchableOpacity>
                       )}

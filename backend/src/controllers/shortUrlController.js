@@ -22,6 +22,30 @@ function escapeHtml(unsafe) {
 const BASE62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 /**
+ * Public web origin used in share + Universal Links.
+ * Prefer www: apex taatom.com currently 307→www on Vercel, and Apple/Google
+ * reject AASA/assetlinks served via redirect — so shared links must hit www
+ * or the OS opens Safari instead of the installed app.
+ */
+function getPublicWebOrigin() {
+  const raw = (
+    process.env.WEB_SHARE_URL ||
+    process.env.WEB_FRONTEND_URL ||
+    process.env.FRONTEND_URL ||
+    'https://www.taatom.com'
+  ).trim().replace(/\/$/, '');
+  try {
+    const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    if (u.hostname === 'taatom.com') {
+      u.hostname = 'www.taatom.com';
+    }
+    return u.origin;
+  } catch {
+    return 'https://www.taatom.com';
+  }
+}
+
+/**
  * Generate a random short code
  * @param {number} length - Length of the code (default: 8)
  * @returns {string} Short code
@@ -77,7 +101,7 @@ const createShortUrl = async (req, res) => {
     let shortUrl = await ShortUrl.findOne({ [resourceField]: resourceId });
 
     if (shortUrl) {
-      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
+      const baseUrl = getPublicWebOrigin();
       const shortUrlString = `${baseUrl}/s/${shortUrl.shortCode}`;
 
       return sendSuccess(res, 200, 'Short URL retrieved successfully', {
@@ -115,7 +139,7 @@ const createShortUrl = async (req, res) => {
 
     await shortUrl.save();
 
-    const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
+    const baseUrl = getPublicWebOrigin();
     const shortUrlString = `${baseUrl}/s/${shortCode}`;
 
     return sendSuccess(res, 201, 'Short URL created successfully', {
@@ -213,7 +237,7 @@ const redirectShortUrl = async (req, res) => {
       previewDescription = page.bio
         ? page.bio.substring(0, 160)
         : `Join ${page.name || 'this community'} on Taatom.`;
-      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
+      const baseUrl = getPublicWebOrigin();
       previewImage = page.bannerImage || page.profileImage || `${baseUrl}/icon.png`;
     } else if (isJourney) {
       const journey = await Journey.findById(shortUrl.journeyId)
@@ -271,7 +295,7 @@ const redirectShortUrl = async (req, res) => {
           }
         }
       }
-      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
+      const baseUrl = getPublicWebOrigin();
       previewImage = journeyImage || `${baseUrl}/icon.png`;
 
     } else {
@@ -312,24 +336,36 @@ const redirectShortUrl = async (req, res) => {
                   post.thumbnailUrl || 
                   (post.images && post.images.length > 0 ? post.images[0] : '') || 
                   post.mediaUrl;
-      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
+      const baseUrl = getPublicWebOrigin();
       previewImage = img || `${baseUrl}/icon.png`;
     }
 
+    const webOrigin = getPublicWebOrigin();
+
     // Prefer HTTPS Universal/App Links; custom scheme is a secondary handoff.
-    let deepLink, universalLink, intentPath;
+    // IMPORTANT: use taatom://host/path (two slashes), NEVER taatom:///path.
+    // Triple-slash URLs parse as an empty host on iOS/Expo and open as
+    // "taatom:///" → Unmatched Route / crash in production.
+    // Use www origin so links hit a host that serves AASA/assetlinks with HTTP 200.
+    let deepLink, universalLink, intentPath, shortUniversalLink;
     if (isConnectPage) {
-      deepLink = `taatom://connect/page/${shortUrl.connectPageId}`;
-      universalLink = `https://taatom.com/connect/page/${shortUrl.connectPageId}`;
-      intentPath = `connect/page/${shortUrl.connectPageId}`;
+      const id = String(shortUrl.connectPageId);
+      deepLink = `taatom://connect/page/${id}`;
+      universalLink = `${webOrigin}/connect/page/${id}`;
+      shortUniversalLink = `${webOrigin}/s/${shortCode}`;
+      intentPath = `connect/page/${id}`;
     } else if (isJourney) {
-      deepLink = `taatom://navigate/detail?journeyId=${shortUrl.journeyId}`;
-      universalLink = `https://taatom.com/journey/${shortUrl.journeyId}`;
-      intentPath = `navigate/detail?journeyId=${shortUrl.journeyId}`;
+      const id = String(shortUrl.journeyId);
+      deepLink = `taatom://navigate/detail?journeyId=${id}`;
+      universalLink = `${webOrigin}/journey/${id}`;
+      shortUniversalLink = `${webOrigin}/s/${shortCode}`;
+      intentPath = `navigate/detail?journeyId=${id}`;
     } else {
-      deepLink = `taatom:///post/${shortUrl.postId}`;
-      universalLink = `https://taatom.com/post/${shortUrl.postId}`;
-      intentPath = `post/${shortUrl.postId}`;
+      const id = String(shortUrl.postId);
+      deepLink = `taatom://post/${id}`;
+      universalLink = `${webOrigin}/post/${id}`;
+      shortUniversalLink = `${webOrigin}/s/${shortCode}`;
+      intentPath = `post/${id}`;
     }
     
     logger.debug('Redirecting to app:', {
@@ -347,11 +383,12 @@ const redirectShortUrl = async (req, res) => {
         <head>
           <title>${escapeHtml(previewTitle)}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="refresh" content="3;url=${universalLink}">
+          <meta name="apple-itunes-app" content="app-id=6757185352, app-argument=${escapeHtml(universalLink)}">
+          <meta http-equiv="refresh" content="4;url=${universalLink}">
 
           <!-- Open Graph / Facebook -->
           <meta property="og:type" content="website">
-          <meta property="og:url" content="${universalLink}">
+          <meta property="og:url" content="${shortUniversalLink}">
           <meta property="og:title" content="${escapeHtml(previewTitle)}">
           <meta property="og:description" content="${escapeHtml(previewDescription)}">
           <meta property="og:image" content="${escapeHtml(previewImage)}">
@@ -359,7 +396,7 @@ const redirectShortUrl = async (req, res) => {
 
           <!-- Twitter -->
           <meta name="twitter:card" content="summary_large_image">
-          <meta name="twitter:url" content="${universalLink}">
+          <meta name="twitter:url" content="${shortUniversalLink}">
           <meta name="twitter:title" content="${escapeHtml(previewTitle)}">
           <meta name="twitter:description" content="${escapeHtml(previewDescription)}">
           <meta name="twitter:image" content="${escapeHtml(previewImage)}">
@@ -367,22 +404,29 @@ const redirectShortUrl = async (req, res) => {
             (function() {
               var deepLink = '${deepLink}';
               var universalLink = '${universalLink}';
+              var shortUniversalLink = '${shortUniversalLink}';
               var intentPath = '${intentPath}';
               var isAndroid = /Android/i.test(navigator.userAgent);
               var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-              // Prefer HTTPS Universal / App Links so the OS can open the app
-              // when installed; fall back to custom scheme, then web page.
+              function tryCustomScheme() {
+                if (!deepLink || deepLink.indexOf('taatom://') !== 0 || deepLink.length <= 'taatom://'.length + 1) return;
+                window.location.href = deepLink;
+              }
+
+              // When this HTML is shown, Universal Links for the original tap
+              // already failed (or user is in an in-app browser). Try custom
+              // scheme / Android intent immediately, then HTTPS fallback.
               if (isAndroid) {
                 var intentLink = 'intent://' + intentPath + '#Intent;scheme=taatom;package=com.taatom.app;S.browser_fallback_url=' + encodeURIComponent(universalLink) + ';end';
                 window.location.href = intentLink;
               } else if (isIOS) {
-                window.location.href = universalLink;
+                tryCustomScheme();
                 setTimeout(function() {
                   if (document.hasFocus && document.hasFocus()) {
-                    window.location.href = deepLink;
+                    window.location.href = universalLink;
                   }
-                }, 1200);
+                }, 900);
               } else {
                 window.location.href = universalLink;
               }
@@ -395,7 +439,7 @@ const redirectShortUrl = async (req, res) => {
                   var el = document.getElementById('fallback');
                   if (el) el.style.display = 'block';
                 }, 500);
-              }, 2000);
+              }, 2200);
             })();
           </script>
           <style>
@@ -450,9 +494,9 @@ const redirectShortUrl = async (req, res) => {
             <h1>Opening Taatom...</h1>
             <p>If the app doesn't open automatically, tap the button below.</p>
             <div id="fallback">
-              <a href="${universalLink}" class="button">Open in Taatom</a>
+              <a href="${deepLink}" class="button">Open in Taatom app</a>
               <br>
-              <a href="${deepLink}" class="button" style="background: transparent; color: white; border: 2px solid white;">Open App</a>
+              <a href="${universalLink}" class="button" style="background: transparent; color: white; border: 2px solid white;">Open in browser</a>
             </div>
           </div>
         </body>
@@ -482,7 +526,74 @@ const redirectShortUrl = async (req, res) => {
   }
 };
 
+/**
+ * Resolve a short code to an in-app path (JSON for the mobile client).
+ * GET /api/v1/short-url/resolve/:shortCode
+ * @access Public
+ */
+const resolveShortUrl = async (req, res) => {
+  try {
+    const { shortCode } = req.params;
+    if (!shortCode || !/^[A-Za-z0-9]{4,16}$/.test(shortCode)) {
+      return sendError(res, 'VAL_2001', 'Invalid short code');
+    }
+
+    const shortUrl = await ShortUrl.findOne({ shortCode }).lean();
+    if (!shortUrl) {
+      return sendError(res, 'RES_3001', 'Short URL not found');
+    }
+
+    // Fire-and-forget click tracking
+    ShortUrl.updateOne(
+      { _id: shortUrl._id },
+      { $inc: { clickCount: 1 }, $set: { lastClickedAt: new Date() } }
+    ).catch(() => {});
+
+    if (shortUrl.connectPageId) {
+      const page = await ConnectPage.findById(shortUrl.connectPageId).select('status').lean();
+      if (!page || page.status === 'archived') {
+        return sendError(res, 'RES_3001', 'Connect page not found');
+      }
+      return sendSuccess(res, 200, 'Resolved', {
+        type: 'connect_page',
+        path: `/connect/page/${shortUrl.connectPageId}`,
+        connectPageId: String(shortUrl.connectPageId),
+      });
+    }
+
+    if (shortUrl.journeyId) {
+      const journey = await Journey.findById(shortUrl.journeyId).select('isActive').lean();
+      if (!journey || journey.isActive === false) {
+        return sendError(res, 'RES_3001', 'Journey not found');
+      }
+      return sendSuccess(res, 200, 'Resolved', {
+        type: 'journey',
+        path: `/navigate/detail?journeyId=${shortUrl.journeyId}`,
+        journeyId: String(shortUrl.journeyId),
+      });
+    }
+
+    if (shortUrl.postId) {
+      const post = await Post.findById(shortUrl.postId).select('isActive').lean();
+      if (!post || post.isActive === false) {
+        return sendError(res, 'RES_3001', 'Post not found');
+      }
+      return sendSuccess(res, 200, 'Resolved', {
+        type: 'post',
+        path: `/post/${shortUrl.postId}`,
+        postId: String(shortUrl.postId),
+      });
+    }
+
+    return sendError(res, 'RES_3001', 'Short URL has no target');
+  } catch (error) {
+    logger.error('Resolve short URL error:', error);
+    return sendError(res, 'SRV_6001', 'Error resolving short URL');
+  }
+};
+
 module.exports = {
   createShortUrl,
-  redirectShortUrl
+  redirectShortUrl,
+  resolveShortUrl,
 };

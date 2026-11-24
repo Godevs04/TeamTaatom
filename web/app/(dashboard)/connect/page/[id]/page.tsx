@@ -29,6 +29,7 @@ import {
   connectAcceptGroupAdmin,
   connectRejectGroupAdmin,
   connectDemoteGroupAdmin,
+  connectRemoveGroupMember,
   connectRecordView,
   connectSubscribe,
   connectGetSubscriptionStatus,
@@ -686,6 +687,12 @@ export default function ConnectPageDetailPage() {
                           const canPromote = !!chatRoomId && canManageAdmins && f.role === "member" && seatsOpen;
                           const canDemote = !!chatRoomId && isGroupOwner && f.role === "admin";
                           const canDecideAdmin = !!chatRoomId && isGroupOwner && f.role === "pending_admin";
+                          const canRemove =
+                            !!chatRoomId &&
+                            canManageAdmins &&
+                            f.role !== "owner" &&
+                            f.role !== "pending" &&
+                            !(effectiveRole === "admin" && (f.role === "admin" || f.role === "pending_admin"));
                           return (
                             <div
                               key={f._id}
@@ -859,6 +866,23 @@ export default function ConnectPageDetailPage() {
                                     }
                                   >
                                     {busy ? "…" : "Demote"}
+                                  </Button>
+                                )}
+                                {canRemove && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-destructive hover:text-destructive"
+                                    disabled={!!adminActionBusyId}
+                                    onClick={() =>
+                                      void runAdminAction(
+                                        f._id,
+                                        () => connectRemoveGroupMember(chatRoomId!, f._id),
+                                        "Member removed",
+                                      )
+                                    }
+                                  >
+                                    {busy ? "…" : "Remove"}
                                   </Button>
                                 )}
                               </div>

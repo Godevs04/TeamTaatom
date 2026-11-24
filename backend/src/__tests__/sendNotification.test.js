@@ -73,6 +73,30 @@ describe('getScreenForType', () => {
     expect(getScreenForType('follow', { fromUserId: SENDER_ID })).toBe(`/profile/${SENDER_ID}`);
     expect(getScreenForType('route_access_approved', { senderId: SENDER_ID })).toBe(`/profile/${SENDER_ID}`);
   });
+
+  it('opens community join pushes on the connect page, never home', () => {
+    const pageId = '658428800000000000000099';
+    expect(getScreenForType('connect_follow_request', { connectPageId: pageId }))
+      .toBe(`/connect/page/${pageId}`);
+    expect(getScreenForType('connect_follow_accepted', { connectPageId: pageId }))
+      .toBe(`/connect/page/${pageId}`);
+    expect(getScreenForType('follow_request', {
+      kind: 'connect_page_follow',
+      connectPageId: pageId,
+    })).toBe(`/connect/page/${pageId}`);
+  });
+
+  it('opens profile follow requests in the notifications inbox', () => {
+    expect(getScreenForType('follow_request', { fromUserId: SENDER_ID })).toBe('/notifications');
+  });
+
+  it('ignores a stale /home screen override when connectPageId is present', () => {
+    const pageId = '658428800000000000000099';
+    expect(getScreenForType('connect_follow_request', {
+      screen: '/home',
+      connectPageId: pageId,
+    })).toBe(`/connect/page/${pageId}`);
+  });
 });
 
 describe('isWithinQuietHours', () => {

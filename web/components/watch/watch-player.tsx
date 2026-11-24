@@ -3,7 +3,7 @@
 import * as React from "react";
 import { attachVideoSource, type AttachedVideoSource } from "../../lib/hls-attach";
 import { toWebVideoUrl } from "../../lib/post-utils";
-import { Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
 import { AdSenseUnit } from "../ads/adsense-unit";
 import {
   getAdSenseWatchBreakSlot,
@@ -29,6 +29,9 @@ type WatchPlayerProps = {
   adSchedule?: WatchPlayerSchedule;
   className?: string;
   onRetry?: () => void;
+  /** Raw upload still waiting on transcode — show processing instead of hard fail. */
+  processing?: boolean;
+  onProcessingError?: () => void;
 };
 
 function formatDuration(seconds?: number | null): string {
@@ -49,6 +52,8 @@ export function WatchPlayer({
   adSchedule,
   className,
   onRetry,
+  processing = false,
+  onProcessingError,
 }: WatchPlayerProps) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -225,6 +230,11 @@ export function WatchPlayer({
     const setup = async () => {
       const attached = await attachVideoSource(el, toWebVideoUrl(videoUrl), {
         onFatal: () => {
+          if (processing) {
+            onProcessingError?.();
+            setPaused(true);
+            return;
+          }
           setPlaybackError("Couldn’t load this stream. Tap retry.");
           setPaused(true);
         },
@@ -369,11 +379,24 @@ export function WatchPlayer({
         }}
         onEnded={() => void onEnded()}
         onError={() => {
+          if (processing) {
+            onProcessingError?.();
+            setPaused(true);
+            setChromeVisible(true);
+            return;
+          }
           setPlaybackError("Couldn’t play this video. Tap retry.");
           setPaused(true);
           setChromeVisible(true);
         }}
       />
+
+      {processing && !playbackError && !adBusy ? (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 px-6 text-center">
+          <Loader2 className="h-6 w-6 animate-spin text-white" />
+          <p className="text-sm font-semibold text-white">Processing video…</p>
+        </div>
+      ) : null}
 
       {adBusy ? (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/85 px-4">

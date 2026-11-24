@@ -48,6 +48,10 @@ export type Post = {
   source?: "upload" | "youtube" | null;
   /** Upload pipeline state for videos: pending / processing / active / failed / removed */
   status?: string;
+  /** False until HLS master playlist exists (raw progressive often fails on Safari/iOS). */
+  playbackReady?: boolean;
+  storageKey?: string;
+  storageKeys?: string[];
   thumbnailAspectRatio?: number | null;
   user: User;
 

@@ -38,6 +38,12 @@ import { PostType } from '../../types/post';
 import { buildLongVideoAdSchedule } from '../../utils/longVideoAdSchedule';
 import { showLongVideoAdSlot } from '../../services/longVideoAds';
 import { canShowLongVideoAds, markLongVideoAdsShown } from '../../utils/longVideoAdGate';
+import { socketService } from '../../services/socket';
+import {
+  isVideoPlaybackReady,
+  isVideoStillProcessing,
+  videoPlayableSourceKey,
+} from '../../utils/shortsPlayback';
 
 const logger = createLogger('WatchDetail');
 const { width: screenWidth } = Dimensions.get('window');
@@ -162,7 +168,10 @@ export default function WatchDetailScreen() {
   const [chromeVisible, setChromeVisible] = useState(true);
   const [rotateFallback, setRotateFallback] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [videoProcessing, setVideoProcessing] = useState(false);
   const [playerEpoch, setPlayerEpoch] = useState(0);
+  const processingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const processingStartedAtRef = useRef(0);
   const [scrubPreview, setScrubPreview] = useState<number | null>(null);
   const [windowSize, setWindowSize] = useState(() => Dimensions.get('window'));
   const [adsAllowed, setAdsAllowed] = useState(false);
@@ -247,6 +256,77 @@ export default function WatchDetailScreen() {
   useEffect(() => {
     fetchVideo();
   }, [fetchVideo]);
+
+  const clearProcessingPoll = useCallback(() => {
+    if (processingPollRef.current) {
+      clearInterval(processingPollRef.current);
+      processingPollRef.current = null;
+    }
+  }, []);
+
+  const startProcessingPoll = useCallback(() => {
+    if (processingPollRef.current || !id) return;
+    processingStartedAtRef.current = Date.now();
+    processingPollRef.current = setInterval(() => {
+      if (Date.now() - processingStartedAtRef.current > 180000) {
+        clearProcessingPoll();
+        setVideoProcessing(false);
+        setPlaybackError('Couldn’t play this video. Tap retry.');
+        return;
+      }
+      void fetchVideo(true);
+    }, 3000);
+  }, [clearProcessingPoll, fetchVideo, id]);
+
+  useEffect(() => {
+    return () => clearProcessingPoll();
+  }, [clearProcessingPoll]);
+
+  const playableSourceKey = useMemo(
+    () => videoPlayableSourceKey(post),
+    [post?.playbackReady, post?.storageKey, post?.videoUrl, post?.mediaUrl]
+  );
+  const prevPlayableSourceKeyRef = useRef<string | null>(null);
+
+  // Remount + clear sticky fail when the playable URL / readiness flips (HLS lands).
+  useEffect(() => {
+    if (!post) return;
+    const ready = isVideoPlaybackReady(post);
+    const processing = isVideoStillProcessing(post);
+    setVideoProcessing(processing);
+    if (ready) {
+      clearProcessingPoll();
+      setPlaybackError(null);
+    } else if (processing) {
+      startProcessingPoll();
+    }
+    if (
+      prevPlayableSourceKeyRef.current !== null &&
+      prevPlayableSourceKeyRef.current !== playableSourceKey
+    ) {
+      setPlayerEpoch((n) => n + 1);
+    }
+    prevPlayableSourceKeyRef.current = playableSourceKey;
+  }, [playableSourceKey, post, clearProcessingPoll, startProcessingPoll]);
+
+  // Backend emits short:transcoded and long:transcoded for the same post id.
+  useEffect(() => {
+    if (!id) return;
+    const onTranscoded = (payload: { shortId?: string; videoId?: string }) => {
+      const matchId = payload?.videoId || payload?.shortId;
+      if (!matchId || String(matchId) !== String(id)) return;
+      logger.debug('Long video transcoded — refreshing watch player', matchId);
+      setPlaybackError(null);
+      setVideoProcessing(true);
+      void fetchVideo(true);
+    };
+    socketService.subscribe('short:transcoded', onTranscoded).catch(() => {});
+    socketService.subscribe('long:transcoded', onTranscoded).catch(() => {});
+    return () => {
+      socketService.unsubscribe('short:transcoded', onTranscoded);
+      socketService.unsubscribe('long:transcoded', onTranscoded);
+    };
+  }, [id, fetchVideo]);
 
   useEffect(() => {
     if (commentsParam !== '1' || autoOpenedCommentsRef.current || !post || post.commentsDisabled) return;
@@ -697,6 +777,40 @@ export default function WatchDetailScreen() {
     };
   }, [post]);
 
+  const handlePlaybackError = useCallback(
+    (e: unknown, context: 'inline' | 'fullscreen') => {
+      const code = (e as any)?.error?.error?.code ?? (e as any)?.error?.code;
+      const message = String((e as any)?.error?.error?.message || (e as any)?.error || '');
+      logger.warn(`${context} video error`, {
+        code,
+        uriPrefix: String(post?.videoUrl || post?.mediaUrl || '').slice(0, 80),
+      });
+      const looksLikeRawFailure =
+        /(-11819|AVFoundationErrorDomain|cannot decode|not playable|media format)/i.test(
+          `${message} ${code || ''}`
+        );
+      if (
+        post &&
+        (isVideoStillProcessing(post) || (looksLikeRawFailure && !isVideoPlaybackReady(post)))
+      ) {
+        setPlaybackError(null);
+        setVideoProcessing(true);
+        startProcessingPoll();
+        setPaused(true);
+        setChromeVisible(true);
+        return;
+      }
+      setPlaybackError(
+        code === -1008
+          ? 'Couldn’t load this stream. Tap retry.'
+          : 'Couldn’t play this video. Tap retry.'
+      );
+      setPaused(true);
+      setChromeVisible(true);
+    },
+    [post, startProcessingPoll]
+  );
+
   const videoUri = post?.videoUrl || post?.mediaUrl || '';
   const isHlsSource =
     typeof videoUri === 'string' &&
@@ -951,20 +1065,7 @@ export default function WatchDetailScreen() {
                     maybeFireMidroll(p.currentTime);
                   }}
                   onEnd={onEnd}
-                  onError={(e) => {
-                    const code = (e as any)?.error?.error?.code ?? (e as any)?.error?.code;
-                    logger.warn('Inline video error', {
-                      code,
-                      uriPrefix: String(videoUri).slice(0, 80),
-                    });
-                    setPlaybackError(
-                      code === -1008
-                        ? 'Couldn’t load this stream. Tap retry.'
-                        : 'Couldn’t play this video. Tap retry.'
-                    );
-                    setPaused(true);
-                    setChromeVisible(true);
-                  }}
+                  onError={(e) => handlePlaybackError(e, 'inline')}
                 />
                 <Pressable style={StyleSheet.absoluteFill} onPress={onPlayerPress} />
               </View>
@@ -978,11 +1079,18 @@ export default function WatchDetailScreen() {
                 <Text style={styles.missingText}>Playing in landscape…</Text>
               </View>
             )}
+            {videoProcessing && !playbackError && !adBusy ? (
+              <View style={styles.adOverlay}>
+                <ActivityIndicator color="#fff" />
+                <Text style={[styles.adText, { marginTop: 12 }]}>Processing video…</Text>
+              </View>
+            ) : null}
             {playbackError && !adBusy ? (
               <View style={styles.adOverlay}>
                 <Text style={styles.adText}>{playbackError}</Text>
                 <Pressable
                   onPress={() => {
+                    setPlaybackError(null);
                     setRefreshing(true);
                     fetchVideo(true).finally(() => setRefreshing(false));
                   }}
@@ -1285,15 +1393,16 @@ export default function WatchDetailScreen() {
                     onEnd();
                     exitLandscape();
                   }}
-                  onError={(e) => {
-                    const code = (e as any)?.error?.error?.code ?? (e as any)?.error?.code;
-                    logger.warn('Fullscreen video error', { code });
-                    setPlaybackError('Couldn’t play this video. Tap retry.');
-                    setPaused(true);
-                    setChromeVisible(true);
-                  }}
+                  onError={(e) => handlePlaybackError(e, 'fullscreen')}
                 />
                 <Pressable style={StyleSheet.absoluteFill} onPress={onPlayerPress} />
+              </View>
+            ) : null}
+
+            {videoProcessing && !playbackError && !adBusy ? (
+              <View style={styles.adOverlay}>
+                <ActivityIndicator color="#fff" />
+                <Text style={[styles.adText, { marginTop: 12 }]}>Processing video…</Text>
               </View>
             ) : null}
 

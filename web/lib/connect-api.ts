@@ -193,6 +193,24 @@ export async function connectDemoteGroupAdmin(chatId: string, userId: string) {
   await api.post(`/chat/room/${chatId}/admins/demote`, { userId });
 }
 
+export async function connectRemoveGroupMember(chatId: string, userId: string) {
+  await api.post(`/chat/room/${chatId}/members/remove`, { userId });
+}
+
+export async function connectLeaveGroupChat(chatId: string) {
+  await api.post(`/chat/room/${chatId}/leave`);
+}
+
+export type GroupSendPermission = "everyone" | "admins" | "owner";
+
+export async function connectUpdateGroupSendPermission(
+  chatId: string,
+  sendPermission: GroupSendPermission,
+) {
+  const res = await api.patch(`/chat/room/${chatId}/send-permission`, { sendPermission });
+  return res.data as { sendPermission: GroupSendPermission };
+}
+
 export async function connectGetPageAnalytics(pageId: string) {
   const res = await api.get(`/connect/page/${pageId}/analytics`);
   return res.data as PageAnalytics;

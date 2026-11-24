@@ -27,6 +27,7 @@ export function createCloudChatBubbleStyles(
     },
     bubbleColumn: {
       maxWidth: Math.max(CHAT_BUBBLE_MAX_WIDTH, CHAT_MEDIA_MAX_WIDTH + 8),
+      flexGrow: 0,
       flexShrink: 1,
     },
     bubbleIn: {
@@ -37,6 +38,8 @@ export function createCloudChatBubbleStyles(
       paddingHorizontal: 12,
       paddingVertical: 8,
       overflow: 'hidden',
+      alignSelf: 'flex-start',
+      flexGrow: 0,
       shadowColor: 'rgba(0, 0, 0, 0.05)',
       shadowOffset: { width: 0, height: 3 },
       shadowOpacity: 1,
@@ -48,6 +51,9 @@ export function createCloudChatBubbleStyles(
       paddingHorizontal: 12,
       paddingVertical: 8,
       overflow: 'hidden',
+      // Prevent expo-linear-gradient from stretching to parent height
+      alignSelf: 'flex-end',
+      flexGrow: 0,
       shadowColor: 'rgba(0, 0, 0, 0.16)',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 1,
@@ -59,12 +65,14 @@ export function createCloudChatBubbleStyles(
       fontWeight: '500',
       color: isDark ? '#FFFFFF' : '#000000', // Pure White / Pure Black
       lineHeight: 20,
+      flexShrink: 1,
     },
     textOut: {
       fontSize: 14,
       fontWeight: '500',
       color: '#FFFFFF',
       lineHeight: 20,
+      flexShrink: 1,
     },
     senderName: {
       fontSize: 11,
@@ -76,14 +84,14 @@ export function createCloudChatBubbleStyles(
     timeIn: {
       fontSize: 10,
       color: theme.colors.textSecondary,
-      marginTop: 4,
       textAlign: 'right',
+      includeFontPadding: false,
     },
     timeOut: {
       fontSize: 10,
       color: 'rgba(255,255,255,0.65)',
-      marginTop: 4,
       textAlign: 'right',
+      includeFontPadding: false,
     },
     avatarSpacer: {
       width: 28,

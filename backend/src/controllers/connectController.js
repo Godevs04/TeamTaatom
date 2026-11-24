@@ -665,6 +665,42 @@ const updatePage = async (req, res) => {
       }
     }
 
+    // Multipart profile / banner uploads (same fields as create)
+    const profileFile = req.files?.profileImage?.[0];
+    if (profileFile?.buffer) {
+      try {
+        const extension = profileFile.originalname?.split('.').pop() || 'jpg';
+        const profileImageStorageKey = buildMediaKey({
+          type: 'connect',
+          userId: userId.toString(),
+          filename: profileFile.originalname || 'profile.jpg',
+          extension,
+        });
+        await uploadObject(profileFile.buffer, profileImageStorageKey, profileFile.mimetype);
+        updates.profileImage = profileImageStorageKey;
+      } catch (uploadError) {
+        logger.error('Connect page profile image update error:', uploadError);
+        return sendError(res, 'SERVER_ERROR', 'Failed to upload profile image');
+      }
+    }
+    const bannerFile = req.files?.bannerImage?.[0];
+    if (bannerFile?.buffer) {
+      try {
+        const extension = bannerFile.originalname?.split('.').pop() || 'jpg';
+        const bannerImageStorageKey = buildMediaKey({
+          type: 'connect',
+          userId: userId.toString(),
+          filename: bannerFile.originalname || 'banner.jpg',
+          extension,
+        });
+        await uploadObject(bannerFile.buffer, bannerImageStorageKey, bannerFile.mimetype);
+        updates.bannerImage = bannerImageStorageKey;
+      } catch (uploadError) {
+        logger.error('Connect page banner image update error:', uploadError);
+        return sendError(res, 'SERVER_ERROR', 'Failed to upload banner image');
+      }
+    }
+
     const updatedPage = await ConnectPage.findByIdAndUpdate(pageId, updates, { new: true, runValidators: true });
 
     return sendSuccess(res, 200, 'Page updated successfully', { page: updatedPage });
@@ -1264,28 +1300,35 @@ const followPage = async (req, res) => {
       });
     }
 
-    // Notify page owner of join request (reuse follow_request type + metadata)
+    // Notify page owner of join request (reuse follow_request type + metadata).
+    // Push title/body MUST match in-app copy for this kind.
     try {
       const ownerId = page.userId;
       if (ownerId) {
+        const fromUser = await User.findById(followerId).select('username fullName').lean();
+        const actorName = fromUser?.fullName || fromUser?.username || 'Someone';
+        const pageName = page.name || 'community';
+        const body = `${actorName} requested to join ${pageName}`;
         await Notification.createNotification({
           type: 'follow_request',
           fromUser: followerId,
           toUser: ownerId,
           metadata: {
             connectPageId: page._id.toString(),
-            pageName: page.name,
+            pageName,
             kind: 'connect_page_follow',
           },
         });
-        const fromUser = await User.findById(followerId).select('username fullName').lean();
         await sendNotificationToUser({
           userId: ownerId.toString(),
           title: 'Community join request',
-          body: `${fromUser?.fullName || fromUser?.username || 'Someone'} requested to join ${page.name}`,
+          body,
           data: {
             type: 'connect_follow_request',
             connectPageId: page._id.toString(),
+            fromUserId: followerId.toString(),
+            pageName,
+            kind: 'connect_page_follow',
           },
         });
       }
@@ -1398,14 +1441,54 @@ const acceptFollowRequest = async (req, res) => {
       });
     }
 
+    const pageName = page.name || 'community';
     try {
+      // Flip owner's pending join-request notifications so Members + Notifications stay in sync
+      await Notification.updateMany(
+        {
+          toUser: ownerId,
+          fromUser: followerId,
+          type: 'follow_request',
+          'metadata.kind': 'connect_page_follow',
+          'metadata.connectPageId': page._id.toString(),
+        },
+        {
+          $set: {
+            isRead: true,
+            type: 'follow_request_accepted',
+            'metadata.kind': 'connect_page_follow',
+            'metadata.connectPageId': page._id.toString(),
+            'metadata.pageName': pageName,
+            'metadata.audience': 'owner',
+          },
+        }
+      );
+
+      // Notify the requester (same type pattern as profile follow_approved)
       await Notification.createNotification({
-        type: 'follow_request_accepted',
+        type: 'follow_approved',
         fromUser: ownerId,
         toUser: followerId,
         metadata: {
           connectPageId: page._id.toString(),
-          pageName: page.name,
+          pageName,
+          kind: 'connect_page_follow',
+          audience: 'requester',
+        },
+      });
+
+      const ownerUser = await User.findById(ownerId).select('fullName username').lean();
+      const ownerName = ownerUser?.fullName || ownerUser?.username || 'The owner';
+      const body = `${ownerName} accepted your request to join ${pageName}`;
+      await sendNotificationToUser({
+        userId: followerId.toString(),
+        title: 'Join request accepted',
+        body,
+        data: {
+          type: 'connect_follow_accepted',
+          connectPageId: page._id.toString(),
+          fromUserId: ownerId.toString(),
+          pageName,
           kind: 'connect_page_follow',
         },
       });
@@ -1413,7 +1496,11 @@ const acceptFollowRequest = async (req, res) => {
       logger.warn('Connect accept notify failed (non-fatal):', notifyErr?.message || notifyErr);
     }
 
-    return sendSuccess(res, 200, 'Follow request accepted');
+    return sendSuccess(res, 200, 'Follow request accepted', {
+      status: 'active',
+      isFollowing: true,
+      followRequestPending: false,
+    });
   } catch (error) {
     logger.error('Error accepting connect follow request:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to accept follow request');
@@ -1433,7 +1520,7 @@ const rejectFollowRequest = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Invalid page or follower ID');
     }
 
-    const page = await ConnectPage.findById(connectPageId).select('userId');
+    const page = await ConnectPage.findById(connectPageId).select('userId name');
     if (!page) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
@@ -1450,7 +1537,34 @@ const rejectFollowRequest = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'No pending follow request');
     }
 
-    return sendSuccess(res, 200, 'Follow request rejected');
+    try {
+      await Notification.updateMany(
+        {
+          toUser: ownerId,
+          fromUser: followerId,
+          type: 'follow_request',
+          'metadata.kind': 'connect_page_follow',
+          'metadata.connectPageId': connectPageId.toString(),
+        },
+        {
+          $set: {
+            isRead: true,
+            type: 'follow_request_rejected',
+            'metadata.kind': 'connect_page_follow',
+            'metadata.connectPageId': connectPageId.toString(),
+            'metadata.pageName': page.name || 'community',
+            'metadata.audience': 'owner',
+          },
+        }
+      );
+    } catch (notifErr) {
+      logger.warn('Connect reject notify update failed (non-fatal):', notifErr?.message || notifErr);
+    }
+
+    return sendSuccess(res, 200, 'Follow request rejected', {
+      status: 'rejected',
+      followRequestPending: false,
+    });
   } catch (error) {
     logger.error('Error rejecting connect follow request:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to reject follow request');
