@@ -65,6 +65,7 @@ import { PostLikesCount } from "../../../components/trip/post-likers-modal";
 import { subscribeSocket, unsubscribeSocket } from "../../../lib/socket";
 import { ContentViewPing } from "../../../components/content-view-ping";
 import { getPlayableVideoUrl, getPostDisplayLocation } from "../../../lib/post-utils";
+import { isShortPlaybackReady, isShortStillProcessing } from "../../../lib/shorts-playback";
 
 function getThumbnailUrl(short: Post): string {
   const raw =
@@ -156,6 +157,7 @@ function ShortsFeed() {
   const [muted, setMuted] = React.useState(true);
   const [manuallyPaused, setManuallyPaused] = React.useState<Set<string>>(() => new Set());
   const [failedVideoIds, setFailedVideoIds] = React.useState<Set<string>>(() => new Set());
+  const [processingVideoIds, setProcessingVideoIds] = React.useState<Set<string>>(() => new Set());
   const [playAttempts, setPlayAttempts] = React.useState<Record<string, number>>({});
   const [menuShortId, setMenuShortId] = React.useState<string | null>(null);
   const retriedIdsRef = React.useRef<Set<string>>(new Set());
@@ -324,32 +326,81 @@ function ShortsFeed() {
     setPlayAttempts((prev) => ({ ...prev, [shortId]: (prev[shortId] ?? 0) + 1 }));
   }, []);
 
+  const applyFreshShort = React.useCallback(
+    (shortId: string, fresh: Post) => {
+      patchShort(shortId, {
+        mediaUrl: fresh.mediaUrl,
+        videoUrl: fresh.videoUrl,
+        storageKey: fresh.storageKey,
+        playbackReady: fresh.playbackReady,
+        thumbnailUrl: fresh.thumbnailUrl,
+        imageUrl: fresh.imageUrl,
+      });
+    },
+    [patchShort]
+  );
+
   /**
    * First failure: refetch the post for fresh signed URLs and remount the player
-   * (mobile shorts.tsx does the same). Second failure: show "Tap to retry".
+   * (mobile shorts.tsx does the same). Pre-HLS raw failures poll until ready.
+   * Second hard failure: show "Tap to retry".
    */
   const handleVideoError = React.useCallback(
     async (shortId: string) => {
+      try {
+        const fresh = await getPostById(shortId);
+        applyFreshShort(shortId, fresh);
+        if (isShortPlaybackReady(fresh)) {
+          setFailedVideoIds((prev) => {
+            const next = new Set(prev);
+            next.delete(shortId);
+            return next;
+          });
+          setProcessingVideoIds((prev) => {
+            const next = new Set(prev);
+            next.delete(shortId);
+            return next;
+          });
+          remountPlayer(shortId);
+          return;
+        }
+        if (fresh.playbackReady === false || isShortStillProcessing(fresh)) {
+          setProcessingVideoIds((prev) => new Set(prev).add(shortId));
+          setFailedVideoIds((prev) => {
+            const next = new Set(prev);
+            next.delete(shortId);
+            return next;
+          });
+          return;
+        }
+      } catch {
+        /* fall through to hard-fail path */
+      }
+
       if (retriedIdsRef.current.has(shortId)) {
+        setProcessingVideoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(shortId);
+          return next;
+        });
         setFailedVideoIds((prev) => new Set(prev).add(shortId));
         return;
       }
       retriedIdsRef.current.add(shortId);
-      try {
-        const fresh = await getPostById(shortId);
-        patchShort(shortId, { mediaUrl: fresh.mediaUrl, videoUrl: fresh.videoUrl });
-        remountPlayer(shortId);
-      } catch {
-        setFailedVideoIds((prev) => new Set(prev).add(shortId));
-      }
+      remountPlayer(shortId);
     },
-    [patchShort, remountPlayer]
+    [applyFreshShort, remountPlayer]
   );
 
   const handleRetry = React.useCallback(
     (shortId: string) => {
       retriedIdsRef.current.delete(shortId);
       setFailedVideoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(shortId);
+        return next;
+      });
+      setProcessingVideoIds((prev) => {
         const next = new Set(prev);
         next.delete(shortId);
         return next;
@@ -365,12 +416,88 @@ function ShortsFeed() {
       const shortId = payload?.shortId;
       if (!shortId) return;
       const hlsUrl = `/api/v1/shorts?hls=master&postId=${shortId}&ext=.m3u8`;
-      patchShort(shortId, { mediaUrl: hlsUrl, videoUrl: hlsUrl });
+      patchShort(shortId, {
+        mediaUrl: hlsUrl,
+        videoUrl: hlsUrl,
+        storageKey: `shorts/hls/${shortId}/index.m3u8`,
+        playbackReady: true,
+      });
+      setFailedVideoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(shortId);
+        return next;
+      });
+      setProcessingVideoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(shortId);
+        return next;
+      });
       remountPlayer(shortId);
     };
     subscribeSocket<{ shortId?: string }>("short:transcoded", onTranscoded);
     return () => unsubscribeSocket<{ shortId?: string }>("short:transcoded", onTranscoded);
   }, [patchShort, remountPlayer]);
+
+  // Seed processing state for feed items that arrived still on raw MP4.
+  React.useEffect(() => {
+    const pending = shortsItems.filter(
+      (item): item is Post => !isFeedAdSlot(item) && isShortStillProcessing(item)
+    );
+    if (pending.length === 0) return;
+    setProcessingVideoIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const short of pending) {
+        if (!next.has(short._id)) {
+          next.add(short._id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [shortsItems]);
+
+  // Poll shorts that are still waiting on HLS after upload.
+  React.useEffect(() => {
+    if (processingVideoIds.size === 0) return;
+    const ids = Array.from(processingVideoIds);
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - startedAt > 120000) {
+        setProcessingVideoIds((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        });
+        setFailedVideoIds((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.add(id));
+          return next;
+        });
+        return;
+      }
+      ids.forEach((id) => {
+        void getPostById(id)
+          .then((fresh) => {
+            applyFreshShort(id, fresh);
+            if (!isShortPlaybackReady(fresh)) return;
+            setProcessingVideoIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+            setFailedVideoIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
+            remountPlayer(id);
+          })
+          .catch(() => {});
+      });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [processingVideoIds, applyFreshShort, remountPlayer]);
 
   // Profile-scoped player opens at the tapped short.
   React.useEffect(() => {
@@ -685,6 +812,8 @@ function ShortsFeed() {
                 const thumbUrl = getThumbnailUrl(short);
                 const isPaused = manuallyPaused.has(short._id);
                 const isVideoFailed = failedVideoIds.has(short._id);
+                const isVideoProcessing =
+                  processingVideoIds.has(short._id) || isShortStillProcessing(short);
 
                 return (
                   <section
@@ -706,6 +835,7 @@ function ShortsFeed() {
                             isPaused={isPaused}
                             muted={muted || shortHasLibrarySong(short)}
                             failed={isVideoFailed}
+                            processing={isVideoProcessing}
                             onTogglePause={() => togglePause(short._id)}
                             onDoubleTapLike={() => {
                               if (!short.isLiked) likeMutation.mutate(short._id);

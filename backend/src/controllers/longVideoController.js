@@ -71,6 +71,10 @@ async function canViewerSeeAuthorContent(authorId, viewerId) {
   return !!(await Follow.exists({ follower: viewerId, following: authorId }));
 }
 
+function isHlsStorageKey(key) {
+  return typeof key === 'string' && key.endsWith('index.m3u8');
+}
+
 function serializeLongVideo(doc, { liked = false, includeComments = false } = {}) {
   const o = typeof doc.toObject === 'function' ? doc.toObject({ virtuals: true }) : { ...doc };
   const durationSeconds = o.durationSeconds ?? null;
@@ -91,6 +95,8 @@ function serializeLongVideo(doc, { liked = false, includeComments = false } = {}
     storageKey: o.storageKey || null,
     storageKeys: o.storageKeys || [],
     source: o.source || 'upload',
+    // Overridden in hydrateLongVideoUrls once we know if a transcode job is in flight.
+    playbackReady: isHlsStorageKey(o.storageKey),
     isActive: o.isActive !== false,
     displayOrder: o.displayOrder || 0,
     likesCount: o.likesCount || 0,
@@ -149,10 +155,6 @@ function pickThumbStorageKey(doc) {
   );
 }
 
-function isHlsStorageKey(key) {
-  return typeof key === 'string' && key.endsWith('index.m3u8');
-}
-
 function getLongVideoHlsProxyUrl(postId, req) {
   if (!req || !postId) return null;
   const proto =
@@ -169,13 +171,19 @@ function getLongVideoHlsProxyUrl(postId, req) {
  * Fresh playback URLs for long videos.
  * - HLS (post-transcode): use the shorts HLS proxy so .ts segments are reachable.
  * - Progressive MP4: fresh-sign the object (stored upload URLs expire).
+ * - playbackReady: false while a TranscodeJob is pending/processing (raw may fail on iOS);
+ *   true once HLS exists or the job finished (including compliant progressive passthrough).
  */
-async function hydrateLongVideoUrls(doc, { liked = false, req = null, includeComments = false } = {}) {
+async function hydrateLongVideoUrls(
+  doc,
+  { liked = false, req = null, includeComments = false, pendingTranscodeIds = null } = {}
+) {
   const base = serializeLongVideo(doc, { liked, includeComments });
   const videoKey = pickVideoStorageKey(doc);
   const thumbKey = pickThumbStorageKey(doc);
+  const hlsReady = isHlsStorageKey(videoKey) || isHlsStorageKey(doc?.storageKey);
 
-  if (isHlsStorageKey(videoKey) || isHlsStorageKey(doc?.storageKey)) {
+  if (hlsReady) {
     const hlsUrl = getLongVideoHlsProxyUrl(doc._id, req);
     if (hlsUrl) {
       base.videoUrl = hlsUrl;
@@ -183,6 +191,7 @@ async function hydrateLongVideoUrls(doc, { liked = false, req = null, includeCom
     } else {
       logger.warn('HLS long video missing request host for proxy URL', { id: base._id });
     }
+    base.playbackReady = true;
   } else if (videoKey) {
     try {
       const fresh = await getDownloadUrl(videoKey, LONG_VIDEO_URL_TTL_SECONDS);
@@ -202,6 +211,24 @@ async function hydrateLongVideoUrls(doc, { liked = false, req = null, includeCom
         /* keep stored */
       }
     }
+
+    let inflight = false;
+    if (pendingTranscodeIds instanceof Set) {
+      inflight = pendingTranscodeIds.has(String(doc._id));
+    } else {
+      try {
+        const TranscodeJob = mongoose.model('TranscodeJob');
+        inflight = !!(await TranscodeJob.exists({
+          post: doc._id,
+          status: { $in: ['pending', 'processing'] },
+        }));
+      } catch (e) {
+        logger.warn('Failed to check long video transcode job', { id: base._id, error: e.message });
+      }
+    }
+    base.playbackReady = !inflight;
+  } else {
+    base.playbackReady = false;
   }
 
   if (thumbKey) {
@@ -243,11 +270,29 @@ async function hydrateLongVideoUrls(doc, { liked = false, req = null, includeCom
 }
 
 async function hydrateLongVideoList(rows, likedSet, req) {
+  let pendingTranscodeIds = new Set();
+  try {
+    const ids = (rows || []).map((r) => r._id).filter(Boolean);
+    if (ids.length > 0) {
+      const TranscodeJob = mongoose.model('TranscodeJob');
+      const pending = await TranscodeJob.find({
+        post: { $in: ids },
+        status: { $in: ['pending', 'processing'] },
+      })
+        .select('post')
+        .lean();
+      pendingTranscodeIds = new Set(pending.map((j) => String(j.post)));
+    }
+  } catch (e) {
+    logger.warn('Failed to batch-load pending long video transcode jobs:', e.message);
+  }
+
   return Promise.all(
     rows.map((r) =>
       hydrateLongVideoUrls(r, {
         liked: likedSet ? likedSet.has(String(r._id)) : false,
         req,
+        pendingTranscodeIds,
       })
     )
   );

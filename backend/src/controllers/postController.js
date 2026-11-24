@@ -59,6 +59,10 @@ const getVideoUrlForShort = (short, req) => {
   return null;
 };
 
+/** True once the short has an HLS master playlist clients can stream reliably (esp. iOS). */
+const isShortPlaybackReady = (short) =>
+  !!(short && typeof short.storageKey === 'string' && short.storageKey.endsWith('index.m3u8'));
+
 const parseCoordinateOrZero = (value) => {
   if (value === undefined || value === null || value === '') return 0;
   const parsed = Number.parseFloat(value);
@@ -1097,6 +1101,7 @@ const getPostById = async (req, res) => {
       views: finalViewsCount, // Also include views field for consistency
       location: hideLocation ? null : post.location,
       detectedPlace: hideLocation ? null : post.detectedPlace,
+      ...(post.type === 'short' ? { playbackReady: isShortPlaybackReady(post) } : {}),
       user: {
         ...post.user,
         isFollowing,
@@ -3810,6 +3815,7 @@ const getShorts = async (req, res) => {
         imageUrl: imageUrl || short.imageUrl || null,
         thumbnailUrl: imageUrl || short.thumbnailUrl || short.imageUrl || null,
         mediaUrl,
+        playbackReady: isShortPlaybackReady(short),
         isLiked: req.user ? likedShortIdsSet.has(short._id.toString()) : false,
         likesCount: short.likesCount || 0,
         commentsCount: short.commentsCount || (Array.isArray(short.comments) ? short.comments.length : 0),
@@ -4238,7 +4244,9 @@ const createShort = async (req, res) => {
         ...short.toObject(),
         isLiked: false,
         likesCount: 0,
-        commentsCount: 0
+        commentsCount: 0,
+        // Raw MP4 is stored; HLS is still building. Clients must not treat this as final playable.
+        playbackReady: false,
       }
     });
 

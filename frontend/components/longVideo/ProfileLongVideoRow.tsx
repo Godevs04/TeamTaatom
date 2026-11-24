@@ -33,7 +33,10 @@ function ProfileLongVideoRow({ video, onPress, colors }: ProfileLongVideoRowProp
   const views = video.viewsCount ?? 0;
   const age = formatAge(video.createdAt);
   const title = video.caption || 'Untitled video';
-  const processing = (video as any).status === 'processing';
+  const processing =
+    video.playbackReady === false ||
+    (video as any).status === 'processing' ||
+    (video as any).status === 'pending';
   const thumbRatio = Number(video.thumbnailAspectRatio) || 0;
   const letterbox = thumbRatio > 0 && Math.abs(thumbRatio - 16 / 9) > 0.05;
 

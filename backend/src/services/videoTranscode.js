@@ -293,7 +293,11 @@ async function emitTranscodeComplete(postId, userId) {
       const audience = [userId.toString(), ...followers];
       nsp.emitInvalidateFeed(audience);
       nsp.emitInvalidateProfile(userId.toString());
-      nsp.emitEvent('short:transcoded', audience, { shortId: postId.toString() });
+      // Keep short:transcoded for Shorts listeners; also emit long:transcoded so Watch
+      // can remount without coupling to the Shorts event name.
+      const idStr = postId.toString();
+      nsp.emitEvent('short:transcoded', audience, { shortId: idStr, videoId: idStr });
+      nsp.emitEvent('long:transcoded', audience, { videoId: idStr, shortId: idStr });
       logger.info(`[transcodeWorker] Emitted transcoding completion events for post ${postId}`);
     }
   } catch (err) {

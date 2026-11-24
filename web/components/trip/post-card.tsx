@@ -29,7 +29,7 @@ import { SharePostModal } from "./share-post-modal";
 import { PostLikesCount } from "./post-likers-modal";
 import { EditPostModal } from "./edit-post-modal";
 import { ExpandableText } from "../ui/expandable-text";
-import { HlsVideo } from "../media/hls-video";
+import { RecoverableHlsVideo } from "../media/recoverable-hls-video";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "spam", label: "Spam" },
@@ -559,9 +559,12 @@ export function PostCard({
       {/* Media */}
       {isShort && videoUrl ? (
         <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100/50 dark:bg-zinc-950/80">
-          <HlsVideo
+          <RecoverableHlsVideo
+            postId={post._id}
             src={videoUrl}
             poster={posterUrl}
+            playbackReady={post.playbackReady}
+            storageKey={post.storageKey}
             controls
             playsInline
             preload="metadata"
@@ -590,7 +593,11 @@ export function PostCard({
                 <span className="ml-1 border-y-[8px] border-l-[14px] border-y-transparent border-l-white" />
               </span>
             </div>
-            {typeof post.durationSeconds === "number" && post.durationSeconds > 0 ? (
+            {post.playbackReady === false ? (
+              <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                Processing
+              </span>
+            ) : typeof post.durationSeconds === "number" && post.durationSeconds > 0 ? (
               <span className="absolute bottom-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white">
                 {Math.floor(post.durationSeconds / 60)}:
                 {String(Math.floor(post.durationSeconds % 60)).padStart(2, "0")}

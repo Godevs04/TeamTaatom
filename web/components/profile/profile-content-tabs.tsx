@@ -116,7 +116,10 @@ function VideoRow({ video }: { video: Post }) {
   const mounted = useMounted();
   const thumb = video.thumbnailUrl || video.imageUrl || "";
   const duration = formatDuration(video.durationSeconds);
-  const processing = video.status === "processing" || video.status === "pending";
+  const processing =
+    video.playbackReady === false ||
+    video.status === "processing" ||
+    video.status === "pending";
   const views = Number(video.viewsCount ?? 0) || 0;
   return (
     <Link
