@@ -972,7 +972,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
       },
       {
         name: 'Short URLs',
-        description: 'Shareable short links (\`/s/:code\`) with Open Graph previews; resolve to in-app paths for posts, shorts, long videos, journeys, and communities'
+        description: 'Shareable short links (`/s/:code`) with Open Graph previews; resolve to in-app paths for posts, shorts, long videos, journeys, and communities'
       }
     ]
   },
