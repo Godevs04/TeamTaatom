@@ -105,6 +105,62 @@ export const uploadContentImage = async (pageId, file) => {
   }
 }
 
+// Members who joined a community page (for host picker)
+export const getCommunityPageMembers = async (pageId) => {
+  try {
+    const response = await api.get(`${BASE}/community-pages/${pageId}/members`)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to fetch community page members:', error)
+    throw error
+  }
+}
+
+// Search Taatom users (for host picker when creating a new community)
+export const searchTaatomUsers = async (search = '', limit = 20) => {
+  try {
+    const response = await api.get(`${BASE}/users`, {
+      params: { search, limit, page: 1 },
+    })
+    const data = response.data?.data || response.data
+    return data?.users || data?.docs || data || []
+  } catch (error) {
+    logger.error('Failed to search users:', error)
+    throw error
+  }
+}
+
+// List community events for a page (SuperAdmin moderation)
+export const getCommunityPageEvents = async (pageId) => {
+  try {
+    const response = await api.get(`${BASE}/community-pages/${pageId}/events`)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to fetch community page events:', error)
+    throw error
+  }
+}
+
+export const updateCommunityPageEvent = async (pageId, eventId, body) => {
+  try {
+    const response = await api.patch(`${BASE}/community-pages/${pageId}/events/${eventId}`, body)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to update community page event:', error)
+    throw error
+  }
+}
+
+export const createCommunityPageEvent = async (pageId, body) => {
+  try {
+    const response = await api.post(`${BASE}/community-pages/${pageId}/events`, body)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to create community page event:', error)
+    throw error
+  }
+}
+
 // Fetch all orders for a community page
 export const getCommunityPageOrders = async (pageId) => {
   try {

@@ -25,6 +25,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../../context/ThemeContext';
 import GradientText from '../../../components/ui/GradientText';
+import CommunityHub from '../../../components/connect/CommunityHub';
 import { useAlert } from '../../../context/AlertContext';
 import { theme as themeConstants } from '../../../constants/theme';
 import {
@@ -62,6 +63,11 @@ import {
   demoteGroupAdmin,
   removeGroupMember,
 } from '../../../services/chat';
+import {
+  assignCommunityRole,
+  listCommunityRoles,
+  revokeCommunityRole,
+} from '../../../services/community';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
@@ -207,6 +213,8 @@ export default function ConnectPageDetailScreen() {
   const [followersLoading, setFollowersLoading] = useState(false);
   const [myGroupRole, setMyGroupRole] = useState<'owner' | 'admin' | 'member' | 'pending_admin'>('member');
   const [membersChatRoomId, setMembersChatRoomId] = useState<string | null>(null);
+  const [communityStaffMap, setCommunityStaffMap] = useState<Record<string, 'admin' | 'moderator'>>({});
+  const [myCommunityRole, setMyCommunityRole] = useState<string | null>(null);
   /** In-sheet feedback only — never nest Alert/CustomAlert Modals over Members (iOS touch lock). */
   const [membersFeedback, setMembersFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [membersActionBusy, setMembersActionBusy] = useState(false);
@@ -845,7 +853,7 @@ export default function ConnectPageDetailScreen() {
     }
   };
 
-  const applyMembersResponse = (response: Awaited<ReturnType<typeof getPageFollowers>>) => {
+  const applyMembersResponse = async (response: Awaited<ReturnType<typeof getPageFollowers>>) => {
     let list = (response.followers || []).filter(Boolean);
     const isCommunityPage = (page?.type as string) === 'community' || page?.category === 'community';
     if (isCommunityPage) {
@@ -860,6 +868,26 @@ export default function ConnectPageDetailScreen() {
     setMembersChatRoomId(roomId ? String(roomId) : null);
     if (roomId && page && !page.chatRoomId) {
       setPage({ ...page, chatRoomId: String(roomId), features: { ...page.features, groupChat: true } });
+    }
+    if (isCommunityPage && page?._id) {
+      try {
+        const roles = await listCommunityRoles(page._id);
+        setMyCommunityRole(roles.myRole || (isOwner ? 'owner' : 'member'));
+        const map: Record<string, 'admin' | 'moderator'> = {};
+        (roles.staff || []).forEach((s: any) => {
+          const uid = String(s.userId?._id || s.userId || '');
+          if (uid && (s.role === 'admin' || s.role === 'moderator')) {
+            map[uid] = s.role;
+          }
+        });
+        setCommunityStaffMap(map);
+      } catch {
+        setCommunityStaffMap({});
+        setMyCommunityRole(isOwner ? 'owner' : null);
+      }
+    } else {
+      setCommunityStaffMap({});
+      setMyCommunityRole(null);
     }
   };
 
@@ -877,7 +905,7 @@ export default function ConnectPageDetailScreen() {
     setFollowersLoading(true);
     try {
       const response = await getPageFollowers(id);
-      applyMembersResponse(response);
+      await applyMembersResponse(response);
     } catch (error) {
       logger.error('Error loading followers:', error);
       setMembersFeedback({ type: 'error', text: 'Failed to load members' });
@@ -890,7 +918,7 @@ export default function ConnectPageDetailScreen() {
     if (!id) return;
     try {
       const response = await getPageFollowers(id);
-      applyMembersResponse(response);
+      await applyMembersResponse(response);
     } catch (e) {
       logger.warn('Failed to refresh members:', e);
     }
@@ -1550,6 +1578,16 @@ export default function ConnectPageDetailScreen() {
           </View>
         )}
 
+        {/* Community hub: Group Chats · Events · Find */}
+        {!isPrivateLocked && (page.category === 'community' || page.isAdminPage) && (
+          <CommunityHub
+            pageId={String(id)}
+            canManage={!!isOwner}
+            isMember={!!(isOwner || isFollowing)}
+            isCommunity
+          />
+        )}
+
         {/* Website Section */}
         {!isPrivateLocked && page.features?.website && (
           <TouchableOpacity
@@ -1616,8 +1654,11 @@ export default function ConnectPageDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Group Chat Section */}
-        {!isPrivateLocked && page.features?.groupChat && (
+        {/* Group Chat Section — hidden on community pages (CommunityHub Group Chats tab owns this) */}
+        {!isPrivateLocked &&
+          page.features?.groupChat &&
+          page.category !== 'community' &&
+          !page.isAdminPage && (
           <TouchableOpacity
             style={[
               styles.section,
@@ -1954,22 +1995,48 @@ export default function ConnectPageDetailScreen() {
             ) : (
               <FlatList
                 data={followers}
-                extraData={`${followers.map((f) => `${f._id}:${f.role}`).join('|')}|${membersActionBusy}`}
+                extraData={`${followers.map((f) => `${f._id}:${f.role}:${communityStaffMap[String(f._id)] || ''}`).join('|')}|${membersActionBusy}|${myCommunityRole}`}
                 keyExtractor={(item) => String(item._id)}
                 style={{ flexGrow: 0 }}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => {
-                  const badge = roleBadgeLabel(item.role);
                   const chatId = membersChatRoomId || page?.chatRoomId || null;
                   const effectiveGroupRole = isOwner ? 'owner' : myGroupRole;
                   const isGroupOwner = effectiveGroupRole === 'owner';
                   const canManageAdmins = isGroupOwner || effectiveGroupRole === 'admin';
                   const activeAdminCount = followers.filter((f) => f.role === 'admin').length;
                   const seatsOpen = activeAdminCount < 2;
-                  const canPromote = !!chatId && canManageAdmins && item.role === 'member' && seatsOpen;
-                  const canDemote = !!chatId && isGroupOwner && item.role === 'admin';
+                  const communityRole = isCommunityPage
+                    ? communityStaffMap[String(item._id)] || 'member'
+                    : null;
+                  const canManageCommunityStaff =
+                    isCommunityPage &&
+                    (isOwner || myCommunityRole === 'owner' || myCommunityRole === 'admin');
+                  const badge = isCommunityPage
+                    ? communityRole === 'admin'
+                      ? 'Admin'
+                      : communityRole === 'moderator'
+                        ? 'Moderator'
+                        : roleBadgeLabel(item.role)
+                    : roleBadgeLabel(item.role);
+                  const canPromote = isCommunityPage
+                    ? canManageCommunityStaff &&
+                      communityRole === 'member' &&
+                      item.role !== 'pending' &&
+                      item.role !== 'pending_admin'
+                    : !!chatId && canManageAdmins && item.role === 'member' && seatsOpen;
+                  const canPromoteModerator =
+                    isCommunityPage &&
+                    canManageCommunityStaff &&
+                    communityRole === 'member' &&
+                    item.role !== 'pending' &&
+                    item.role !== 'pending_admin';
+                  const canDemote = isCommunityPage
+                    ? canManageCommunityStaff &&
+                      (communityRole === 'admin' || communityRole === 'moderator')
+                    : !!chatId && isGroupOwner && item.role === 'admin';
                   const canDecideAdminNomination =
-                    !!chatId && isGroupOwner && item.role === 'pending_admin';
+                    !isCommunityPage && !!chatId && isGroupOwner && item.role === 'pending_admin';
                   const canRemoveMember =
                     !!chatId &&
                     canManageAdmins &&
@@ -1985,8 +2052,25 @@ export default function ConnectPageDetailScreen() {
                     }, 50);
                   };
 
-                  const doPromote = async () => {
+                  const doPromote = async (role: 'admin' | 'moderator' = 'admin') => {
                     if (membersActionBusy) return;
+                    if (isCommunityPage) {
+                      if (!page?._id) return;
+                      setMembersActionBusy(true);
+                      try {
+                        await assignCommunityRole(page._id, item._id, role);
+                        await refreshMembersList();
+                        setMembersFeedback({
+                          type: 'success',
+                          text: `${item.fullName || item.username || 'Member'} is now a ${role}`,
+                        });
+                      } catch (e: any) {
+                        setMembersFeedback({ type: 'error', text: e?.message || 'Failed to promote' });
+                      } finally {
+                        setMembersActionBusy(false);
+                      }
+                      return;
+                    }
                     if (!chatId) {
                       setMembersFeedback({ type: 'error', text: 'Group chat is still setting up — close and reopen Members.' });
                       await refreshMembersList();
@@ -2010,7 +2094,25 @@ export default function ConnectPageDetailScreen() {
                   };
 
                   const doDemote = async () => {
-                    if (membersActionBusy || !chatId) return;
+                    if (membersActionBusy) return;
+                    if (isCommunityPage) {
+                      if (!page?._id) return;
+                      setMembersActionBusy(true);
+                      try {
+                        await revokeCommunityRole(page._id, item._id);
+                        await refreshMembersList();
+                        setMembersFeedback({
+                          type: 'success',
+                          text: `${item.fullName || item.username || 'Member'} is no longer staff`,
+                        });
+                      } catch (e: any) {
+                        setMembersFeedback({ type: 'error', text: e?.message || 'Failed to revoke' });
+                      } finally {
+                        setMembersActionBusy(false);
+                      }
+                      return;
+                    }
+                    if (!chatId) return;
                     setMembersActionBusy(true);
                     try {
                       await demoteGroupAdmin(chatId, item._id);
@@ -2043,14 +2145,20 @@ export default function ConnectPageDetailScreen() {
                     }
                   };
 
-                  const badgeBg = item.role === 'owner'
-                    ? (isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)')
-                    : item.role === 'pending' || item.role === 'pending_admin'
-                      ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.12)')
-                      : theme.colors.primary + '18';
-                  const badgeColor = item.role === 'owner' || item.role === 'pending' || item.role === 'pending_admin'
-                    ? (isDark ? '#F59E0B' : '#D97706')
-                    : theme.colors.primary;
+                  const badgeBg =
+                    communityRole === 'admin' || communityRole === 'moderator' || item.role === 'admin'
+                      ? theme.colors.primary + '18'
+                      : item.role === 'owner'
+                        ? (isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(217, 119, 6, 0.15)')
+                        : item.role === 'pending' || item.role === 'pending_admin'
+                          ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.12)')
+                          : theme.colors.primary + '18';
+                  const badgeColor =
+                    communityRole === 'admin' || communityRole === 'moderator' || item.role === 'admin'
+                      ? theme.colors.primary
+                      : item.role === 'owner' || item.role === 'pending' || item.role === 'pending_admin'
+                        ? (isDark ? '#F59E0B' : '#D97706')
+                        : theme.colors.primary;
 
                   return (
                   <View style={styles.followerItem}>
@@ -2178,7 +2286,7 @@ export default function ConnectPageDetailScreen() {
                       {canPromote && (
                         <TouchableOpacity
                           disabled={membersActionBusy}
-                          onPress={() => { void doPromote(); }}
+                          onPress={() => { void doPromote('admin'); }}
                           style={[
                             styles.memberActionChip,
                             {
@@ -2188,7 +2296,24 @@ export default function ConnectPageDetailScreen() {
                           ]}
                         >
                           <Text style={[styles.memberActionChipText, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
-                            {isGroupOwner ? 'Make admin' : 'Nominate'}
+                            {isCommunityPage ? 'Admin' : isGroupOwner ? 'Make admin' : 'Nominate'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {canPromoteModerator && (
+                        <TouchableOpacity
+                          disabled={membersActionBusy}
+                          onPress={() => { void doPromote('moderator'); }}
+                          style={[
+                            styles.memberActionChip,
+                            {
+                              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                              opacity: membersActionBusy ? 0.5 : 1,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.memberActionChipText, { color: theme.colors.textSecondary }]}>
+                            Mod
                           </Text>
                         </TouchableOpacity>
                       )}
@@ -2205,7 +2330,7 @@ export default function ConnectPageDetailScreen() {
                           ]}
                         >
                           <Text style={[styles.memberActionChipText, { color: theme.colors.textSecondary }]}>
-                            Demote
+                            {isCommunityPage ? 'Revoke' : 'Demote'}
                           </Text>
                         </TouchableOpacity>
                       )}

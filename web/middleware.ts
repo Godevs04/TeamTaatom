@@ -100,17 +100,24 @@ export async function middleware(req: NextRequest) {
         const res = await fetch(`${BACKEND_ORIGIN}/s/${shortCode}`);
         if (res.status === 200) {
           const html = await res.text();
-          
-          // Check if request is from a mobile browser
+
           const userAgent = req.headers.get("user-agent") || "";
-          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-          
-          if (isMobile) {
-            // For mobile, return the backend's redirect HTML page directly
-            // This page contains scripts to open the app via custom deep links (taatom://)
+          // WhatsApp / iMessage / social scrapers need stable HTML with og:image —
+          // never 302 them away or previews collapse to plain text.
+          const isShareBot =
+            /WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|Discordbot|TelegramBot|Googlebot|Bingbot|Applebot|Pinterest|Embedly|redditbot|SkypeUriPreview|vkShare|Iframely|Quora Link Preview|bitlybot|Tumblr|Yahoo! Slurp/i.test(
+              userAgent
+            );
+          const isMobile =
+            /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+
+          if (isShareBot || isMobile) {
             return new NextResponse(html, {
               headers: {
                 "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": isShareBot
+                  ? "public, max-age=600"
+                  : "private, no-store",
               },
             });
           }
@@ -118,6 +125,12 @@ export async function middleware(req: NextRequest) {
           const urlMatch = html.match(/universalLink\s*=\s*['"]([^'"]+)['"]/);
           if (urlMatch && urlMatch[1]) {
             const targetUrl = new URL(urlMatch[1]);
+            // If fallback still points at /s/ itself (e.g. shorts), keep OG HTML
+            if (targetUrl.pathname.startsWith("/s/")) {
+              return new NextResponse(html, {
+                headers: { "Content-Type": "text/html; charset=utf-8" },
+              });
+            }
             let path = targetUrl.pathname;
             if (path.startsWith("/journey/")) {
               const id = path.substring("/journey/".length);
@@ -132,7 +145,7 @@ export async function middleware(req: NextRequest) {
             }
             const redirectUrl = req.nextUrl.clone();
             redirectUrl.pathname = path;
-            redirectUrl.search = ""; // clear short URL search parameters
+            redirectUrl.search = targetUrl.search || "";
             return NextResponse.redirect(redirectUrl);
           }
         }

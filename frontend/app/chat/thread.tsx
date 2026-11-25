@@ -41,6 +41,15 @@ import {
 import { cloudDesign } from '../../constants/cloudDesign';
 import { isChatDarkMode } from '../../utils/chatTheme';
 
+/** Room-based chats loaded via /chat/room/:id (legacy page group + community rooms). */
+const isRoomBasedChat = (type?: string | null) =>
+  type === 'connect_page' ||
+  type === 'community_group' ||
+  type === 'community_event' ||
+  type === 'community_event_team' ||
+  type === 'community_event_dm' ||
+  type === 'community_event_announce';
+
 // Clear push notification badge and dismiss tray notifications when messages are read.
 // Works for both Firebase (FCM) and Expo notification channels.
 const clearChatNotifications = () => {
@@ -528,7 +537,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     const fetchStatuses = async () => {
       if (!otherUser?._id && !chatId) return;
       try {
-        if (chatType === 'connect_page' && chatId) {
+        if (isRoomBasedChat(chatType) && chatId) {
           const muteStatus = await getRoomMuteStatus(chatId);
           setIsMuted(muteStatus.muted);
           setIsBlocked(false);
@@ -705,7 +714,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     };
 
     const onSeen = (payload: any) => {
-      const isGroupChat = chatType === 'connect_page';
+      const isGroupChat = isRoomBasedChat(chatType);
 
       if (isGroupChat) {
         const messageId = payload.messageId;
@@ -861,7 +870,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   }, [chatId]);
 
   useEffect(() => {
-    const isGroupChat = chatType === 'connect_page';
+    const isGroupChat = isRoomBasedChat(chatType);
     if (sortedMessages.length > 0 && !hasMarkedAsSeenRef.current && chatId) {
       const myId = normalizeId(currentUserId);
       const unseen = sortedMessages.filter(m => {
@@ -933,7 +942,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         markSeenTimeoutRef.current = null;
         if (!hasMarkedAsSeenRef.current && chatId) {
           const myId = normalizeId(currentUserId);
-          const isGroup = chatType === 'connect_page';
+          const isGroup = isRoomBasedChat(chatType);
           const unseenNow = sortedMessagesRef.current.filter((m: any) => {
             const senderId = normalizeId(m.sender?._id || m.sender);
             if (isGroup) {
@@ -965,7 +974,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     if (hasMarkedAsSeenRef.current) return;
 
     const myId = normalizeId(currentUserId);
-    const isGroup = chatType === 'connect_page';
+    const isGroup = isRoomBasedChat(chatType);
 
     const unseen = sortedMessages.filter(m => {
       const senderId = normalizeId(m.sender?._id || m.sender);
@@ -1074,7 +1083,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     }, 100);
     
     try {
-      const isGroupChat = chatType === 'connect_page';
+      const isGroupChat = isRoomBasedChat(chatType);
       const endpoint = isGroupChat
         ? `/chat/room/${chatId}/messages`
         : `/chat/${otherUser._id}/messages`;
@@ -1724,7 +1733,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               const otherUserId = normalizeId(otherUser?._id);
               const myUserId = normalizeId(currentUserId);
 
-              const isGroupChat = chatType === 'connect_page';
+              const isGroupChat = isRoomBasedChat(chatType);
               const isOwn = Boolean(
                 (senderId && myUserId && senderId === myUserId) ||
                 (!isGroupChat && senderId && otherUserId && senderId !== otherUserId && !myUserId)
@@ -2434,10 +2443,10 @@ export default function ChatThreadScreen() {
           : null;
       const syntheticUser = {
         _id: pageInfo?._id || resolvedChatId,
-        fullName: pageInfo?.name || 'Group Chat',
+        fullName: chat.title || pageInfo?.name || 'Group Chat',
         profilePic: pageInfo?.profileImage || '',
         username: undefined,
-        isGroup: chat.type === 'connect_page',
+        isGroup: isRoomBasedChat(chat.type),
       };
 
       setActiveChat(chat);
@@ -2474,7 +2483,7 @@ export default function ChatThreadScreen() {
   useFocusEffect(
     useCallback(() => {
       const roomId = activeChat?._id || (params.chatId as string) || '';
-      if (!roomId || activeChat?.type !== 'connect_page') return;
+      if (!roomId || !isRoomBasedChat(activeChat?.type)) return;
       let cancelled = false;
       (async () => {
         try {
@@ -2499,7 +2508,7 @@ export default function ChatThreadScreen() {
 
   useEffect(() => {
     const roomId = activeChat?._id;
-    if (!roomId || activeChat?.type !== 'connect_page') return;
+    if (!roomId || !isRoomBasedChat(activeChat?.type)) return;
     const onChatUpdate = (payload: any) => {
       if (!payload || normalizeId(payload.chatId) !== normalizeId(roomId)) return;
       if (payload.sendPermission) {

@@ -61,8 +61,9 @@ const contentScreen = (postId, postType, ownerId, { openComments = false } = {})
   if (postType === 'long_video') {
     return `/watch/${postId}${commentsQuery ? `?${commentsQuery}` : ''}`;
   }
-  if (postType === 'short' && ownerId) {
-    return `/user-shorts/${ownerId}?shortId=${postId}&single=true${commentsQuery ? `&${commentsQuery}` : ''}`;
+  if (postType === 'short') {
+    // Main Shorts tab feed (scrollable) — keep push + in-app deep links in sync
+    return `/(tabs)/shorts?shortId=${postId}${commentsQuery ? `&${commentsQuery}` : ''}`;
   }
   return `/post/${postId}${commentsQuery ? `?${commentsQuery}` : ''}`;
 };
@@ -122,11 +123,16 @@ const getScreenForType = (type, notificationData = {}) => {
 
   const connectPageId = resolveConnectPageId({ ...notificationData, type });
 
-  // Community join / accept — never fall through to /home
+  // Community join / accept / group-event flows — never fall through to /home
   if (
     type === 'connect_follow_request' ||
     type === 'connect_follow_accepted' ||
     type === 'subscription_active' ||
+    type === 'community_group_join' ||
+    type === 'community_group_join_approved' ||
+    type === 'community_event_published' ||
+    type === 'community_event_team_invite' ||
+    type === 'community_competition_removed' ||
     (isConnectPageFollowKind(notificationData) && connectPageId)
   ) {
     if (connectPageId) return `/connect/page/${connectPageId}`;
@@ -184,7 +190,23 @@ const buildPushData = (data) => {
     entityId: String(data.entityId || data.connectPageId || data.fromUserId || ''),
     senderId: String(data.senderId || data.fromUserId || ''),
   };
-  for (const key of ['postId', 'postType', 'chatWith', 'chatId', 'connectPageId', 'fromUserId', 'kind', 'pageName']) {
+  for (const key of [
+    'postId',
+    'postType',
+    'chatWith',
+    'chatId',
+    'connectPageId',
+    'fromUserId',
+    'kind',
+    'pageName',
+    'groupChatId',
+    'groupName',
+    'eventId',
+    'eventTitle',
+    'teamId',
+    'teamName',
+    'submissionId',
+  ]) {
     if (data[key] != null && data[key] !== '') payload[key] = String(data[key]);
   }
   if (!payload.connectPageId) {

@@ -330,6 +330,14 @@ function RootLayoutInner() {
       } else if (targetPath.startsWith('/journey/')) {
         const id = targetPath.slice('/journey/'.length).split(/[/?#]/)[0];
         targetPath = `/navigate/detail?journeyId=${id}`;
+      } else if (
+        targetPath === '/shorts' ||
+        targetPath.startsWith('/shorts?') ||
+        targetPath.startsWith('/shorts/')
+      ) {
+        // Custom-scheme / web alias → main Shorts tab (keeps bottom nav + vertical scroll)
+        const q = targetPath.includes('?') ? targetPath.slice(targetPath.indexOf('?')) : '';
+        targetPath = `/(tabs)/shorts${q}`;
       }
 
       // Reconstruct query parameters (unless already present, e.g. journey rewrite)
@@ -842,6 +850,8 @@ function RootLayoutInner() {
                               segments[0] === 'upload-long-video' ||
                               segments[0] === 'request-video-creator' ||
                               segments[0] === 'creator-monetization' ||
+                              segments[0] === 's' ||
+                              normalizedPath.startsWith('/s/') ||
                               normalizedPath.startsWith('/post/') ||
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||

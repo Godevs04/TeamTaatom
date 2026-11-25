@@ -7,6 +7,7 @@ const { endpointLimiters } = require('../middleware/rateLimit');
 const connectController = require('../controllers/connectController');
 const subscriptionController = require('../controllers/subscriptionController');
 const payoutController = require('../controllers/payoutController');
+const communityController = require('../controllers/communityController');
 
 // Reusable param validators. Attaching at the route boundary stops bogus
 // ObjectIds before any controller logic runs (Mongoose silently returns null
@@ -14,6 +15,12 @@ const payoutController = require('../controllers/payoutController');
 // surface on aggregation pipelines).
 const validatePageId = [commonValidations.mongoId('pageId'), handleValidationErrors];
 const validateConnectPageId = [commonValidations.mongoId('connectPageId'), handleValidationErrors];
+const validateEventId = [commonValidations.mongoId('eventId'), handleValidationErrors];
+const validateGroupChatId = [commonValidations.mongoId('groupChatId'), handleValidationErrors];
+const validateRequestId = [commonValidations.mongoId('requestId'), handleValidationErrors];
+const validateTeamId = [commonValidations.mongoId('teamId'), handleValidationErrors];
+const validateSubmissionId = [commonValidations.mongoId('submissionId'), handleValidationErrors];
+const validateUserIdParam = [commonValidations.mongoId('userId'), handleValidationErrors];
 
 // Multer config for connect page image uploads
 const storage = multer.memoryStorage();
@@ -110,5 +117,152 @@ router.get('/currency-config', (req, res) => {
 // ─────────────────────────────────────────────
 router.post('/page/:pageId/view', validatePageId, authMiddleware, connectController.recordView);
 router.get('/page/:pageId/analytics', validatePageId, authMiddleware, connectController.getPageAnalytics);
+
+// ─────────────────────────────────────────────
+// Community — Find, Roles, Group Chats, Events, Competitions
+// ─────────────────────────────────────────────
+router.get(
+  '/page/:pageId/members/search',
+  validatePageId,
+  authMiddleware,
+  communityController.searchCommunityMembers
+);
+router.get(
+  '/page/:pageId/roles',
+  validatePageId,
+  authMiddleware,
+  communityController.listCommunityRoles
+);
+router.post(
+  '/page/:pageId/roles',
+  validatePageId,
+  authMiddleware,
+  communityController.assignCommunityRole
+);
+router.delete(
+  '/page/:pageId/roles/:userId',
+  validatePageId,
+  validateUserIdParam,
+  authMiddleware,
+  communityController.revokeCommunityRole
+);
+
+router.get(
+  '/page/:pageId/group-chats',
+  validatePageId,
+  authMiddleware,
+  communityController.listGroupChats
+);
+router.post(
+  '/page/:pageId/group-chats',
+  validatePageId,
+  authMiddleware,
+  communityController.createGroupChat
+);
+router.post(
+  '/group-chats/:groupChatId/join',
+  validateGroupChatId,
+  authMiddleware,
+  communityController.joinGroupChat
+);
+router.post(
+  '/group-chats/:groupChatId/invite',
+  validateGroupChatId,
+  authMiddleware,
+  communityController.inviteToGroupChat
+);
+router.get(
+  '/group-chats/:groupChatId/join-requests',
+  validateGroupChatId,
+  authMiddleware,
+  communityController.listGroupJoinRequests
+);
+router.post(
+  '/group-join-requests/:requestId/review',
+  validateRequestId,
+  authMiddleware,
+  communityController.reviewGroupJoinRequest
+);
+
+router.get(
+  '/page/:pageId/events',
+  validatePageId,
+  authMiddleware,
+  communityController.listEvents
+);
+router.post(
+  '/page/:pageId/events',
+  validatePageId,
+  authMiddleware,
+  communityController.createEvent
+);
+router.get(
+  '/events/:eventId',
+  validateEventId,
+  authMiddleware,
+  communityController.getEvent
+);
+router.patch(
+  '/events/:eventId',
+  validateEventId,
+  authMiddleware,
+  communityController.updateEvent
+);
+router.post(
+  '/events/:eventId/register',
+  validateEventId,
+  authMiddleware,
+  communityController.registerForEvent
+);
+router.post(
+  '/events/:eventId/teams',
+  validateEventId,
+  authMiddleware,
+  communityController.createEventTeam
+);
+router.post(
+  '/event-teams/:teamId/accept',
+  validateTeamId,
+  authMiddleware,
+  communityController.acceptTeamInvite
+);
+router.post(
+  '/events/:eventId/host-dm',
+  validateEventId,
+  authMiddleware,
+  communityController.openEventHostDm
+);
+
+router.post(
+  '/events/:eventId/competition',
+  validateEventId,
+  authMiddleware,
+  communityController.upsertCompetition
+);
+router.patch(
+  '/events/:eventId/competition',
+  validateEventId,
+  authMiddleware,
+  communityController.upsertCompetition
+);
+router.post(
+  '/events/:eventId/competition/submissions',
+  validateEventId,
+  authMiddleware,
+  communityController.submitCompetitionEntry
+);
+router.delete(
+  '/events/:eventId/competition/submissions/:submissionId',
+  validateEventId,
+  validateSubmissionId,
+  authMiddleware,
+  communityController.removeCompetitionSubmission
+);
+router.get(
+  '/events/:eventId/competition/leaderboard',
+  validateEventId,
+  authMiddleware,
+  communityController.getCompetitionLeaderboard
+);
 
 module.exports = router;

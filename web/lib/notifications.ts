@@ -71,7 +71,14 @@ export function getNotificationLink(n: Notification): { href: string; label: str
     case "follow_request_accepted":
     case "route_access_approved": {
       const connectPageId = n.metadata?.connectPageId;
-      if (n.metadata?.kind === "connect_page_follow" && connectPageId) {
+      if (
+        (n.metadata?.kind === "connect_page_follow" ||
+          n.metadata?.kind === "community_group_join" ||
+          n.metadata?.kind === "community_event_published" ||
+          n.metadata?.kind === "community_event_team_invite" ||
+          n.metadata?.kind === "community_competition_removed") &&
+        connectPageId
+      ) {
         return { href: `/connect/page/${connectPageId}`, label: "Open community" };
       }
       if (fromId) return { href: `/profile/${fromId}`, label: "View profile" };
@@ -90,6 +97,14 @@ export function getNotificationLink(n: Notification): { href: string; label: str
     }
     case "creator_program":
       return { href: "/creator-monetization", label: "Open Creator Dashboard" };
+    case "community_group_join":
+    case "community_group_join_approved":
+    case "community_event_published":
+    case "community_event_team_invite":
+    case "community_competition_removed": {
+      const pageId = n.metadata?.connectPageId || null;
+      return pageId ? { href: `/connect/page/${pageId}`, label: "Open community" } : null;
+    }
     default:
       return fromId ? { href: `/profile/${fromId}`, label: "View" } : null;
   }

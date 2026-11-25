@@ -31,6 +31,8 @@ import {
   createCommunityPage,
   updateCommunityPage,
   deleteCommunityPage,
+  getCommunityPageMembers,
+  searchTaatomUsers,
 } from '../services/communityService'
 
 // ─────────────────────────────────────────────
@@ -89,6 +91,12 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
   const [name, setName] = useState('')
   const [bio, setBio] = useState('')
   const [type, setType] = useState('public')
+  const [ownerUsername, setOwnerUsername] = useState('')
+  const [ownerUserId, setOwnerUserId] = useState('')
+  const [ownerLabel, setOwnerLabel] = useState('')
+  const [hostQuery, setHostQuery] = useState('')
+  const [hostCandidates, setHostCandidates] = useState([])
+  const [hostSearching, setHostSearching] = useState(false)
   const [website, setWebsite] = useState(false)
   const [groupChat, setGroupChat] = useState(false)
   const [subscription, setSubscription] = useState(false)
@@ -106,6 +114,15 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
         setName(editPage.name || '')
         setBio(editPage.bio || '')
         setType(editPage.type || 'public')
+        setOwnerUsername(editPage.userId?.username || '')
+        setOwnerUserId(editPage.userId?._id || '')
+        setOwnerLabel(
+          editPage.userId
+            ? `${editPage.userId.fullName || editPage.userId.username || 'Host'}${editPage.userId.username ? ` (@${editPage.userId.username})` : ''}`
+            : ''
+        )
+        setHostQuery('')
+        setHostCandidates([])
         setWebsite(editPage.features?.website || false)
         setGroupChat(editPage.features?.groupChat || false)
         setSubscription(editPage.features?.subscription || false)
@@ -124,6 +141,11 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
         setName('')
         setBio('')
         setType('public')
+        setOwnerUsername('')
+        setOwnerUserId('')
+        setOwnerLabel('')
+        setHostQuery('')
+        setHostCandidates([])
         setWebsite(false)
         setGroupChat(false)
         setSubscription(false)
@@ -136,6 +158,36 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
     }
   }, [isOpen, editPage])
 
+  // Load joined members when editing; otherwise search Taatom users by name
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    const run = async () => {
+      setHostSearching(true)
+      try {
+        if (editPage?._id) {
+          const data = await getCommunityPageMembers(editPage._id)
+          if (!cancelled) setHostCandidates(data.members || [])
+        } else if (hostQuery.trim().length >= 2) {
+          const users = await searchTaatomUsers(hostQuery.trim(), 25)
+          if (!cancelled) setHostCandidates(Array.isArray(users) ? users : [])
+        } else if (!cancelled) {
+          setHostCandidates([])
+        }
+      } catch (err) {
+        logger.error('Host candidate load failed:', err)
+        if (!cancelled) setHostCandidates([])
+      } finally {
+        if (!cancelled) setHostSearching(false)
+      }
+    }
+    const t = setTimeout(run, editPage?._id ? 0 : 300)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [isOpen, editPage?._id, hostQuery])
+
   const handleImageChange = (e, setter, previewSetter) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -147,6 +199,10 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
   const handleSubmit = async () => {
     if (!name.trim() || name.trim().length < 3) {
       toast.error('Page name must be at least 3 characters')
+      return
+    }
+    if (!ownerUserId && !ownerUsername.trim()) {
+      toast.error('Select a host from the member/user list — they manage Spaces and events in the app')
       return
     }
 
@@ -169,6 +225,8 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
       formData.append('name', name.trim())
       formData.append('bio', bio.trim())
       formData.append('type', type)
+      if (ownerUserId) formData.append('ownerUserId', ownerUserId)
+      if (ownerUsername.trim()) formData.append('ownerUsername', ownerUsername.trim().replace(/^@/, ''))
       formData.append('features', JSON.stringify({ website, groupChat, subscription }))
 
       if (subscription) {
@@ -281,6 +339,97 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <p className="text-xs text-gray-400 mt-1">{name.length}/50 characters</p>
+          </div>
+
+          {/* Host picker — select from joined members or search users */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Community host *</label>
+            {ownerLabel ? (
+              <div className="mb-2 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+                <span className="font-medium text-emerald-800">{ownerLabel}</span>
+                <button
+                  type="button"
+                  className="text-xs text-emerald-700 underline"
+                  onClick={() => {
+                    setOwnerUserId('')
+                    setOwnerUsername('')
+                    setOwnerLabel('')
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : null}
+            {!editPage?._id ? (
+              <div className="relative mb-2">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={hostQuery}
+                  onChange={(e) => setHostQuery(e.target.value)}
+                  placeholder="Search Taatom users by name or username"
+                  className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            ) : (
+              <p className="mb-2 text-xs text-gray-500">
+                Pick someone who already joined this community. They get Spaces → New event in the app.
+              </p>
+            )}
+            <div className="max-h-44 overflow-y-auto rounded-lg border border-gray-200">
+              {hostSearching ? (
+                <p className="px-3 py-4 text-center text-xs text-gray-400">Loading…</p>
+              ) : hostCandidates.length === 0 ? (
+                <p className="px-3 py-4 text-center text-xs text-gray-400">
+                  {editPage?._id
+                    ? 'No members joined yet — ask a user to follow first, then pick them here.'
+                    : 'Type at least 2 characters to find a Taatom user.'}
+                </p>
+              ) : (
+                hostCandidates.map((u) => {
+                  const id = u._id
+                  const selected = ownerUserId === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        setOwnerUserId(id)
+                        setOwnerUsername(u.username || '')
+                        setOwnerLabel(
+                          `${u.fullName || u.username || 'User'}${u.username ? ` (@${u.username})` : ''}`
+                        )
+                      }}
+                      className={`flex w-full items-center gap-3 border-b border-gray-100 px-3 py-2.5 text-left last:border-0 hover:bg-slate-50 ${
+                        selected ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+                        {u.profilePic ? (
+                          <img src={u.profilePic} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          (u.fullName || u.username || '?').charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">
+                          {u.fullName || u.username || 'User'}
+                          {u.isHost ? (
+                            <span className="ml-1 text-[10px] font-semibold uppercase text-amber-600">Host</span>
+                          ) : null}
+                        </p>
+                        <p className="truncate text-xs text-gray-500">
+                          {u.username ? `@${u.username}` : u.email || id}
+                        </p>
+                      </div>
+                      {selected ? (
+                        <span className="text-xs font-semibold text-blue-600">Selected</span>
+                      ) : null}
+                    </button>
+                  )
+                })
+              )}
+            </div>
           </div>
 
           {/* Bio */}

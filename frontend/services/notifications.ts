@@ -226,6 +226,31 @@ export const handleNotificationClick = async (notification: any): Promise<{
           navigationPath: '/creator-monetization',
         };
 
+      case 'community_group_join':
+      case 'community_group_join_approved':
+      case 'community_event_published':
+      case 'community_event_team_invite':
+      case 'community_competition_removed': {
+        const connectPageId =
+          notification.metadata?.connectPageId ||
+          notification.connectPageId ||
+          notification.entityId;
+        if (connectPageId) {
+          return {
+            success: true,
+            message: 'Opening community...',
+            shouldNavigate: true,
+            navigationPath: `/connect/page/${connectPageId}`,
+          };
+        }
+        return {
+          success: true,
+          message: 'This community is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true,
+        };
+      }
+
       case 'post_deleted':
       case 'short_deleted':
         return {

@@ -67,20 +67,40 @@ const ChatSchema = new Schema({
   // Admin support chat fields (optional, backward compatible)
   type: {
     type: String,
-    enum: ['user_chat', 'admin_support', 'connect_page'],
+    enum: [
+      'user_chat',
+      'admin_support',
+      'connect_page',
+      'community_group',
+      'community_event',
+      'community_event_team',
+      'community_event_dm',
+      'community_event_announce',
+    ],
     default: 'user_chat',
     index: true
   },
   relatedEntity: {
     type: {
       type: String,
-      enum: ['trip_verification', 'support'],
+      enum: [
+        'trip_verification',
+        'support',
+        'community_group_chat',
+        'community_event',
+        'community_event_team',
+      ],
       default: null
     },
     refId: {
       type: Types.ObjectId,
       default: null
     }
+  },
+  /** Display title for community/event rooms (inbox-hidden types). */
+  title: {
+    type: String,
+    default: '',
   },
   // Optional conversation status (for future use)
   status: {

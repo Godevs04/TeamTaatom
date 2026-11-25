@@ -25,6 +25,13 @@ const notificationSchema = new mongoose.Schema({
       'route_access_accepted',
       'route_access_rejected',
       'creator_program',
+      // Community group/event flows reuse follow_* UI paths via metadata.kind;
+      // dedicated types keep analytics / future deep-link routing clear.
+      'community_group_join',
+      'community_group_join_approved',
+      'community_event_published',
+      'community_event_team_invite',
+      'community_competition_removed',
     ],
     required: true
   },

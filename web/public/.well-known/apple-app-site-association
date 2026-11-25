@@ -11,7 +11,8 @@
           "/journey/*",
           "/trip/*",
           "/journeys/*",
-          "/watch/*"
+          "/watch/*",
+          "/shorts*"
         ]
       }
     ]

@@ -35,7 +35,20 @@ import logger from '../utils/logger';
 import { getUserFromStorage } from '../services/auth';
 import FastImage from '../components/ui/FastImage';
 import FollowButton from '../components/ui/FollowButton';
+import DateTimeField from '../components/ui/DateTimeField';
 import { savedEvents } from '../utils/savedEvents';
+
+function ymdToDate(value: string): Date | null {
+  if (!value?.trim()) return null;
+  const d = new Date(`${value.trim()}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function dateToYmd(value: Date | null): string {
+  if (!value || Number.isNaN(value.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -684,24 +697,29 @@ export default function SearchScreen() {
               </View>
 
               <View style={styles.filterSection}>
-                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>Start Date</Text>
-                <TextInput
-                  style={[styles.filterInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={theme.colors.textSecondary}
-                  value={advancedFilters.startDate}
-                  onChangeText={(text) => setAdvancedFilters({ ...advancedFilters, startDate: text })}
+                <DateTimeField
+                  label="Start date"
+                  mode="date"
+                  optional
+                  value={ymdToDate(advancedFilters.startDate)}
+                  onChange={(next) =>
+                    setAdvancedFilters({ ...advancedFilters, startDate: dateToYmd(next) })
+                  }
+                  placeholder="Select start date"
                 />
               </View>
 
               <View style={styles.filterSection}>
-                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>End Date</Text>
-                <TextInput
-                  style={[styles.filterInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={theme.colors.textSecondary}
-                  value={advancedFilters.endDate}
-                  onChangeText={(text) => setAdvancedFilters({ ...advancedFilters, endDate: text })}
+                <DateTimeField
+                  label="End date"
+                  mode="date"
+                  optional
+                  value={ymdToDate(advancedFilters.endDate)}
+                  onChange={(next) =>
+                    setAdvancedFilters({ ...advancedFilters, endDate: dateToYmd(next) })
+                  }
+                  minimumDate={ymdToDate(advancedFilters.startDate) || undefined}
+                  placeholder="Select end date"
                 />
               </View>
             </ScrollView>

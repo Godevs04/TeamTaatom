@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.4.33",
+    "version": "26.4.34",
     "orientation": "default",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -96,20 +96,76 @@
             "DEFAULT"
           ],
           "data": [
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/s" },
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/post" },
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/trip" },
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/connect/page" },
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/journey" },
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/journeys" },
-            { "scheme": "https", "host": "www.taatom.com", "pathPrefix": "/watch" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/s" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/post" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/trip" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/connect/page" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/journey" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/journeys" },
-            { "scheme": "https", "host": "taatom.com", "pathPrefix": "/watch" }
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/s"
+            },
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/post"
+            },
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/trip"
+            },
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/connect/page"
+            },
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/journey"
+            },
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/journeys"
+            },
+            {
+              "scheme": "https",
+              "host": "www.taatom.com",
+              "pathPrefix": "/watch"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/s"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/post"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/trip"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/connect/page"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/journey"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/journeys"
+            },
+            {
+              "scheme": "https",
+              "host": "taatom.com",
+              "pathPrefix": "/watch"
+            }
           ]
         }
       ],
@@ -170,6 +226,7 @@
           "cameraPermission": "The app accesses your camera to let you take photos for posts."
         }
       ],
+      "@react-native-community/datetimepicker",
       [
         "expo-location",
         {

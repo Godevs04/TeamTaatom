@@ -59,6 +59,33 @@ function generateShortCode(length = 8) {
 }
 
 /**
+ * Absolute preview image for OG crawlers (WhatsApp/iMessage/etc.).
+ * Prefers existing https URLs; otherwise signs a storage key.
+ */
+async function resolveOgImage(candidates = [], storageKey = null) {
+  const baseUrl = getPublicWebOrigin();
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== 'string') continue;
+    const v = raw.trim();
+    if (!v) continue;
+    if (/^https?:\/\//i.test(v)) return v;
+  }
+  const key =
+    (storageKey && String(storageKey).trim()) ||
+    candidates.find((c) => c && typeof c === 'string' && !/^https?:\/\//i.test(c.trim()));
+  if (key) {
+    try {
+      const { generateSignedUrl } = require('../services/mediaService');
+      const signed = await generateSignedUrl(String(key).trim(), 'IMAGE');
+      if (signed && /^https?:\/\//i.test(signed)) return signed;
+    } catch (err) {
+      logger.warn('resolveOgImage sign failed:', err?.message);
+    }
+  }
+  return `${baseUrl}/icon.png`;
+}
+
+/**
  * Create or get existing short URL for a post
  * @route POST /api/v1/short-url/create
  * @access Private
@@ -324,20 +351,55 @@ const redirectShortUrl = async (req, res) => {
         `);
       }
 
-      const postTitle = post.caption 
-        ? `${post.caption.substring(0, 60)}${post.caption.length > 60 ? '...' : ''}` 
-        : `Post by ${post.user?.fullName || 'Traveler'}`;
-      previewTitle = `${postTitle} on Taatom`;
-      previewDescription = post.caption 
-        ? `Check out this post by ${post.user?.fullName || 'Traveler'}: "${post.caption}"`
-        : `Check out this post by ${post.user?.fullName || 'Traveler'} on Taatom.`;
+      const author = post.user?.fullName || post.user?.username || 'a traveler';
+      const caption = (post.caption || post.title || '').trim();
+      const captionSnippet = caption
+        ? `${caption.substring(0, 80)}${caption.length > 80 ? '…' : ''}`
+        : '';
 
-      const img = post.imageUrl || 
-                  post.thumbnailUrl || 
-                  (post.images && post.images.length > 0 ? post.images[0] : '') || 
-                  post.mediaUrl;
-      const baseUrl = getPublicWebOrigin();
-      previewImage = img || `${baseUrl}/icon.png`;
+      if (post.type === 'short') {
+        previewTitle = captionSnippet
+          ? `${captionSnippet} · Short on Taatom`
+          : `Short by ${author} on Taatom`;
+        previewDescription = caption
+          ? `Watch this short by ${author} on Taatom: "${captionSnippet}"`
+          : `Watch this short by ${author} on Taatom.`;
+      } else if (post.type === 'long_video') {
+        previewTitle = captionSnippet
+          ? `${captionSnippet} · Video on Taatom`
+          : `Video by ${author} on Taatom`;
+        previewDescription = caption
+          ? `Watch this video by ${author} on Taatom: "${captionSnippet}"`
+          : `Watch this video by ${author} on Taatom.`;
+      } else {
+        previewTitle = captionSnippet
+          ? `${captionSnippet} · Taatom`
+          : `Post by ${author} on Taatom`;
+        previewDescription = caption
+          ? `Check out this post by ${author}: "${captionSnippet}"`
+          : `Check out this post by ${author} on Taatom.`;
+      }
+
+      previewImage = await resolveOgImage(
+        [
+          post.thumbnailUrl,
+          post.imageUrl,
+          Array.isArray(post.images) ? post.images[0] : '',
+          post.mediaUrl,
+        ],
+        post.thumbnailStorageKey || post.storageKey || (Array.isArray(post.storageKeys) ? post.storageKeys[0] : null)
+      );
+
+      // Stash type for deep-link branching below
+      shortUrl._resolvedPostType = post.type;
+    }
+
+    // Also resolve connect/journey images to absolute URLs when needed
+    if (isConnectPage && previewImage && !/^https?:\/\//i.test(previewImage)) {
+      previewImage = await resolveOgImage([previewImage]);
+    }
+    if (isJourney && previewImage && !/^https?:\/\//i.test(previewImage)) {
+      previewImage = await resolveOgImage([previewImage]);
     }
 
     const webOrigin = getPublicWebOrigin();
@@ -348,24 +410,34 @@ const redirectShortUrl = async (req, res) => {
     // "taatom:///" → Unmatched Route / crash in production.
     // Use www origin so links hit a host that serves AASA/assetlinks with HTTP 200.
     let deepLink, universalLink, intentPath, shortUniversalLink;
+    shortUniversalLink = `${webOrigin}/s/${shortCode}`;
     if (isConnectPage) {
       const id = String(shortUrl.connectPageId);
       deepLink = `taatom://connect/page/${id}`;
       universalLink = `${webOrigin}/connect/page/${id}`;
-      shortUniversalLink = `${webOrigin}/s/${shortCode}`;
       intentPath = `connect/page/${id}`;
     } else if (isJourney) {
       const id = String(shortUrl.journeyId);
       deepLink = `taatom://navigate/detail?journeyId=${id}`;
       universalLink = `${webOrigin}/journey/${id}`;
-      shortUniversalLink = `${webOrigin}/s/${shortCode}`;
       intentPath = `navigate/detail?journeyId=${id}`;
     } else {
       const id = String(shortUrl.postId);
-      deepLink = `taatom://post/${id}`;
-      universalLink = `${webOrigin}/post/${id}`;
-      shortUniversalLink = `${webOrigin}/s/${shortCode}`;
-      intentPath = `post/${id}`;
+      const postType = shortUrl._resolvedPostType;
+      if (postType === 'short') {
+        // Open main Shorts tab (scrollable feed), not locked single-short stack
+        deepLink = `taatom://shorts?shortId=${id}`;
+        universalLink = shortUniversalLink;
+        intentPath = `shorts?shortId=${id}`;
+      } else if (postType === 'long_video') {
+        deepLink = `taatom://watch/${id}`;
+        universalLink = `${webOrigin}/watch/${id}`;
+        intentPath = `watch/${id}`;
+      } else {
+        deepLink = `taatom://post/${id}`;
+        universalLink = `${webOrigin}/post/${id}`;
+        intentPath = `post/${id}`;
+      }
     }
     
     logger.debug('Redirecting to app:', {
@@ -386,12 +458,15 @@ const redirectShortUrl = async (req, res) => {
           <meta name="apple-itunes-app" content="app-id=6757185352, app-argument=${escapeHtml(universalLink)}">
           <meta http-equiv="refresh" content="4;url=${universalLink}">
 
-          <!-- Open Graph / Facebook -->
+          <!-- Open Graph / WhatsApp / Facebook / iMessage -->
           <meta property="og:type" content="website">
           <meta property="og:url" content="${shortUniversalLink}">
           <meta property="og:title" content="${escapeHtml(previewTitle)}">
           <meta property="og:description" content="${escapeHtml(previewDescription)}">
           <meta property="og:image" content="${escapeHtml(previewImage)}">
+          <meta property="og:image:secure_url" content="${escapeHtml(previewImage)}">
+          <meta property="og:image:width" content="1200">
+          <meta property="og:image:height" content="630">
           <meta property="og:site_name" content="Taatom">
 
           <!-- Twitter -->
@@ -574,14 +649,33 @@ const resolveShortUrl = async (req, res) => {
     }
 
     if (shortUrl.postId) {
-      const post = await Post.findById(shortUrl.postId).select('isActive').lean();
+      const post = await Post.findById(shortUrl.postId).select('isActive type user').lean();
       if (!post || post.isActive === false) {
         return sendError(res, 'RES_3001', 'Post not found');
       }
+      const postId = String(shortUrl.postId);
+      if (post.type === 'short') {
+        // Main Shorts tab — pin this short then continue vertical scroll (no single=true)
+        return sendSuccess(res, 200, 'Resolved', {
+          type: 'short',
+          path: `/(tabs)/shorts?shortId=${postId}`,
+          postId,
+          postType: 'short',
+        });
+      }
+      if (post.type === 'long_video') {
+        return sendSuccess(res, 200, 'Resolved', {
+          type: 'long_video',
+          path: `/watch/${postId}`,
+          postId,
+          postType: 'long_video',
+        });
+      }
       return sendSuccess(res, 200, 'Resolved', {
         type: 'post',
-        path: `/post/${shortUrl.postId}`,
-        postId: String(shortUrl.postId),
+        path: `/post/${postId}`,
+        postId,
+        postType: post.type || 'photo',
       });
     }
 

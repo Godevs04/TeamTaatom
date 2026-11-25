@@ -566,8 +566,8 @@ export default function ContentPreviewScreen() {
     const effectiveBg = block.backgroundColor || '';
     const textAlign: 'left' | 'center' | 'right' =
       (block.align as any) || (block.type === 'heading' ? 'center' : 'left');
-    const headingFontSize = block.fontSize === 'small' ? 16 : block.fontSize === 'large' ? 26 : 20;
-    const textFontSize = block.fontSize === 'small' ? 12 : block.fontSize === 'large' ? 18 : 15;
+    const headingFontSize = block.fontSize === 'small' ? 18 : block.fontSize === 'large' ? 32 : 24;
+    const textFontSize = block.fontSize === 'small' ? 13 : block.fontSize === 'large' ? 20 : 16;
     // Padding & border-radius tiers
     const paddingMap: Record<string, number> = { none: 0, small: 6, medium: 12, large: 20 };
     const radiusMap: Record<string, number> = { none: 0, small: 6, medium: 12, large: 20 };
@@ -596,13 +596,36 @@ export default function ContentPreviewScreen() {
       switch (block.type) {
         case 'heading':
           return wrapBg(
-            <Text style={[styles.headingBlock, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
+            <Text
+              style={[
+                styles.headingBlock,
+                {
+                  color: effectiveTextColor,
+                  textAlign,
+                  fontSize: headingFontSize,
+                  lineHeight: Math.round(headingFontSize * 1.25),
+                  letterSpacing: -0.4,
+                },
+                block.bold ? { fontWeight: '800' } : undefined,
+              ]}
+            >
               {block.content}
             </Text>
           );
         case 'text':
           return wrapBg(
-            <Text style={[styles.textBlock, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
+            <Text
+              style={[
+                styles.textBlock,
+                {
+                  color: effectiveTextColor,
+                  textAlign,
+                  fontSize: textFontSize,
+                  lineHeight: Math.round(textFontSize * 1.55),
+                },
+                block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined,
+              ]}
+            >
               {block.content}
             </Text>
           );
@@ -761,25 +784,37 @@ export default function ContentPreviewScreen() {
   const buyItemsList = pageData?.buyItems?.filter(item => item.active) || [];
   const hasBuyItems = isCommunity && isSubscription && buyItemsList.length > 0;
   const isEmpty = !loading && sorted.length === 0 && !hasBuyItems;
-  const screenBg = isEmpty ? '#FFFFFF' : theme.colors.background;
-  const headerBg = isEmpty ? '#FFFFFF' : theme.colors.surface;
-  const headerBorderColor = isEmpty ? '#FFFFFF' : theme.colors.border;
-  const textColor = isEmpty ? '#000000' : theme.colors.text;
+  const hasCustomPageBg = !!pageBackground;
+  const isSparseSite =
+    isWebsite &&
+    !hasBuyItems &&
+    sorted.length > 0 &&
+    sorted.length <= 3 &&
+    sorted.every((b) => b.type === 'heading' || b.type === 'text' || b.type === 'divider');
+  const screenBg = isEmpty
+    ? '#FFFFFF'
+    : hasCustomPageBg
+      ? pageBackground
+      : theme.colors.background;
+  const textColor = isEmpty ? '#000000' : pageTextColor || theme.colors.text;
+  const statusBarLight =
+    hasCustomPageBg || (!isEmpty && isDark);
 
   return (
     <View
       style={[styles.container, { backgroundColor: screenBg }]}
     >
-      <StatusBar barStyle={isEmpty ? 'dark-content' : (isDark ? 'light-content' : 'dark-content')} />
-      {/* Glass header in document flow — content cannot cover status bar */}
+      <StatusBar barStyle={isEmpty ? 'dark-content' : statusBarLight ? 'light-content' : 'dark-content'} />
+      {/* Glass header — flat bottom when page has a custom background so the site is seamless */}
       <View
         style={[
           styles.headerContainer,
+          hasCustomPageBg && styles.headerContainerFlush,
           {
             paddingTop: insets.top,
             backgroundColor: 'rgba(15, 15, 15, 0.9)',
             borderColor: 'rgba(255, 255, 255, 0.08)',
-            borderBottomWidth: 1,
+            borderBottomWidth: hasCustomPageBg ? 0 : 1,
           },
         ]}
       >
@@ -852,12 +887,42 @@ export default function ContentPreviewScreen() {
         </View>
       ) : (
         <ScrollView
-          style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
-          contentContainerStyle={[styles.contentContainer, { paddingTop: 16 }]}
+          style={styles.scrollContent}
+          contentContainerStyle={[
+            styles.contentContainer,
+            isSparseSite && styles.contentContainerHero,
+            {
+              paddingTop: isSparseSite ? 28 : 20,
+              paddingBottom: Math.max(insets.bottom, 24) + 24,
+              flexGrow: 1,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           contentInsetAdjustmentBehavior="never"
           automaticallyAdjustContentInsets={false}
         >
+          {isSparseSite ? (
+            <View style={styles.heroStage}>
+              <View
+                style={[
+                  styles.heroAccent,
+                  {
+                    backgroundColor: pageTextColor
+                      ? `${pageTextColor}33`
+                      : 'rgba(255,255,255,0.22)',
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.heroEyebrow,
+                  { color: pageTextColor ? `${pageTextColor}CC` : 'rgba(255,255,255,0.7)' },
+                ]}
+              >
+                {title}
+              </Text>
+            </View>
+          ) : null}
           {/* Buy Items Listing for Community Category */}
           {hasBuyItems && (
             <View style={styles.buyItemsSection}>
@@ -921,40 +986,42 @@ export default function ContentPreviewScreen() {
             </View>
           )}
 
-          {packBlocksIntoRows(sorted).map((row, ri) => {
-            const isSingle = row.length === 1 && row[0].blocks.length === 1;
-            return isSingle ? (
-              <React.Fragment key={`prow-${ri}`}>{renderBlock(row[0].blocks[0], ri, false, false)}</React.Fragment>
-            ) : (
-              <View key={`prow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                {row.map((cell, ci) => {
-                  const isStackedCell = cell.blocks.length > 1;
-                  const va = cell.blocks[0]?.verticalAlign;
-                  const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                  return (
-                    <View
-                      key={`pc-${ri}-${ci}`}
-                      style={isStackedCell
-                        ? { flex: cell.col, flexDirection: 'column', gap: 6 }
-                        : { flex: cell.col, alignSelf }}
-                    >
-                      {cell.blocks.map((block, bi) =>
-                        isStackedCell ? (
-                          <View key={block._id || `ps-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                            {renderBlock(block, bi, true, true)}
-                          </View>
-                        ) : (
-                          <React.Fragment key={block._id || `ps-${ri}-${ci}-${bi}`}>
-                            {renderBlock(block, bi, row.length > 1, false)}
-                          </React.Fragment>
-                        )
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            );
-          })}
+          <View style={isSparseSite ? styles.heroContent : styles.siteContent}>
+            {packBlocksIntoRows(sorted).map((row, ri) => {
+              const isSingle = row.length === 1 && row[0].blocks.length === 1;
+              return isSingle ? (
+                <React.Fragment key={`prow-${ri}`}>{renderBlock(row[0].blocks[0], ri, false, false)}</React.Fragment>
+              ) : (
+                <View key={`prow-${ri}`} style={{ flexDirection: 'row', gap: 8, marginVertical: 4, alignItems: 'flex-start' }}>
+                  {row.map((cell, ci) => {
+                    const isStackedCell = cell.blocks.length > 1;
+                    const va = cell.blocks[0]?.verticalAlign;
+                    const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                    return (
+                      <View
+                        key={`pc-${ri}-${ci}`}
+                        style={isStackedCell
+                          ? { flex: cell.col, flexDirection: 'column', gap: 8 }
+                          : { flex: cell.col, alignSelf }}
+                      >
+                        {cell.blocks.map((block, bi) =>
+                          isStackedCell ? (
+                            <View key={block._id || `ps-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                              {renderBlock(block, bi, true, true)}
+                            </View>
+                          ) : (
+                            <React.Fragment key={block._id || `ps-${ri}-${ci}-${bi}`}>
+                              {renderBlock(block, bi, row.length > 1, false)}
+                            </React.Fragment>
+                          )
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })}
+          </View>
 
           {/* Subscribe section */}
           {isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
@@ -1255,10 +1322,47 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 8,
   },
+  headerContainerFlush: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    shadowOpacity: 0.06,
+    elevation: 4,
+  },
   headerInner: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 52,
+    paddingHorizontal: 4,
+  },
+  contentContainerHero: {
+    justifyContent: 'center',
+    minHeight: Math.max(320, Dimensions.get('window').height - 160),
+  },
+  heroStage: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  heroAccent: {
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 12,
+  },
+  heroEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    fontFamily: getFontFamily('700'),
+  },
+  heroContent: {
+    width: '100%',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  siteContent: {
+    width: '100%',
+    gap: 6,
   },
   editBtnWrap: {
     borderRadius: 16,
@@ -1453,25 +1557,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
+    paddingHorizontal: isTablet ? themeConstants.spacing.xl : 20,
+    paddingVertical: isTablet ? themeConstants.spacing.xl : 16,
   },
   headingBlock: {
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 24,
+    lineHeight: 30,
     fontFamily: getFontFamily('700'),
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: 8,
     ...(isWeb &&
       ({
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any)),
   },
   textBlock: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 25,
     fontFamily: getFontFamily('400'),
-    marginBottom: 16,
+    marginBottom: 12,
     ...(isWeb &&
       ({
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

@@ -128,6 +128,9 @@ Welcome to the Taatom API documentation. This comprehensive RESTful API provides
 - **Search**: Advanced search for posts, users, and locations
 - **Settings**: User preferences and account settings
 - **Analytics**: User behavior and engagement metrics
+- **Connect**: Connect pages, follows, subscriptions, and buy flows
+- **Community**: Multi group chats, events, teams, competitions, roles, and Find
+- **Short URLs**: Shareable \`/s/:code\` links with OG previews and in-app resolve
 
 ## Code Generation
 
@@ -958,6 +961,18 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
       {
         name: 'Mentions',
         description: 'User mention functionality - Search users for @mentions in posts and comments'
+      },
+      {
+        name: 'Connect',
+        description: 'Connect pages — create/manage pages, follow/join, website & subscription content, payments'
+      },
+      {
+        name: 'Community',
+        description: 'Community Groups & Events — Find members, roles (owner/admin/moderator), multi group chats (public/request/invite), events, team registration, event chats, and competition rankings (likes|views)'
+      },
+      {
+        name: 'Short URLs',
+        description: 'Shareable short links (\`/s/:code\`) with Open Graph previews; resolve to in-app paths for posts, shorts, long videos, journeys, and communities'
       }
     ]
   },

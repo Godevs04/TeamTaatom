@@ -12,8 +12,9 @@ export function contentHref(
   const id = encodeURIComponent(postId);
   const hash = options.openComments ? "#comments" : "";
   if (postType === "long_video") return `/watch/${id}${hash}`;
-  if (postType === "short" && ownerId) {
-    return `/shorts?userId=${encodeURIComponent(ownerId)}&postId=${id}`;
+  if (postType === "short") {
+    // Prefer short share links for OG; fall back to trip page when opening in-web
+    return `/trip/${id}${hash}`;
   }
   return `/trip/${id}${hash}`;
 }

@@ -48,6 +48,12 @@ import type { BuyItem } from "@/types/connect";
 import { openCashfreeSubscriptionCheckout } from "@/lib/cashfree-client";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { ConnectContentBlocks } from "@/components/connect/connect-content-blocks";
+import { CommunityHub } from "@/components/connect/community-hub";
+import {
+  assignCommunityRole,
+  listCommunityRoles,
+  revokeCommunityRole,
+} from "@/lib/community-api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -174,6 +180,12 @@ export default function ConnectPageDetailPage() {
     detailQ.data?.isPrivateLocked ?? page?.isPrivateLocked ?? false;
   const isCommunityPage = page?.category === "community" || page?.isAdminPage === true;
 
+  const communityRolesQ = useQuery({
+    queryKey: ["community-roles", id],
+    queryFn: () => listCommunityRoles(id),
+    enabled: !!id && followersOpen && isCommunityPage,
+  });
+
   // Backend may lazily create group chat when owner opens Members — sync into page cache
   // so Group Chat link + promote buttons stay available without a full reload.
   React.useEffect(() => {
@@ -201,6 +213,7 @@ export default function ConnectPageDetailPage() {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["connect-page-followers", id] }),
       qc.invalidateQueries({ queryKey: ["connect-page", id] }),
+      qc.invalidateQueries({ queryKey: ["community-roles", id] }),
     ]);
   }, [qc, id]);
 
@@ -602,14 +615,27 @@ export default function ConnectPageDetailPage() {
             </p>
           ) : null}
 
+          {!isPrivateLocked && isCommunityPage ? (
+            <CommunityHub
+              pageId={page._id}
+              canManage={!!isOwner}
+              isMember={!!(isOwner || isFollowing)}
+              enabled
+            />
+          ) : null}
+
           {followersOpen && (
             <Card className="mt-6 border-slate-200 dark:border-zinc-700">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
                   <CardTitle className="text-base">Members</CardTitle>
-                  {(isOwner || followersQ.data?.myGroupRole === "admin") && (
+                  {(isOwner ||
+                    followersQ.data?.myGroupRole === "admin" ||
+                    communityRolesQ.data?.myRole === "admin") && (
                     <CardDescription className="mt-0.5">
-                      Owner + up to 2 co-admins. Co-admins nominate; owner approves.
+                      {isCommunityPage
+                        ? "Unlimited community admins and moderators. Manage staff here or in Spaces → Find."
+                        : "Owner + up to 2 co-admins. Co-admins nominate; owner approves."}
                     </CardDescription>
                   )}
                 </div>
@@ -655,9 +681,22 @@ export default function ConnectPageDetailPage() {
                     const seatsOpen = activeAdminCount < 2;
                     const canManageAdmins = effectiveRole === "owner" || effectiveRole === "admin";
                     const isGroupOwner = effectiveRole === "owner";
-                    const roleLabel = (role: ConnectFollower["role"]) => {
+                    const myCommunityRole =
+                      communityRolesQ.data?.myRole || (isOwner ? "owner" : "member");
+                    const canManageCommunityStaff =
+                      isCommunityPage &&
+                      (isOwner || myCommunityRole === "owner" || myCommunityRole === "admin");
+                    const communityStaffMap: Partial<Record<string, "admin" | "moderator">> = {};
+                    (communityRolesQ.data?.staff || []).forEach((s: any) => {
+                      const uid = String(s.userId?._id || s.userId || "");
+                      if (uid && (s.role === "admin" || s.role === "moderator")) {
+                        communityStaffMap[uid] = s.role;
+                      }
+                    });
+                    const roleLabel = (role: ConnectFollower["role"] | "moderator") => {
                       if (role === "owner") return "Owner";
                       if (role === "admin") return "Admin";
+                      if (role === "moderator") return "Moderator";
                       if (role === "pending_admin") return "Pending admin";
                       if (role === "pending") return "Pending";
                       return null;
@@ -677,22 +716,47 @@ export default function ConnectPageDetailPage() {
                     };
                     return (
                       <>
-                        {canManageAdmins && !chatRoomId && !followersQ.isFetching ? (
+                        {!isCommunityPage && canManageAdmins && !chatRoomId && !followersQ.isFetching ? (
                           <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
                             Group chat is still setting up. Close and reopen Members, then try again.
                           </p>
                         ) : null}
                         {members.map((f: ConnectFollower) => {
                           const busy = adminActionBusyId === f._id;
-                          const canPromote = !!chatRoomId && canManageAdmins && f.role === "member" && seatsOpen;
-                          const canDemote = !!chatRoomId && isGroupOwner && f.role === "admin";
-                          const canDecideAdmin = !!chatRoomId && isGroupOwner && f.role === "pending_admin";
+                          const communityRole: "admin" | "moderator" | "member" | null = isCommunityPage
+                            ? communityStaffMap[f._id] ?? "member"
+                            : null;
+                          const canPromote = isCommunityPage
+                            ? canManageCommunityStaff &&
+                              communityRole === "member" &&
+                              f.role !== "pending" &&
+                              f.role !== "pending_admin"
+                            : !!chatRoomId && canManageAdmins && f.role === "member" && seatsOpen;
+                          const canPromoteMod =
+                            isCommunityPage &&
+                            canManageCommunityStaff &&
+                            communityRole === "member" &&
+                            f.role !== "pending" &&
+                            f.role !== "pending_admin";
+                          const canDemote = isCommunityPage
+                            ? canManageCommunityStaff &&
+                              (communityRole === "admin" || communityRole === "moderator")
+                            : !!chatRoomId && isGroupOwner && f.role === "admin";
+                          const canDecideAdmin =
+                            !isCommunityPage &&
+                            !!chatRoomId &&
+                            isGroupOwner &&
+                            f.role === "pending_admin";
                           const canRemove =
                             !!chatRoomId &&
                             canManageAdmins &&
                             f.role !== "owner" &&
                             f.role !== "pending" &&
                             !(effectiveRole === "admin" && (f.role === "admin" || f.role === "pending_admin"));
+                          const displayRole =
+                            isCommunityPage && (communityRole === "admin" || communityRole === "moderator")
+                              ? communityRole
+                              : f.role;
                           return (
                             <div
                               key={f._id}
@@ -729,16 +793,16 @@ export default function ConnectPageDetailPage() {
                                       <p className="truncate text-sm font-medium leading-5 text-slate-900 dark:text-white">
                                         {f.fullName ?? f.username ?? "User"}
                                       </p>
-                                      {roleLabel(f.role) && (
+                                      {roleLabel(displayRole) && (
                                         <span
                                           className={cn(
                                             "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-                                            f.role === "owner"
+                                            displayRole === "owner"
                                               ? "bg-amber-500/10 text-amber-600"
                                               : "bg-primary/10 text-primary",
                                           )}
                                         >
-                                          {roleLabel(f.role)}
+                                          {roleLabel(displayRole)}
                                         </span>
                                       )}
                                     </div>
@@ -842,14 +906,46 @@ export default function ConnectPageDetailPage() {
                                     onClick={() =>
                                       void runAdminAction(
                                         f._id,
-                                        () => connectPromoteGroupAdmin(chatRoomId!, f._id),
-                                        isGroupOwner
+                                        async () => {
+                                          if (isCommunityPage) {
+                                            await assignCommunityRole(page._id, f._id, "admin");
+                                          } else {
+                                            await connectPromoteGroupAdmin(chatRoomId!, f._id);
+                                          }
+                                        },
+                                        isCommunityPage
                                           ? "Promoted to admin"
-                                          : "Nomination sent to owner",
+                                          : isGroupOwner
+                                            ? "Promoted to admin"
+                                            : "Nomination sent to owner",
                                       )
                                     }
                                   >
-                                    {busy ? "…" : isGroupOwner ? "Make admin" : "Nominate"}
+                                    {busy
+                                      ? "…"
+                                      : isCommunityPage
+                                        ? "Admin"
+                                        : isGroupOwner
+                                          ? "Make admin"
+                                          : "Nominate"}
+                                  </Button>
+                                )}
+                                {canPromoteMod && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={!!adminActionBusyId}
+                                    onClick={() =>
+                                      void runAdminAction(
+                                        f._id,
+                                        async () => {
+                                          await assignCommunityRole(page._id, f._id, "moderator");
+                                        },
+                                        "Promoted to moderator",
+                                      )
+                                    }
+                                  >
+                                    {busy ? "…" : "Mod"}
                                   </Button>
                                 )}
                                 {canDemote && (
@@ -860,12 +956,18 @@ export default function ConnectPageDetailPage() {
                                     onClick={() =>
                                       void runAdminAction(
                                         f._id,
-                                        () => connectDemoteGroupAdmin(chatRoomId!, f._id),
-                                        "Admin demoted",
+                                        async () => {
+                                          if (isCommunityPage) {
+                                            await revokeCommunityRole(page._id, f._id);
+                                          } else {
+                                            await connectDemoteGroupAdmin(chatRoomId!, f._id);
+                                          }
+                                        },
+                                        isCommunityPage ? "Role revoked" : "Admin demoted",
                                       )
                                     }
                                   >
-                                    {busy ? "…" : "Demote"}
+                                    {busy ? "…" : isCommunityPage ? "Revoke" : "Demote"}
                                   </Button>
                                 )}
                                 {canRemove && (
@@ -917,7 +1019,10 @@ export default function ConnectPageDetailPage() {
             </Card>
           )}
 
-          {!isPrivateLocked && (page.features?.groupChat || followersQ.data?.chatRoomId) && (page.chatRoomId || followersQ.data?.chatRoomId) && (
+          {!isPrivateLocked &&
+            !isCommunityPage &&
+            (page.features?.groupChat || followersQ.data?.chatRoomId) &&
+            (page.chatRoomId || followersQ.data?.chatRoomId) && (
             <Link
               href={`/chat/room/${page.chatRoomId || followersQ.data?.chatRoomId}`}
               className="mt-6 flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 transition hover:border-primary/30 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/50 dark:hover:border-primary/30"
@@ -1039,13 +1144,16 @@ export default function ConnectPageDetailPage() {
                   </button>
                 )}
               </div>
-              <div className="pt-6">
+              <div className="pt-5 sm:pt-6">
                 {tab === "website" && page.features?.website && (
-                  <ConnectContentBlocks
-                    blocks={page.websiteContent}
-                    pageBackground={page.websiteBackground}
-                    pageTextColor={page.websiteTextColor}
-                  />
+                  <div className="-mx-1 sm:mx-0">
+                    <ConnectContentBlocks
+                      blocks={page.websiteContent}
+                      pageBackground={page.websiteBackground}
+                      pageTextColor={page.websiteTextColor}
+                      className="w-full"
+                    />
+                  </div>
                 )}
                 {tab === "subscription" && showSubTab && (
                   isCommunityPage ? (

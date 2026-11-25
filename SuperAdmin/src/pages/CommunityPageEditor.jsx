@@ -1,18 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Globe, Star, Save, Loader2 } from 'lucide-react'
+import { ArrowLeft, Globe, Star, Save, Loader2, Calendar } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ContentBuilder from '../components/ContentBuilder'
 import {
   getCommunityPageContent,
   updateCommunityPageContent,
   uploadContentImage,
+  getCommunityPageEvents,
+  updateCommunityPageEvent,
+  createCommunityPageEvent,
 } from '../services/communityService'
 import logger from '../utils/logger'
 
 const TABS = [
   { key: 'website', label: 'Website', icon: Globe, color: 'text-blue-600 border-blue-600' },
   { key: 'subscription', label: 'Subscription', icon: Star, color: 'text-purple-600 border-purple-600' },
+  { key: 'events', label: 'Events', icon: Calendar, color: 'text-amber-600 border-amber-600' },
 ]
 
 export default function CommunityPageEditor() {
@@ -30,6 +34,18 @@ export default function CommunityPageEditor() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [events, setEvents] = useState([])
+  const [eventsLoading, setEventsLoading] = useState(false)
+  const [eventBusyId, setEventBusyId] = useState(null)
+  const [newEventTitle, setNewEventTitle] = useState('')
+  const [newEventStarts, setNewEventStarts] = useState('')
+  const [newEventEnds, setNewEventEnds] = useState('')
+  const [newEventLocation, setNewEventLocation] = useState('')
+  const [newEventMax, setNewEventMax] = useState('')
+  const [newEventMode, setNewEventMode] = useState('individual')
+  const [newEventVisibility, setNewEventVisibility] = useState('members')
+  const [newEventRegistrationOpen, setNewEventRegistrationOpen] = useState(true)
+  const [creatingEvent, setCreatingEvent] = useState(false)
 
   // ── Load existing content ──────────────────────
   useEffect(() => {
@@ -101,6 +117,39 @@ export default function CommunityPageEditor() {
     }
   }, [pageId, activeTab])
 
+  const loadEvents = useCallback(async () => {
+    if (!pageId) return
+    try {
+      setEventsLoading(true)
+      const data = await getCommunityPageEvents(pageId)
+      setEvents(data.events || [])
+    } catch (err) {
+      logger.error('Failed to load community events:', err)
+      toast.error('Failed to load events')
+    } finally {
+      setEventsLoading(false)
+    }
+  }, [pageId])
+
+  useEffect(() => {
+    if (activeTab === 'events') void loadEvents()
+  }, [activeTab, loadEvents])
+
+  const moderateEvent = async (eventId, body, okMsg) => {
+    if (eventBusyId) return
+    setEventBusyId(eventId)
+    try {
+      await updateCommunityPageEvent(pageId, eventId, body)
+      toast.success(okMsg)
+      await loadEvents()
+    } catch (err) {
+      logger.error('Event moderation failed:', err)
+      toast.error('Failed to update event')
+    } finally {
+      setEventBusyId(null)
+    }
+  }
+
   // ── Save ───────────────────────────────────────
   const handleSave = async () => {
     setSaving(true)
@@ -152,7 +201,7 @@ export default function CommunityPageEditor() {
           </div>
         </div>
 
-        {activeTab !== 'website' && (
+        {activeTab !== 'website' && activeTab !== 'events' && (
           <button
             onClick={handleSave}
             disabled={saving || !dirty}
@@ -196,7 +245,233 @@ export default function CommunityPageEditor() {
         </div>
       </div>
 
-      {/* Builder area */}
+      {activeTab === 'events' ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">Community events</h2>
+              <p className="text-xs text-gray-400 mt-1">
+                Create events here, or assign a Taatom host on Community Pages (Edit → pick a joined member) so they can create from the app Spaces → Events.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadEvents()}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <div className="mb-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/50 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-amber-700">Create event</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Title</span>
+                <input
+                  value={newEventTitle}
+                  onChange={(e) => setNewEventTitle(e.target.value)}
+                  placeholder="Event title"
+                  className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Starts</span>
+                <input
+                  type="datetime-local"
+                  value={newEventStarts}
+                  onChange={(e) => setNewEventStarts(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ends (optional)</span>
+                <input
+                  type="datetime-local"
+                  value={newEventEnds}
+                  onChange={(e) => setNewEventEnds(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Location</span>
+                <input
+                  value={newEventLocation}
+                  onChange={(e) => setNewEventLocation(e.target.value)}
+                  placeholder="Venue or address (optional)"
+                  className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Max participants</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={newEventMax}
+                  onChange={(e) => setNewEventMax(e.target.value)}
+                  placeholder="Unlimited if empty"
+                  className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Visibility</span>
+                <select
+                  value={newEventVisibility}
+                  onChange={(e) => setNewEventVisibility(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm"
+                >
+                  <option value="members">Members only</option>
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Who can join</span>
+                <select
+                  value={newEventMode}
+                  onChange={(e) => setNewEventMode(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm"
+                >
+                  <option value="individual">Individual</option>
+                  <option value="group">Team</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 sm:col-span-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={newEventRegistrationOpen}
+                  onChange={(e) => setNewEventRegistrationOpen(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Registration open
+              </label>
+              <button
+                type="button"
+                disabled={creatingEvent}
+                onClick={async () => {
+                  if (!newEventTitle.trim() || !newEventStarts.trim()) {
+                    toast.error('Title and start date & time are required')
+                    return
+                  }
+                  setCreatingEvent(true)
+                  try {
+                    const startsAt = new Date(newEventStarts)
+                    if (Number.isNaN(startsAt.getTime())) throw new Error('Invalid start time')
+                    const endsAt = newEventEnds.trim() ? new Date(newEventEnds) : null
+                    if (newEventEnds.trim() && (!endsAt || Number.isNaN(endsAt.getTime()))) {
+                      throw new Error('Invalid end time')
+                    }
+                    if (endsAt && endsAt.getTime() < startsAt.getTime()) {
+                      throw new Error('End time must be after the start time')
+                    }
+                    await createCommunityPageEvent(pageId, {
+                      title: newEventTitle.trim(),
+                      startsAt: startsAt.toISOString(),
+                      endsAt: endsAt ? endsAt.toISOString() : null,
+                      location: { address: newEventLocation.trim() },
+                      maxParticipants: newEventMax.trim() ? Number(newEventMax.trim()) : null,
+                      participationMode: newEventMode,
+                      visibility: newEventVisibility,
+                      registrationOpen: newEventRegistrationOpen,
+                    })
+                    toast.success('Event created')
+                    setNewEventTitle('')
+                    setNewEventStarts('')
+                    setNewEventEnds('')
+                    setNewEventLocation('')
+                    setNewEventMax('')
+                    setNewEventMode('individual')
+                    setNewEventVisibility('members')
+                    setNewEventRegistrationOpen(true)
+                    await loadEvents()
+                  } catch (err) {
+                    logger.error('Create event failed:', err)
+                    const msg =
+                      err?.response?.data?.message ||
+                      err?.message ||
+                      'Failed to create event — assign a valid Host on the page first'
+                    toast.error(msg)
+                  } finally {
+                    setCreatingEvent(false)
+                  }
+                }}
+                className="h-10 rounded-lg bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60 sm:col-span-2"
+              >
+                {creatingEvent ? 'Creating…' : 'Create event'}
+              </button>
+            </div>
+          </div>
+
+          {eventsLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-amber-600" />
+            </div>
+          ) : events.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-500">No events on this community yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {events.map((ev) => (
+                <div
+                  key={ev._id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-gray-900">{ev.title}</p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {ev.startsAt ? new Date(ev.startsAt).toLocaleString() : 'No start'}
+                      {' · '}
+                      {ev.participationMode}
+                      {' · '}
+                      {ev.status}
+                      {ev.competition?.enabled ? ' · competition on' : ''}
+                      {' · '}
+                      {ev.participantCount || 0} joined
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {ev.registrationOpen !== false && ev.status !== 'cancelled' ? (
+                      <button
+                        type="button"
+                        disabled={eventBusyId === ev._id}
+                        onClick={() =>
+                          void moderateEvent(ev._id, { registrationOpen: false }, 'Registration closed')
+                        }
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        Close reg
+                      </button>
+                    ) : null}
+                    {ev.status !== 'cancelled' ? (
+                      <button
+                        type="button"
+                        disabled={eventBusyId === ev._id}
+                        onClick={() =>
+                          void moderateEvent(ev._id, { status: 'cancelled' }, 'Event cancelled')
+                        }
+                        className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                      >
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={eventBusyId === ev._id}
+                        onClick={() =>
+                          void moderateEvent(ev._id, { status: 'published' }, 'Event restored')
+                        }
+                        className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                      >
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-gray-700">
@@ -237,6 +512,7 @@ export default function CommunityPageEditor() {
           onImageUpload={handleImageUpload}
         />
       </div>
+      )}
 
       {/* Unsaved changes warning */}
       {dirty && (

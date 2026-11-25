@@ -5186,6 +5186,43 @@ router.get('/community-pages', authenticateSuperAdmin, async (req, res) => {
  * POST /api/v1/superadmin/community-pages
  * Create a new community page (isAdminPage: true)
  */
+async function resolveCommunityOwnerUser({ ownerUsername, ownerUserId }) {
+  const mongoose = require('mongoose')
+  const User = require('../models/User')
+  if (ownerUserId && mongoose.Types.ObjectId.isValid(ownerUserId)) {
+    const byId = await User.findById(ownerUserId)
+    if (byId) return byId
+  }
+  const raw = String(ownerUsername || '').trim().replace(/^@/, '')
+  if (!raw) return null
+  const escaped = escapeRegex(raw)
+  return User.findOne({
+    $or: [
+      { username: new RegExp(`^${escaped}$`, 'i') },
+      { email: new RegExp(`^${escaped}$`, 'i') },
+    ],
+  })
+}
+
+async function ensureCommunityOwnerMembership(page, ownerUser) {
+  const ConnectFollow = require('../models/ConnectFollow')
+  const { ownerAdminEntry } = require('../utils/connectGroupAdmins')
+  await ConnectFollow.findOneAndUpdate(
+    { connectPageId: page._id, followerId: ownerUser._id },
+    {
+      $set: { status: 'active', followedAt: new Date() },
+      $unset: { archivedAt: '' },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
+  if (page.chatRoomId) {
+    await ChatModel.findByIdAndUpdate(page.chatRoomId, {
+      $addToSet: { participants: ownerUser._id },
+      $set: { admins: [ownerAdminEntry(ownerUser._id)] },
+    })
+  }
+}
+
 router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
   communityUpload(req, res, (err) => {
     if (err) {
@@ -5197,10 +5234,21 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
 }, async (req, res) => {
   try {
     const adminUser = req.superAdmin
-    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency } = req.body
+    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, ownerUsername, ownerUserId } = req.body
 
     if (!name || name.trim().length < 3 || name.trim().length > 50) {
       return sendError(res, 'VALIDATION_FAILED', 'Page name must be 3-50 characters')
+    }
+
+    // Admin-created communities must be owned by a real Taatom user so they can
+    // manage Spaces (events/chats/roles) in the app. SuperAdmin IDs are not Users.
+    const ownerUser = await resolveCommunityOwnerUser({ ownerUsername, ownerUserId })
+    if (!ownerUser) {
+      return sendError(
+        res,
+        'VALIDATION_FAILED',
+        'Assign a Taatom host: enter ownerUsername (or ownerUserId) of an existing app user'
+      )
     }
 
     // Parse features
@@ -5278,7 +5326,7 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
     }
 
     const pageData = {
-      userId: adminUser._id,
+      userId: ownerUser._id,
       name: name.trim(),
       type: type || 'public',
       bio: bio ? bio.trim() : '',
@@ -5316,20 +5364,28 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
       await connectPage.save()
       const { ownerAdminEntry } = require('../utils/connectGroupAdmins')
       const chatRoom = new ChatModel({
-        participants: [adminUser._id],
+        participants: [ownerUser._id],
         type: 'connect_page',
         connectPageId: connectPage._id,
         messages: [],
         status: 'open',
-        admins: [ownerAdminEntry(adminUser._id)],
+        admins: [ownerAdminEntry(ownerUser._id)],
       })
       await chatRoom.save()
       connectPage.chatRoomId = chatRoom._id
     }
 
     await connectPage.save()
+    await ensureCommunityOwnerMembership(connectPage, ownerUser)
 
-    return sendSuccess(res, 201, 'Community page created', { page: connectPage })
+    return sendSuccess(res, 201, 'Community page created', {
+      page: connectPage,
+      owner: {
+        _id: ownerUser._id,
+        username: ownerUser.username,
+        fullName: ownerUser.fullName,
+      },
+    })
   } catch (error) {
     logger.error('Error creating community page:', error?.message, error?.stack)
     return sendError(res, 'SRV_6001', `Failed to create community page: ${error?.message || 'Unknown error'}`)
@@ -5346,12 +5402,42 @@ router.put('/community-pages/:pageId', authenticateSuperAdmin, communityUpload, 
     const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
     if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
 
-    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, status } = req.body
+    const {
+      name,
+      type,
+      bio,
+      features,
+      subscriptionPrice,
+      subscriptionCurrency,
+      status,
+      ownerUsername,
+      ownerUserId,
+    } = req.body
 
     if (name) page.name = name.trim()
     if (type) page.type = type
     if (bio !== undefined) page.bio = bio.trim()
     if (status) page.status = status
+
+    // Reassign host/owner to a real Taatom user (required for Spaces event create in app)
+    if (ownerUsername || ownerUserId) {
+      const ownerUser = await resolveCommunityOwnerUser({ ownerUsername, ownerUserId })
+      if (!ownerUser) {
+        return sendError(
+          res,
+          'VALIDATION_FAILED',
+          'Host not found — use an existing Taatom username/email'
+        )
+      }
+      page.userId = ownerUser._id
+      // Drop stale communityRole entry for the new owner (owner is always page.userId)
+      page.communityRoles = (page.communityRoles || []).filter(
+        (r) => (r.userId?._id || r.userId)?.toString() !== ownerUser._id.toString()
+      )
+      page.markModified('communityRoles')
+      await page.save()
+      await ensureCommunityOwnerMembership(page, ownerUser)
+    }
 
     // Parse and update features
     if (features) {
@@ -5460,6 +5546,269 @@ router.delete('/community-pages/:pageId', authenticateSuperAdmin, async (req, re
   } catch (error) {
     logger.error('Error archiving community page:', error)
     return sendError(res, 'SRV_6001', 'Failed to archive community page')
+  }
+})
+
+/**
+ * GET /api/v1/superadmin/community-pages/:pageId/members
+ * Members who joined (followers) + current host — for picking a host without typing usernames
+ */
+router.get('/community-pages/:pageId/members', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const ConnectFollow = require('../models/ConnectFollow')
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+      .populate('userId', 'username fullName profilePic email')
+      .select('_id name userId')
+      .lean()
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const follows = await ConnectFollow.find({ connectPageId: pageId, status: 'active' })
+      .populate('followerId', 'username fullName profilePic email')
+      .sort({ followedAt: -1 })
+      .limit(200)
+      .lean()
+
+    const ownerId = (page.userId?._id || page.userId)?.toString?.() || null
+    const members = []
+    const seen = new Set()
+
+    if (page.userId && (page.userId._id || page.userId)) {
+      const u = page.userId._id ? page.userId : null
+      if (u?._id) {
+        seen.add(u._id.toString())
+        members.push({
+          _id: u._id,
+          username: u.username,
+          fullName: u.fullName,
+          profilePic: u.profilePic || '',
+          email: u.email || '',
+          isHost: true,
+          role: 'owner',
+        })
+      }
+    }
+
+    for (const f of follows) {
+      const u = f.followerId
+      if (!u?._id) continue
+      const id = u._id.toString()
+      if (seen.has(id)) continue
+      seen.add(id)
+      members.push({
+        _id: u._id,
+        username: u.username,
+        fullName: u.fullName,
+        profilePic: u.profilePic || '',
+        email: u.email || '',
+        isHost: ownerId === id,
+        role: 'member',
+      })
+    }
+
+    return sendSuccess(res, 200, 'Community members', {
+      pageId: page._id,
+      pageName: page.name,
+      ownerId,
+      members,
+    })
+  } catch (error) {
+    logger.error('Error listing community page members:', error)
+    return sendError(res, 'SRV_6001', 'Failed to list community members')
+  }
+})
+
+/**
+ * GET /api/v1/superadmin/community-pages/:pageId/events
+ * List community events for SuperAdmin moderation view
+ */
+router.get('/community-pages/:pageId/events', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const CommunityEvent = require('../models/CommunityEvent')
+    const CommunityEventCompetition = require('../models/CommunityEventCompetition')
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true }).select('_id name').lean()
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const events = await CommunityEvent.find({ connectPageId: pageId }).sort({ startsAt: -1 }).lean()
+    const comps = events.length
+      ? await CommunityEventCompetition.find({ eventId: { $in: events.map((e) => e._id) } }).lean()
+      : []
+    const compByEvent = Object.fromEntries(comps.map((c) => [c.eventId.toString(), c]))
+
+    return sendSuccess(res, 200, 'Community events', {
+      pageId: page._id,
+      pageName: page.name,
+      events: events.map((e) => ({
+        _id: e._id,
+        title: e.title,
+        description: e.description || '',
+        startsAt: e.startsAt,
+        endsAt: e.endsAt,
+        location: e.location,
+        maxParticipants: e.maxParticipants,
+        visibility: e.visibility,
+        participationMode: e.participationMode,
+        registrationOpen: e.registrationOpen !== false,
+        participantCount: e.participantCount || 0,
+        status: e.status,
+        chatId: e.chatId,
+        announcementChatId: e.announcementChatId,
+        competition: compByEvent[e._id.toString()] || null,
+        createdAt: e.createdAt,
+      })),
+    })
+  } catch (error) {
+    logger.error('Error listing community page events:', error)
+    return sendError(res, 'SRV_6001', 'Failed to list community events')
+  }
+})
+
+/**
+ * POST /api/v1/superadmin/community-pages/:pageId/events
+ * Create an event on an admin community (uses page owner as host)
+ */
+router.post('/community-pages/:pageId/events', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const CommunityEvent = require('../models/CommunityEvent')
+    const User = require('../models/User')
+    const { ownerAdminEntry } = require('../utils/connectGroupAdmins')
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const ownerId = (page.userId?._id || page.userId)?.toString?.()
+    const ownerUser = ownerId ? await User.findById(ownerId).select('_id username fullName') : null
+    if (!ownerUser) {
+      return sendError(
+        res,
+        'VALIDATION_FAILED',
+        'Assign a Taatom host on this community first (Edit page → pick a joined member as Host), then create events'
+      )
+    }
+
+    const {
+      title,
+      description = '',
+      startsAt,
+      endsAt = null,
+      location = {},
+      maxParticipants = null,
+      visibility = 'members',
+      participationMode = 'individual',
+      registrationOpen = true,
+    } = req.body
+
+    if (!title || !startsAt) {
+      return sendError(res, 'VALIDATION_FAILED', 'title and startsAt are required')
+    }
+    if (!['individual', 'group', 'both'].includes(participationMode)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid participationMode')
+    }
+
+    const eventChat = new ChatModel({
+      participants: [ownerUser._id],
+      type: 'community_event',
+      title: `${String(title).trim()} · Event`,
+      connectPageId: page._id,
+      messages: [],
+      status: 'open',
+      admins: [ownerAdminEntry(ownerUser._id)],
+      relatedEntity: { type: 'community_event', refId: null },
+    })
+    await eventChat.save()
+
+    const announceChat = new ChatModel({
+      participants: [ownerUser._id],
+      type: 'community_event_announce',
+      title: `${String(title).trim()} · Announcements`,
+      connectPageId: page._id,
+      messages: [],
+      status: 'open',
+      admins: [ownerAdminEntry(ownerUser._id)],
+      relatedEntity: { type: 'community_event', refId: null },
+    })
+    await announceChat.save()
+
+    const event = await CommunityEvent.create({
+      connectPageId: page._id,
+      title: String(title).trim().slice(0, 120),
+      description: String(description || '').slice(0, 5000),
+      startsAt: new Date(startsAt),
+      endsAt: endsAt ? new Date(endsAt) : null,
+      location: {
+        address: location?.address || '',
+        coordinates: {
+          latitude: Number(location?.coordinates?.latitude) || 0,
+          longitude: Number(location?.coordinates?.longitude) || 0,
+        },
+      },
+      maxParticipants: maxParticipants ? Number(maxParticipants) : null,
+      visibility: ['public', 'members', 'private'].includes(visibility) ? visibility : 'members',
+      participationMode,
+      hostIds: [ownerUser._id],
+      createdBy: ownerUser._id,
+      registrationOpen: registrationOpen !== false,
+      chatId: eventChat._id,
+      announcementChatId: announceChat._id,
+      status: 'published',
+    })
+
+    eventChat.relatedEntity = { type: 'community_event', refId: event._id }
+    announceChat.relatedEntity = { type: 'community_event', refId: event._id }
+    await eventChat.save()
+    await announceChat.save()
+
+    return sendSuccess(res, 201, 'Event created', {
+      event: {
+        _id: event._id,
+        title: event.title,
+        startsAt: event.startsAt,
+        participationMode: event.participationMode,
+        status: event.status,
+      },
+    })
+  } catch (error) {
+    logger.error('Error creating community event (superadmin):', error)
+    return sendError(res, 'SRV_6001', 'Failed to create community event')
+  }
+})
+
+/**
+ * PATCH /api/v1/superadmin/community-pages/:pageId/events/:eventId
+ * Cancel or reopen registration for a community event (platform moderation)
+ */
+router.patch('/community-pages/:pageId/events/:eventId', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId, eventId } = req.params
+    const CommunityEvent = require('../models/CommunityEvent')
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true }).select('_id').lean()
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const event = await CommunityEvent.findOne({ _id: eventId, connectPageId: pageId })
+    if (!event) return sendError(res, 'NOT_FOUND', 'Event not found')
+
+    if (req.body.status !== undefined) {
+      if (!['draft', 'published', 'cancelled'].includes(req.body.status)) {
+        return sendError(res, 'VALIDATION_FAILED', 'Invalid status')
+      }
+      event.status = req.body.status
+    }
+    if (req.body.registrationOpen !== undefined) {
+      event.registrationOpen = !!req.body.registrationOpen
+    }
+    await event.save()
+    return sendSuccess(res, 200, 'Event updated', {
+      event: {
+        _id: event._id,
+        title: event.title,
+        status: event.status,
+        registrationOpen: event.registrationOpen !== false,
+      },
+    })
+  } catch (error) {
+    logger.error('Error updating community event (superadmin):', error)
+    return sendError(res, 'SRV_6001', 'Failed to update community event')
   }
 })
 
