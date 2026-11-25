@@ -43,6 +43,11 @@ const CommunityEventSchema = new Schema(
       enum: ['individual', 'group', 'both'],
       default: 'individual',
     },
+    /** What entrants may submit when competition is on (multi-select) */
+    allowedEntryMedia: {
+      type: [{ type: String, enum: ['post', 'short', 'long_video'] }],
+      default: () => ['post', 'short', 'long_video'],
+    },
     hostIds: [{ type: Types.ObjectId, ref: 'User' }],
     createdBy: { type: Types.ObjectId, ref: 'User', required: true },
     registrationOpen: { type: Boolean, default: true },

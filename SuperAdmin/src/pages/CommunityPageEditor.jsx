@@ -44,6 +44,8 @@ export default function CommunityPageEditor() {
   const [newEventMax, setNewEventMax] = useState('')
   const [newEventMode, setNewEventMode] = useState('individual')
   const [newEventVisibility, setNewEventVisibility] = useState('members')
+  const ALL_ENTRY_MEDIA = ['post', 'short', 'long_video']
+  const [newEventAllowedMedia, setNewEventAllowedMedia] = useState(() => [...ALL_ENTRY_MEDIA])
   const [newEventRegistrationOpen, setNewEventRegistrationOpen] = useState(true)
   const [creatingEvent, setCreatingEvent] = useState(false)
 
@@ -322,7 +324,7 @@ export default function CommunityPageEditor() {
                 >
                   <option value="members">Members only</option>
                   <option value="public">Public</option>
-                  <option value="private">Private</option>
+                  <option value="private">Request</option>
                 </select>
               </label>
               <label className="block">
@@ -337,6 +339,34 @@ export default function CommunityPageEditor() {
                   <option value="both">Both</option>
                 </select>
               </label>
+              <div className="sm:col-span-2">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Allowed entries</span>
+                <p className="mb-2 text-xs text-gray-500">Choose any mix — posts, shorts, and/or long videos</p>
+                <div className="flex flex-wrap gap-4">
+                  {[
+                    { key: 'post', label: 'Posts' },
+                    { key: 'short', label: 'Shorts' },
+                    { key: 'long_video', label: 'Videos' },
+                  ].map((opt) => (
+                    <label key={opt.key} className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={newEventAllowedMedia.includes(opt.key)}
+                        onChange={() => {
+                          setNewEventAllowedMedia((prev) => {
+                            if (prev.includes(opt.key)) {
+                              return prev.filter((k) => k !== opt.key)
+                            }
+                            return ALL_ENTRY_MEDIA.filter((k) => k === opt.key || prev.includes(k))
+                          })
+                        }}
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
               <label className="flex items-center gap-2 sm:col-span-2 text-sm text-gray-700">
                 <input
                   type="checkbox"
@@ -352,6 +382,10 @@ export default function CommunityPageEditor() {
                 onClick={async () => {
                   if (!newEventTitle.trim() || !newEventStarts.trim()) {
                     toast.error('Title and start date & time are required')
+                    return
+                  }
+                  if (!newEventAllowedMedia.length) {
+                    toast.error('Select at least one allowed entry type')
                     return
                   }
                   setCreatingEvent(true)
@@ -373,6 +407,7 @@ export default function CommunityPageEditor() {
                       maxParticipants: newEventMax.trim() ? Number(newEventMax.trim()) : null,
                       participationMode: newEventMode,
                       visibility: newEventVisibility,
+                      allowedEntryMedia: newEventAllowedMedia,
                       registrationOpen: newEventRegistrationOpen,
                     })
                     toast.success('Event created')
@@ -383,6 +418,7 @@ export default function CommunityPageEditor() {
                     setNewEventMax('')
                     setNewEventMode('individual')
                     setNewEventVisibility('members')
+                    setNewEventAllowedMedia([...ALL_ENTRY_MEDIA])
                     setNewEventRegistrationOpen(true)
                     await loadEvents()
                   } catch (err) {

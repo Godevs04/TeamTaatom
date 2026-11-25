@@ -8,6 +8,8 @@ export type NotificationType =
   | "follow_approved"
   | "follow_request_accepted"
   | "follow_request_rejected"
+  | "connect_follow_request"
+  | "connect_follow_accepted"
   | "post_mention"
   | "subscription_active"
   | "route_access_request"

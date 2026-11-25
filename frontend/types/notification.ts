@@ -9,6 +9,8 @@ export interface Notification {
     | 'post_mention'
     | 'follow_request_accepted'
     | 'follow_request_rejected'
+    | 'connect_follow_request'
+    | 'connect_follow_accepted'
     | 'subscription_active'
     | 'route_access_request'
     | 'route_access_approved'

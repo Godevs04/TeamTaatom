@@ -5696,6 +5696,7 @@ router.post('/community-pages/:pageId/events', authenticateSuperAdmin, async (re
       maxParticipants = null,
       visibility = 'members',
       participationMode = 'individual',
+      allowedEntryMedia = 'all',
       registrationOpen = true,
     } = req.body
 
@@ -5704,6 +5705,21 @@ router.post('/community-pages/:pageId/events', authenticateSuperAdmin, async (re
     }
     if (!['individual', 'group', 'both'].includes(participationMode)) {
       return sendError(res, 'VALIDATION_FAILED', 'Invalid participationMode')
+    }
+    const ENTRY_KINDS = ['post', 'short', 'long_video']
+    const ALL_ENTRY = ['post', 'short', 'long_video']
+    const normalizeEntryMedia = (value) => {
+      if (value == null || value === '' || value === 'all' || value === 'both') return [...ALL_ENTRY]
+      if (Array.isArray(value)) {
+        const set = new Set(value.filter((v) => ENTRY_KINDS.includes(v)))
+        return ENTRY_KINDS.filter((k) => set.has(k))
+      }
+      if (typeof value === 'string' && ENTRY_KINDS.includes(value)) return [value]
+      return [...ALL_ENTRY]
+    }
+    const resolvedEntryMedia = normalizeEntryMedia(allowedEntryMedia)
+    if (resolvedEntryMedia.length === 0) {
+      return sendError(res, 'VALIDATION_FAILED', 'Select at least one allowed entry type')
     }
 
     const eventChat = new ChatModel({
@@ -5746,6 +5762,7 @@ router.post('/community-pages/:pageId/events', authenticateSuperAdmin, async (re
       maxParticipants: maxParticipants ? Number(maxParticipants) : null,
       visibility: ['public', 'members', 'private'].includes(visibility) ? visibility : 'members',
       participationMode,
+      allowedEntryMedia: resolvedEntryMedia,
       hostIds: [ownerUser._id],
       createdBy: ownerUser._id,
       registrationOpen: registrationOpen !== false,

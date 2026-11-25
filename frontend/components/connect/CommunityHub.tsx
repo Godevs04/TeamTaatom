@@ -20,6 +20,7 @@ import DateTimeField from '../ui/DateTimeField';
 import { getUserFromStorage } from '../../services/auth';
 import { getUserPosts } from '../../services/posts';
 import {
+  AllowedEntryMedia,
   CommunityEvent,
   CommunityGroupChat,
   CommunityRole,
@@ -45,6 +46,54 @@ import {
   removeCompetitionSubmission,
   LeaderboardRow,
 } from '../../services/community';
+
+const ALL_ENTRY_MEDIA: AllowedEntryMedia[] = ['post', 'short', 'long_video'];
+
+function normalizeAllowedMedia(
+  value?: string | string[] | null
+): AllowedEntryMedia[] {
+  if (value == null || value === '' || value === 'all' || value === 'both') {
+    return [...ALL_ENTRY_MEDIA];
+  }
+  if (Array.isArray(value)) {
+    const set = new Set(
+      value.filter((v): v is AllowedEntryMedia =>
+        v === 'post' || v === 'short' || v === 'long_video'
+      )
+    );
+    return ALL_ENTRY_MEDIA.filter((k) => set.has(k));
+  }
+  if (value === 'post' || value === 'short' || value === 'long_video') {
+    return [value];
+  }
+  return [...ALL_ENTRY_MEDIA];
+}
+
+function postTypeToEntryKind(postType: string | undefined): AllowedEntryMedia {
+  if (postType === 'short') return 'short';
+  if (postType === 'long_video') return 'long_video';
+  return 'post';
+}
+
+function postMatchesAllowedMedia(
+  postType: string | undefined,
+  allowed: AllowedEntryMedia[]
+): boolean {
+  if (!allowed.length) return false;
+  return allowed.includes(postTypeToEntryKind(postType));
+}
+
+const MEDIA_KIND_LABEL: Record<AllowedEntryMedia, string> = {
+  post: 'Posts',
+  short: 'Shorts',
+  long_video: 'Videos',
+};
+
+function formatAllowedMediaLabel(allowed: AllowedEntryMedia[]): string {
+  if (allowed.length === ALL_ENTRY_MEDIA.length) return 'All';
+  if (!allowed.length) return 'None';
+  return allowed.map((k) => MEDIA_KIND_LABEL[k]).join(' · ');
+}
 
 function defaultEventStart(): Date {
   const d = new Date();
@@ -119,6 +168,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
   const [eventMaxParticipants, setEventMaxParticipants] = useState('');
   const [eventVisibility, setEventVisibility] = useState<'public' | 'members' | 'private'>('members');
   const [eventMode, setEventMode] = useState<'individual' | 'group' | 'both'>('individual');
+  const [eventAllowedMedia, setEventAllowedMedia] = useState<AllowedEntryMedia[]>([...ALL_ENTRY_MEDIA]);
   const [eventRegistrationOpen, setEventRegistrationOpen] = useState(true);
 
   const [eventDetailId, setEventDetailId] = useState<string | null>(null);
@@ -257,6 +307,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
     setEventMaxParticipants('');
     setEventVisibility('members');
     setEventMode('individual');
+    setEventAllowedMedia([...ALL_ENTRY_MEDIA]);
     setEventRegistrationOpen(true);
   };
 
@@ -273,8 +324,11 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
     setEventEnds(ev.endsAt ? new Date(ev.endsAt) : null);
     setEventLocation(ev.location?.address || '');
     setEventMaxParticipants(ev.maxParticipants != null ? String(ev.maxParticipants) : '');
-    setEventVisibility((ev.visibility as any) || 'members');
+    setEventVisibility((ev.visibility as 'public' | 'members' | 'private') || 'members');
     setEventMode(ev.participationMode || 'individual');
+    setEventAllowedMedia(
+      normalizeAllowedMedia(ev.competition?.allowedMedia || ev.allowedEntryMedia)
+    );
     setEventRegistrationOpen(ev.registrationOpen !== false);
     setCreateEventOpen(true);
   };
@@ -282,6 +336,10 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
   const handleSaveEvent = async () => {
     if (!eventTitle.trim() || !eventStarts || Number.isNaN(eventStarts.getTime())) {
       setError('Pick a start date and time');
+      return;
+    }
+    if (eventAllowedMedia.length === 0) {
+      setError('Select at least one allowed entry type');
       return;
     }
     try {
@@ -301,6 +359,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
           : null,
         visibility: eventVisibility,
         participationMode: eventMode,
+        allowedEntryMedia: eventAllowedMedia,
         registrationOpen: eventRegistrationOpen,
       };
       if (editingEventId) {
@@ -359,12 +418,16 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
 
   const enableCompetition = async (eventId: string, rankBy: 'likes' | 'views') => {
     try {
+      const ev = events.find((e) => e._id === eventId);
+      const allowedMedia = normalizeAllowedMedia(
+        ev?.allowedEntryMedia || ev?.competition?.allowedMedia
+      );
       await upsertEventCompetition(eventId, {
         enabled: true,
         rankBy,
-        allowedMedia: 'both',
+        allowedMedia,
         submissionsOpen: true,
-        rulesText: `Ranked by ${rankBy}. Choose one of your Taatom posts or shorts to compete.`,
+        rulesText: `Ranked by ${rankBy}. Allowed: ${formatAllowedMediaLabel(allowedMedia)}.`,
       });
       setManageEventId(null);
       await loadTab();
@@ -1116,7 +1179,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             style={[styles.modalCard, { backgroundColor: theme.colors.surface }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: ink }]}>New group chat</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: ink, marginBottom: 0, flex: 1 }]}>New group chat</Text>
+              <TouchableOpacity
+                onPress={() => setCreateChatOpen(false)}
+                hitSlop={10}
+                style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={18} color={muted} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.modalHint, { color: muted }]}>
               Name the space and choose who can join.
             </Text>
@@ -1211,6 +1284,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                     Tap to pick times — no typing dates
                   </Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setCreateEventOpen(false);
+                    resetEventForm();
+                  }}
+                  hitSlop={10}
+                  style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                  accessibilityLabel="Close"
+                >
+                  <Ionicons name="close" size={18} color={muted} />
+                </TouchableOpacity>
               </View>
 
               <View
@@ -1343,7 +1427,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                     [
                       { key: 'members' as const, label: 'Members', hint: 'Community only', icon: 'people-outline' as const },
                       { key: 'public' as const, label: 'Public', hint: 'Anyone can view', icon: 'globe-outline' as const },
-                      { key: 'private' as const, label: 'Private', hint: 'Invite / staff', icon: 'lock-closed-outline' as const },
+                      { key: 'private' as const, label: 'Request', hint: 'Request to join', icon: 'hand-left-outline' as const },
                     ] as const
                   ).map((opt) => {
                     const active = eventVisibility === opt.key;
@@ -1354,6 +1438,58 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                         style={[
                           styles.choiceCard,
                           {
+                            borderColor: active ? accent : hairline,
+                            backgroundColor: active
+                              ? isDark
+                                ? 'rgba(56,189,248,0.14)'
+                                : 'rgba(28,115,180,0.08)'
+                              : 'transparent',
+                          },
+                        ]}
+                      >
+                        <Ionicons name={opt.icon} size={16} color={active ? accent : muted} />
+                        <Text style={{ color: active ? accent : ink, fontWeight: '700', fontSize: 12 }}>
+                          {opt.label}
+                        </Text>
+                        <Text style={{ color: muted, fontSize: 10 }}>{opt.hint}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={[styles.formSectionTitle, { color: muted, marginTop: 12 }]}>
+                  Allowed entries
+                </Text>
+                <Text style={{ color: muted, fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+                  Tap to allow any mix — posts, shorts, and/or long videos
+                </Text>
+                <View style={[styles.choiceGrid, { flexWrap: 'wrap' }]}>
+                  {(
+                    [
+                      { key: 'post' as const, label: 'Posts', hint: 'Feed photos', icon: 'image-outline' as const },
+                      { key: 'short' as const, label: 'Shorts', hint: 'Short videos', icon: 'flash-outline' as const },
+                      { key: 'long_video' as const, label: 'Videos', hint: 'Long videos', icon: 'videocam-outline' as const },
+                    ] as const
+                  ).map((opt) => {
+                    const active = eventAllowedMedia.includes(opt.key);
+                    return (
+                      <TouchableOpacity
+                        key={opt.key}
+                        onPress={() => {
+                          setEventAllowedMedia((prev) => {
+                            if (prev.includes(opt.key)) {
+                              return prev.filter((k) => k !== opt.key);
+                            }
+                            return ALL_ENTRY_MEDIA.filter(
+                              (k) => k === opt.key || prev.includes(k)
+                            );
+                          });
+                        }}
+                        style={[
+                          styles.choiceCard,
+                          {
+                            flexBasis: '30%',
+                            flexGrow: 1,
                             borderColor: active ? accent : hairline,
                             backgroundColor: active
                               ? isDark
@@ -1470,7 +1606,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             style={[styles.modalCard, { backgroundColor: theme.colors.surface, maxHeight: '88%' }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: ink }]}>Create team</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: ink, marginBottom: 0, flex: 1 }]}>Create team</Text>
+              <TouchableOpacity
+                onPress={() => setTeamEventId(null)}
+                hitSlop={10}
+                style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={18} color={muted} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.modalHint, { color: muted }]}>
               Invite teammates from this community. Everyone must accept before the team is complete.
             </Text>
@@ -1585,7 +1731,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             style={[styles.modalCard, { backgroundColor: theme.colors.surface }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: ink }]}>Invite member</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: ink, marginBottom: 0, flex: 1 }]}>Invite member</Text>
+              <TouchableOpacity
+                onPress={() => setInviteGroupId(null)}
+                hitSlop={10}
+                style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={18} color={muted} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.modalHint, { color: muted }]}>
               Search community members to invite into this invite-only chat.
             </Text>
@@ -1660,7 +1816,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             style={[styles.modalCard, { backgroundColor: theme.colors.surface }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: ink }]}>Join requests</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: ink, marginBottom: 0, flex: 1 }]}>Join requests</Text>
+              <TouchableOpacity
+                onPress={() => setRequestsGroupId(null)}
+                hitSlop={10}
+                style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={18} color={muted} />
+              </TouchableOpacity>
+            </View>
             <ScrollView style={{ maxHeight: 320 }}>
               {joinRequests.map((r) => (
                 <View key={r._id} style={[styles.requestRow, { borderColor: hairline }]}>
@@ -1701,7 +1867,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             style={[styles.modalCard, { backgroundColor: theme.colors.surface }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: ink }]}>Manage event</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: ink, marginBottom: 0, flex: 1 }]}>Manage event</Text>
+              <TouchableOpacity
+                onPress={() => setManageEventId(null)}
+                hitSlop={10}
+                style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={18} color={muted} />
+              </TouchableOpacity>
+            </View>
             <Text style={[styles.modalHint, { color: muted }]}>
               {manageEvent?.title || 'Event'} — edit details, open a competition ranking, or close registration.
             </Text>
@@ -1846,26 +2022,57 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.modalTitle, { color: ink, marginBottom: 0 }]}>Competition</Text>
                   <Text style={{ color: muted, fontSize: 12, marginTop: 2 }}>
-                    Pick your post or short — no IDs
+                    Pick your content — no IDs
                   </Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => setEventDetailId(null)}
+                  hitSlop={10}
+                  style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
+                  accessibilityLabel="Close"
+                >
+                  <Ionicons name="close" size={18} color={muted} />
+                </TouchableOpacity>
               </View>
-              <Text style={[styles.modalHint, { color: muted }]}>
-                Choose one of your Taatom posts or shorts to enter. If a host removes it, upload a new one — counts start fresh.
-              </Text>
+              {(() => {
+                const detailEv = events.find((e) => e._id === eventDetailId);
+                const allowed = normalizeAllowedMedia(
+                  detailEv?.competition?.allowedMedia || detailEv?.allowedEntryMedia
+                );
+                return (
+                  <Text style={[styles.modalHint, { color: muted }]}>
+                    Allowed: {formatAllowedMediaLabel(allowed)}. If a host removes your entry, upload a new one — counts start fresh.
+                  </Text>
+                );
+              })()}
 
               <Text style={[styles.rowMeta, { color: muted, fontWeight: '700', marginBottom: 8 }]}>
-                Your posts & shorts
+                Your content
               </Text>
               {myContentLoading ? (
                 <ActivityIndicator color={accent} style={{ marginVertical: 16 }} />
               ) : myContent.length === 0 ? (
                 <Text style={{ color: muted, marginBottom: 12, lineHeight: 20 }}>
-                  No posts yet. Create a post or short in Taatom, then come back to enter.
+                  No content yet. Create a post, short, or long video in Taatom, then come back to enter.
                 </Text>
               ) : (
                 <View style={{ gap: 8, marginBottom: 12 }}>
-                  {myContent.map((p) => {
+                  {(() => {
+                    const detailEv = events.find((e) => e._id === eventDetailId);
+                    const allowed = normalizeAllowedMedia(
+                      detailEv?.competition?.allowedMedia || detailEv?.allowedEntryMedia
+                    );
+                    const filtered = myContent.filter((p) =>
+                      postMatchesAllowedMedia(p.type, allowed)
+                    );
+                    if (filtered.length === 0) {
+                      return (
+                        <Text style={{ color: muted, marginBottom: 12, lineHeight: 20 }}>
+                          None of your content matches this event’s allowed types ({formatAllowedMediaLabel(allowed)}).
+                        </Text>
+                      );
+                    }
+                    return filtered.map((p) => {
                     const id = String(p._id);
                     const selected = selectedPostId === id;
                     const thumb =
@@ -1873,7 +2080,12 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                       p.imageUrl ||
                       (Array.isArray(p.images) ? p.images[0]?.url || p.images[0] : '') ||
                       '';
-                    const kind = p.type === 'short' || p.type === 'video' ? 'Short' : 'Post';
+                    const kind =
+                      p.type === 'short'
+                        ? 'Short'
+                        : p.type === 'long_video'
+                          ? 'Video'
+                          : 'Post';
                     return (
                       <TouchableOpacity
                         key={id}
@@ -1920,7 +2132,8 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                         />
                       </TouchableOpacity>
                     );
-                  })}
+                    });
+                  })()}
                 </View>
               )}
 
@@ -2375,6 +2588,19 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },

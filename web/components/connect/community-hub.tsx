@@ -49,6 +49,7 @@ import {
   submitCompetitionEntry,
   updateCommunityEvent,
   upsertEventCompetition,
+  type AllowedEntryMedia,
   type CommunityEvent,
   type CommunityGroupChat,
   type CommunityJoinRequest,
@@ -59,6 +60,54 @@ import {
 import type { Post } from "../../types/post";
 
 type Tab = "chats" | "events" | "find";
+
+const ALL_ENTRY_MEDIA: AllowedEntryMedia[] = ["post", "short", "long_video"];
+
+function normalizeAllowedMedia(
+  value?: string | string[] | null
+): AllowedEntryMedia[] {
+  if (value == null || value === "" || value === "all" || value === "both") {
+    return [...ALL_ENTRY_MEDIA];
+  }
+  if (Array.isArray(value)) {
+    const set = new Set(
+      value.filter(
+        (v): v is AllowedEntryMedia =>
+          v === "post" || v === "short" || v === "long_video"
+      )
+    );
+    return ALL_ENTRY_MEDIA.filter((k) => set.has(k));
+  }
+  if (value === "post" || value === "short" || value === "long_video") {
+    return [value];
+  }
+  return [...ALL_ENTRY_MEDIA];
+}
+
+function postTypeToEntryKind(postType: string | undefined): AllowedEntryMedia {
+  if (postType === "short") return "short";
+  if (postType === "long_video") return "long_video";
+  return "post";
+}
+
+function postMatchesAllowedMedia(
+  postType: string | undefined,
+  allowed: AllowedEntryMedia[]
+): boolean {
+  if (!allowed.length) return false;
+  return allowed.includes(postTypeToEntryKind(postType));
+}
+
+function formatAllowedMediaLabel(allowed: AllowedEntryMedia[]): string {
+  if (allowed.length === ALL_ENTRY_MEDIA.length) return "All";
+  if (!allowed.length) return "None";
+  const labels: Record<AllowedEntryMedia, string> = {
+    post: "Posts",
+    short: "Shorts",
+    long_video: "Videos",
+  };
+  return allowed.map((k) => labels[k]).join(" · ");
+}
 
 const PRIVACY_LABEL: Record<string, string> = {
   public: "Open to members",
@@ -112,6 +161,9 @@ export function CommunityHub({
   const [eventMax, setEventMax] = React.useState("");
   const [eventVisibility, setEventVisibility] = React.useState<"public" | "members" | "private">("members");
   const [eventMode, setEventMode] = React.useState<"individual" | "group" | "both">("individual");
+  const [eventAllowedMedia, setEventAllowedMedia] = React.useState<AllowedEntryMedia[]>([
+    ...ALL_ENTRY_MEDIA,
+  ]);
   const [eventRegistrationOpen, setEventRegistrationOpen] = React.useState(true);
   const [showCreateEvent, setShowCreateEvent] = React.useState(false);
   const [editingEventId, setEditingEventId] = React.useState<string | null>(null);
@@ -596,7 +648,7 @@ export function CommunityHub({
                     >
                       <option value="members">Members only</option>
                       <option value="public">Public</option>
-                      <option value="private">Private</option>
+                      <option value="private">Request</option>
                     </select>
                   </label>
                   <label className="block">
@@ -615,6 +667,45 @@ export function CommunityHub({
                       <option value="both">Both</option>
                     </select>
                   </label>
+                  <div className="sm:col-span-2">
+                    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Allowed entries
+                    </span>
+                    <p className="mb-2 text-xs text-slate-500">
+                      Choose any mix — posts, shorts, and/or long videos
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {(
+                        [
+                          { key: "post" as const, label: "Posts" },
+                          { key: "short" as const, label: "Shorts" },
+                          { key: "long_video" as const, label: "Videos" },
+                        ] as const
+                      ).map((opt) => (
+                        <label
+                          key={opt.key}
+                          className="flex items-center gap-2 text-sm text-slate-700 dark:text-zinc-300"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300"
+                            checked={eventAllowedMedia.includes(opt.key)}
+                            onChange={() => {
+                              setEventAllowedMedia((prev) => {
+                                if (prev.includes(opt.key)) {
+                                  return prev.filter((k) => k !== opt.key);
+                                }
+                                return ALL_ENTRY_MEDIA.filter(
+                                  (k) => k === opt.key || prev.includes(k)
+                                );
+                              });
+                            }}
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-zinc-300 sm:col-span-2">
                     <input
                       type="checkbox"
@@ -641,6 +732,9 @@ export function CommunityHub({
                           if (endsAt && endsAt.getTime() < startsAt.getTime()) {
                             throw new Error("End time must be after the start time");
                           }
+                          if (eventAllowedMedia.length === 0) {
+                            throw new Error("Select at least one allowed entry type");
+                          }
                           const payload = {
                             title: eventTitle.trim(),
                             description: eventDescription.trim(),
@@ -650,6 +744,7 @@ export function CommunityHub({
                             maxParticipants: eventMax.trim() ? Number(eventMax.trim()) : null,
                             visibility: eventVisibility,
                             participationMode: eventMode,
+                            allowedEntryMedia: eventAllowedMedia,
                             registrationOpen: eventRegistrationOpen,
                           };
                           if (editingEventId) {
@@ -665,6 +760,7 @@ export function CommunityHub({
                           setEventEnds("");
                           setEventLocation("");
                           setEventMax("");
+                          setEventAllowedMedia([...ALL_ENTRY_MEDIA]);
                           setEventRegistrationOpen(true);
                           setEditingEventId(null);
                           setShowCreateEvent(false);
@@ -1051,6 +1147,11 @@ export function CommunityHub({
                         (ev.visibility as "public" | "members" | "private") || "members"
                       );
                       setEventMode(ev.participationMode || "individual");
+                      setEventAllowedMedia(
+                        normalizeAllowedMedia(
+                          ev.allowedEntryMedia || ev.competition?.allowedMedia
+                        )
+                      );
                       setEventRegistrationOpen(ev.registrationOpen !== false);
                       setManageEventId(null);
                       setShowCreateEvent(true);
@@ -1064,10 +1165,14 @@ export function CommunityHub({
                     className="rounded-full text-xs"
                     onClick={async () => {
                       try {
+                        const ev = events.find((e) => e._id === manageEventId);
+                        const allowedMedia = normalizeAllowedMedia(
+                          ev?.allowedEntryMedia || ev?.competition?.allowedMedia
+                        );
                         await upsertEventCompetition(manageEventId, {
                           enabled: true,
                           rankBy: "likes",
-                          allowedMedia: "both",
+                          allowedMedia,
                           submissionsOpen: true,
                         });
                         toast.success("Competition on — ranked by likes");
@@ -1085,10 +1190,14 @@ export function CommunityHub({
                     className="rounded-full text-xs"
                     onClick={async () => {
                       try {
+                        const ev = events.find((e) => e._id === manageEventId);
+                        const allowedMedia = normalizeAllowedMedia(
+                          ev?.allowedEntryMedia || ev?.competition?.allowedMedia
+                        );
                         await upsertEventCompetition(manageEventId, {
                           enabled: true,
                           rankBy: "views",
-                          allowedMedia: "both",
+                          allowedMedia,
                           submissionsOpen: true,
                         });
                         toast.success("Competition on — ranked by views");
@@ -1153,9 +1262,17 @@ export function CommunityHub({
                     Close
                   </Button>
                 </div>
-                <p className="mb-3 text-xs text-slate-500">
-                  Pick one of your posts or shorts to enter — no IDs needed.
-                </p>
+                {(() => {
+                  const activeEv = events.find((e) => e._id === activeEventId);
+                  const allowed = normalizeAllowedMedia(
+                    activeEv?.competition?.allowedMedia || activeEv?.allowedEntryMedia
+                  );
+                  return (
+                    <p className="mb-3 text-xs text-slate-500">
+                      Allowed: {formatAllowedMediaLabel(allowed)}. Pick your content — no IDs needed.
+                    </p>
+                  );
+                })()}
                 {myContentLoading ? (
                   <div className="mb-3 flex items-center gap-2 text-sm text-slate-500">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1163,21 +1280,42 @@ export function CommunityHub({
                   </div>
                 ) : myContent.length === 0 ? (
                   <p className="mb-3 text-sm text-slate-500">
-                    You don’t have posts or shorts yet. Create one, then come back to enter.
+                    You don’t have posts, shorts, or videos yet. Create one, then come back to enter.
                   </p>
                 ) : (
                   <div className="mb-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-100 p-1 dark:border-zinc-800">
-                    {myContent.map((p) => {
+                    {(() => {
+                      const activeEv = events.find((e) => e._id === activeEventId);
+                      const allowed = normalizeAllowedMedia(
+                        activeEv?.competition?.allowedMedia || activeEv?.allowedEntryMedia
+                      );
+                      const filtered = myContent.filter((p) =>
+                        postMatchesAllowedMedia(p.type, allowed)
+                      );
+                      if (filtered.length === 0) {
+                        return (
+                          <p className="px-2 py-3 text-sm text-slate-500">
+                            None of your content matches allowed types (
+                            {formatAllowedMediaLabel(allowed)}).
+                          </p>
+                        );
+                      }
+                      return filtered.map((p) => {
                       const id = String(p._id);
                       const selected = selectedPostId === id;
-                      const isShort = p.type === "short";
+                      const kind =
+                        p.type === "short"
+                          ? "Short"
+                          : p.type === "long_video"
+                            ? "Video"
+                            : "Post";
                       const thumb =
                         p.thumbnailUrl ||
                         p.imageUrl ||
                         (Array.isArray(p.images) ? p.images[0] : undefined) ||
                         p.mediaUrl ||
                         "";
-                      const label = p.caption?.trim() || (isShort ? "Short" : "Post");
+                      const label = p.caption?.trim() || kind;
                       return (
                         <button
                           key={id}
@@ -1199,13 +1337,15 @@ export function CommunityHub({
                             />
                           ) : (
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-zinc-800">
-                              {isShort ? "▶" : "▣"}
+                              {kind === "Short" ? "▶" : kind === "Video" ? "🎬" : "▣"}
                             </div>
                           )}
                           <span className="min-w-0 flex-1 truncate">{label}</span>
+                          <span className="shrink-0 text-[10px] opacity-70">{kind}</span>
                         </button>
                       );
-                    })}
+                    });
+                    })()}
                   </div>
                 )}
                 <Button

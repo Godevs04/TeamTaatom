@@ -96,6 +96,49 @@ function serializeGroupChat(doc, extras = {}) {
   };
 }
 
+const ENTRY_MEDIA_KINDS = ['post', 'short', 'long_video'];
+const ALL_ENTRY_MEDIA = ['post', 'short', 'long_video'];
+
+/** Coerce legacy string or array into a sorted unique media-kind array. */
+function normalizeAllowedMedia(value) {
+  if (value == null || value === '' || value === 'all' || value === 'both') {
+    return [...ALL_ENTRY_MEDIA];
+  }
+  if (Array.isArray(value)) {
+    const set = new Set(
+      value.filter((v) => typeof v === 'string' && ENTRY_MEDIA_KINDS.includes(v))
+    );
+    return ENTRY_MEDIA_KINDS.filter((k) => set.has(k));
+  }
+  if (typeof value === 'string' && ENTRY_MEDIA_KINDS.includes(value)) {
+    return [value];
+  }
+  return [...ALL_ENTRY_MEDIA];
+}
+
+function isValidAllowedMediaInput(value) {
+  if (value == null || value === '' || value === 'all' || value === 'both') return true;
+  if (typeof value === 'string') return ENTRY_MEDIA_KINDS.includes(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return false;
+    return value.every((v) => typeof v === 'string' && ENTRY_MEDIA_KINDS.includes(v));
+  }
+  return false;
+}
+
+function postTypeToEntryKind(postType) {
+  if (postType === 'short') return 'short';
+  if (postType === 'long_video') return 'long_video';
+  // photo / post / missing → feed post
+  return 'post';
+}
+
+function isEntryMediaAllowed(allowedMedia, postType) {
+  const allowed = normalizeAllowedMedia(allowedMedia);
+  if (allowed.length === 0) return false;
+  return allowed.includes(postTypeToEntryKind(postType));
+}
+
 function serializeEvent(doc, extras = {}) {
   const o = doc.toObject ? doc.toObject() : { ...doc };
   return {
@@ -110,6 +153,7 @@ function serializeEvent(doc, extras = {}) {
     maxParticipants: o.maxParticipants,
     visibility: o.visibility,
     participationMode: o.participationMode,
+    allowedEntryMedia: normalizeAllowedMedia(o.allowedEntryMedia),
     hostIds: o.hostIds || [],
     createdBy: o.createdBy,
     registrationOpen: o.registrationOpen !== false,
@@ -796,6 +840,7 @@ const createEvent = async (req, res) => {
       maxParticipants = null,
       visibility = 'members',
       participationMode = 'individual',
+      allowedEntryMedia = 'all',
       hostIds = [],
       registrationOpen = true,
     } = req.body;
@@ -808,6 +853,17 @@ const createEvent = async (req, res) => {
     }
     if (!['public', 'members', 'private'].includes(visibility)) {
       return sendError(res, 'VALIDATION_FAILED', 'Invalid visibility');
+    }
+    if (!isValidAllowedMediaInput(allowedEntryMedia)) {
+      return sendError(
+        res,
+        'VALIDATION_FAILED',
+        'allowedEntryMedia must be a non-empty list of post, short, and/or long_video'
+      );
+    }
+    const resolvedEntryMedia = normalizeAllowedMedia(allowedEntryMedia);
+    if (resolvedEntryMedia.length === 0) {
+      return sendError(res, 'VALIDATION_FAILED', 'Select at least one allowed entry type');
     }
 
     const ownerId = ownerIdOf(page);
@@ -854,6 +910,7 @@ const createEvent = async (req, res) => {
       maxParticipants: maxParticipants ? Number(maxParticipants) : null,
       visibility,
       participationMode,
+      allowedEntryMedia: resolvedEntryMedia,
       hostIds: hosts,
       createdBy: req.user._id,
       registrationOpen: registrationOpen !== false,
@@ -1000,6 +1057,7 @@ const updateEvent = async (req, res) => {
       'maxParticipants',
       'visibility',
       'participationMode',
+      'allowedEntryMedia',
       'registrationOpen',
       'status',
     ];
@@ -1007,6 +1065,19 @@ const updateEvent = async (req, res) => {
       if (req.body[key] !== undefined) {
         if (key === 'startsAt' || key === 'endsAt') {
           event[key] = req.body[key] ? new Date(req.body[key]) : null;
+        } else if (key === 'allowedEntryMedia') {
+          if (!isValidAllowedMediaInput(req.body[key])) {
+            return sendError(
+              res,
+              'VALIDATION_FAILED',
+              'allowedEntryMedia must be a non-empty list of post, short, and/or long_video'
+            );
+          }
+          const resolved = normalizeAllowedMedia(req.body[key]);
+          if (resolved.length === 0) {
+            return sendError(res, 'VALIDATION_FAILED', 'Select at least one allowed entry type');
+          }
+          event[key] = resolved;
         } else {
           event[key] = req.body[key];
         }
@@ -1014,6 +1085,15 @@ const updateEvent = async (req, res) => {
     }
     if (req.body.location) event.location = req.body.location;
     await event.save();
+
+    // Keep competition media rules in sync when host changes event settings
+    if (req.body.allowedEntryMedia !== undefined) {
+      await CommunityEventCompetition.updateOne(
+        { eventId: event._id },
+        { $set: { allowedMedia: event.allowedEntryMedia } }
+      );
+    }
+
     return sendSuccess(res, 200, 'Event updated', { event: serializeEvent(event) });
   } catch (error) {
     logger.error('updateEvent error:', error);
@@ -1347,7 +1427,7 @@ const upsertCompetition = async (req, res) => {
     const {
       enabled = true,
       rankBy = 'likes',
-      allowedMedia = 'both',
+      allowedMedia,
       rulesText = '',
       submissionsOpen = true,
       startsAt = null,
@@ -1358,8 +1438,18 @@ const upsertCompetition = async (req, res) => {
     if (!['likes', 'views'].includes(rankBy)) {
       return sendError(res, 'VALIDATION_FAILED', 'rankBy must be likes or views');
     }
-    if (!['post', 'short', 'both'].includes(allowedMedia)) {
-      return sendError(res, 'VALIDATION_FAILED', 'Invalid allowedMedia');
+    const mediaInput =
+      allowedMedia !== undefined ? allowedMedia : event.allowedEntryMedia || ALL_ENTRY_MEDIA;
+    if (!isValidAllowedMediaInput(mediaInput)) {
+      return sendError(
+        res,
+        'VALIDATION_FAILED',
+        'allowedMedia must be a non-empty list of post, short, and/or long_video'
+      );
+    }
+    const resolvedMedia = normalizeAllowedMedia(mediaInput);
+    if (resolvedMedia.length === 0) {
+      return sendError(res, 'VALIDATION_FAILED', 'Select at least one allowed entry type');
     }
 
     let competition = await CommunityEventCompetition.findOne({ eventId });
@@ -1369,7 +1459,7 @@ const upsertCompetition = async (req, res) => {
         connectPageId: event.connectPageId,
         enabled: !!enabled,
         rankBy,
-        allowedMedia,
+        allowedMedia: resolvedMedia,
         rulesText: String(rulesText || '').slice(0, 4000),
         submissionsOpen: submissionsOpen !== false,
         startsAt: startsAt ? new Date(startsAt) : null,
@@ -1380,7 +1470,7 @@ const upsertCompetition = async (req, res) => {
     } else {
       competition.enabled = enabled !== undefined ? !!enabled : competition.enabled;
       competition.rankBy = rankBy;
-      competition.allowedMedia = allowedMedia;
+      competition.allowedMedia = resolvedMedia;
       if (rulesText !== undefined) competition.rulesText = String(rulesText).slice(0, 4000);
       if (submissionsOpen !== undefined) competition.submissionsOpen = !!submissionsOpen;
       if (startsAt !== undefined) competition.startsAt = startsAt ? new Date(startsAt) : null;
@@ -1449,13 +1539,12 @@ const submitCompetitionEntry = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You can only submit your own content');
     }
 
-    const mediaOk =
-      competition.allowedMedia === 'both' ||
-      (competition.allowedMedia === 'short' && post.type === 'short') ||
-      (competition.allowedMedia === 'post' &&
-        (post.type === 'photo' || post.type === 'long_video' || !post.type || post.type === 'post'));
-    if (!mediaOk) {
-      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'This media type is not allowed');
+    if (!isEntryMediaAllowed(competition.allowedMedia, post.type)) {
+      return sendError(
+        res,
+        'BUSINESS_INVALID_OPERATION',
+        'This media type is not allowed for this event. Pick a post, short, or long video that matches the host rules.'
+      );
     }
 
     const team = await CommunityEventTeam.findOne({

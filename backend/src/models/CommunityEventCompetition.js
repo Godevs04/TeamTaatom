@@ -23,9 +23,8 @@ const CommunityEventCompetitionSchema = new Schema(
       default: 'likes',
     },
     allowedMedia: {
-      type: String,
-      enum: ['post', 'short', 'both'],
-      default: 'both',
+      type: [{ type: String, enum: ['post', 'short', 'long_video'] }],
+      default: () => ['post', 'short', 'long_video'],
     },
     rulesText: { type: String, trim: true, maxlength: 4000, default: '' },
     submissionsOpen: { type: Boolean, default: true },

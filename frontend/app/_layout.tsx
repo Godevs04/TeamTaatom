@@ -107,11 +107,16 @@ if (Platform.OS !== 'web') {
 }
 
 const POST_NOTIFICATION_TYPES = new Set(['like', 'comment', 'mention', 'post_mention', 'share', 'trip_created', 'trip_approved']);
-const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_approved']);
+const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_approved', 'route_access_approved']);
 const CONNECT_NOTIFICATION_TYPES = new Set([
   'subscription_active',
   'connect_follow_request',
   'connect_follow_accepted',
+  'community_group_join',
+  'community_group_join_approved',
+  'community_event_published',
+  'community_event_team_invite',
+  'community_competition_removed',
 ]);
 const REQUEST_INBOX_TYPES = new Set([
   'follow_request',
@@ -167,18 +172,39 @@ function notificationTargetPath(data: Record<string, unknown> | undefined | null
   if (screen) return screen.startsWith('/') ? screen : `/${screen}`;
 
   if (postId && type && POST_NOTIFICATION_TYPES.has(type)) {
-    return contentRoute(postId, str(data.postType), str(data.postOwnerId), { openComments: type === 'comment' });
+    // Keep openComments in sync with backend getScreenForType + in-app handleNotificationClick
+    const openComments =
+      type === 'comment' ||
+      (type === 'post_mention' &&
+        !!(str(data.commentId) || metadata?.commentId || metadata?.text));
+    return contentRoute(postId, str(data.postType), str(data.postOwnerId), { openComments });
   }
 
-  // Follow / join requests open the in-app inbox so Approve/Decline is available
+  // Profile follow requests open the in-app inbox so Approve/Decline is available
   if (type && REQUEST_INBOX_TYPES.has(type)) {
     return '/notifications';
+  }
+
+  if (type === 'route_access_request') {
+    return '/settings/route-access-requests';
+  }
+  if (type === 'creator_program') {
+    return '/creator-monetization';
+  }
+  if (type === 'message') {
+    if (chatWith) return `/chat/thread?userId=${encodeURIComponent(chatWith)}`;
+    if (chatId) return `/chat/thread?chatId=${encodeURIComponent(chatId)}`;
+    return '/chat';
   }
 
   if (userId && type && PROFILE_NOTIFICATION_TYPES.has(type)) {
     return `/profile/${userId}`;
   }
-  if (postId) return contentRoute(postId, str(data.postType), str(data.postOwnerId));
+  if (postId) {
+    return contentRoute(postId, str(data.postType), str(data.postOwnerId), {
+      openComments: type === 'comment',
+    });
+  }
   if (userId) return `/profile/${userId}`;
   // Last resort: notifications list, never home
   return type ? '/notifications' : null;

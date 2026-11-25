@@ -43,13 +43,15 @@ export type CommunityJoinRequest = {
   } | null;
 };
 
+export type AllowedEntryMedia = "post" | "short" | "long_video";
+
 export type CommunityCompetition = {
   _id?: string;
   enabled?: boolean;
   submissionsOpen?: boolean;
   rankBy?: "likes" | "views" | string;
   frozen?: boolean;
-  allowedMedia?: string;
+  allowedMedia?: AllowedEntryMedia[] | AllowedEntryMedia | "all" | "both" | string;
 };
 
 export type LeaderboardRow = {
@@ -81,6 +83,8 @@ export type CommunityEvent = {
   startsAt: string;
   endsAt?: string | null;
   participationMode: "individual" | "group" | "both";
+  /** Multi-select array; legacy string still accepted on read. */
+  allowedEntryMedia?: AllowedEntryMedia[] | AllowedEntryMedia | "all" | "both";
   isRegistered?: boolean;
   canManage?: boolean;
   chatId?: string | null;

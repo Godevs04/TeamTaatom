@@ -54,7 +54,7 @@ const toId = (value) => {
 
 /**
  * Route for a piece of content: long videos open the watch screen, shorts open the
- * creator's shorts viewer on that short, everything else opens the post screen.
+ * main Shorts tab on that short, everything else opens the post screen.
  */
 const contentScreen = (postId, postType, ownerId, { openComments = false } = {}) => {
   const commentsQuery = openComments ? 'comments=1' : '';
@@ -140,15 +140,29 @@ const getScreenForType = (type, notificationData = {}) => {
 
   if (POST_NOTIFICATION_TYPES.includes(type)) {
     if (postId) {
-      const openComments = type === 'comment' || (type === 'post_mention' && !!notificationData.commentId);
+      const meta = notificationData.metadata;
+      const metaObj = typeof meta === 'string'
+        ? (() => { try { return JSON.parse(meta); } catch { return null; } })()
+        : meta;
+      const openComments =
+        type === 'comment' ||
+        (type === 'post_mention' &&
+          !!(
+            notificationData.commentId ||
+            notificationData.comment ||
+            metaObj?.commentId ||
+            metaObj?.text != null
+          ));
       return contentScreen(postId, notificationData.postType, notificationData.postOwnerId, { openComments });
     }
     logger.warn(`No post ID found for ${type} notification`);
     return '/notifications';
   }
 
-  // Profile follow requests open the in-app list so the owner can Approve/Decline
+  // Profile follow requests open the in-app list so the owner can Approve/Decline.
+  // Connect-page join requests already returned /connect/page/... above via kind/connectPageId.
   if (type === 'follow_request') {
+    if (connectPageId) return `/connect/page/${connectPageId}`;
     return '/notifications';
   }
 

@@ -48,9 +48,9 @@ describe('getScreenForType', () => {
       .toBe(`/watch/${POST_ID}?comments=1`);
   });
 
-  it('opens a liked short in the creator\'s shorts viewer', () => {
+  it('opens a liked short in the main Shorts tab feed', () => {
     expect(getScreenForType('like', { postId: POST_ID, postType: 'short', postOwnerId: OWNER_ID }))
-      .toBe(`/user-shorts/${OWNER_ID}?shortId=${POST_ID}&single=true`);
+      .toBe(`/(tabs)/shorts?shortId=${POST_ID}`);
   });
 
   it('opens photo posts on the post screen', () => {
@@ -60,6 +60,11 @@ describe('getScreenForType', () => {
   it('opens comments only for comment mentions, not caption mentions', () => {
     expect(getScreenForType('post_mention', { postId: POST_ID, postType: 'photo', commentId: 'c1' }))
       .toBe(`/post/${POST_ID}?comments=1`);
+    expect(getScreenForType('post_mention', {
+      postId: POST_ID,
+      postType: 'photo',
+      metadata: { commentId: 'c1' },
+    })).toBe(`/post/${POST_ID}?comments=1`);
     expect(getScreenForType('post_mention', { postId: POST_ID, postType: 'photo' })).toBe(`/post/${POST_ID}`);
   });
 

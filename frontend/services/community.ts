@@ -29,6 +29,8 @@ export type CommunityGroupChat = {
   canManage?: boolean;
 };
 
+export type AllowedEntryMedia = 'post' | 'short' | 'long_video';
+
 export type CommunityEvent = {
   _id: string;
   connectPageId: string;
@@ -41,6 +43,8 @@ export type CommunityEvent = {
   maxParticipants?: number | null;
   visibility?: string;
   participationMode: 'individual' | 'group' | 'both';
+  /** Multi-select: post | short | long_video. Legacy string 'all'|'both'|single kind still accepted on read. */
+  allowedEntryMedia?: AllowedEntryMedia[] | AllowedEntryMedia | 'all' | 'both';
   hostIds?: string[];
   registrationOpen?: boolean;
   participantCount?: number;
@@ -58,7 +62,7 @@ export type CommunityCompetition = {
   eventId: string;
   enabled: boolean;
   rankBy: 'likes' | 'views';
-  allowedMedia: 'post' | 'short' | 'both';
+  allowedMedia?: AllowedEntryMedia[] | AllowedEntryMedia | 'all' | 'both';
   rulesText?: string;
   submissionsOpen?: boolean;
   startsAt?: string | null;

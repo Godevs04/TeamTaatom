@@ -55,6 +55,12 @@ export function getNotificationLink(n: Notification): { href: string; label: str
   const postType = n.post?.type || n.metadata?.postType || null;
   const ownerId = refId(n.post?.user) || n.metadata?.postOwnerId || null;
 
+  const connectPageId = n.metadata?.connectPageId || null;
+  const isConnectFollow =
+    n.metadata?.kind === "connect_page_follow" ||
+    n.type === "connect_follow_request" ||
+    n.type === "connect_follow_accepted";
+
   switch (n.type) {
     case "like":
     case "comment":
@@ -66,13 +72,17 @@ export function getNotificationLink(n: Notification): { href: string; label: str
         }),
         label: `View ${contentNoun(postType)}`,
       };
+    case "connect_follow_request":
+    case "connect_follow_accepted":
+      return connectPageId
+        ? { href: `/connect/page/${connectPageId}`, label: "Open community" }
+        : null;
     case "follow":
     case "follow_approved":
     case "follow_request_accepted":
     case "route_access_approved": {
-      const connectPageId = n.metadata?.connectPageId;
       if (
-        (n.metadata?.kind === "connect_page_follow" ||
+        (isConnectFollow ||
           n.metadata?.kind === "community_group_join" ||
           n.metadata?.kind === "community_event_published" ||
           n.metadata?.kind === "community_event_team_invite" ||
@@ -85,6 +95,11 @@ export function getNotificationLink(n: Notification): { href: string; label: str
       return null;
     }
     case "follow_request":
+      // Connect join requests deep-link to the page; profile follows use the in-page modal
+      if (isConnectFollow && connectPageId) {
+        return { href: `/connect/page/${connectPageId}`, label: "Open community" };
+      }
+      return null;
     case "follow_request_rejected":
     case "route_access_accepted":
     case "route_access_rejected":
@@ -92,8 +107,7 @@ export function getNotificationLink(n: Notification): { href: string; label: str
     case "route_access_request":
       return { href: "/settings/route-access-requests", label: "Review request" };
     case "subscription_active": {
-      const pageId = n.metadata?.connectPageId;
-      return pageId ? { href: `/connect/page/${pageId}`, label: "Open page" } : null;
+      return connectPageId ? { href: `/connect/page/${connectPageId}`, label: "Open page" } : null;
     }
     case "creator_program":
       return { href: "/creator-monetization", label: "Open Creator Dashboard" };
@@ -102,10 +116,15 @@ export function getNotificationLink(n: Notification): { href: string; label: str
     case "community_event_published":
     case "community_event_team_invite":
     case "community_competition_removed": {
-      const pageId = n.metadata?.connectPageId || null;
-      return pageId ? { href: `/connect/page/${pageId}`, label: "Open community" } : null;
+      return connectPageId ? { href: `/connect/page/${connectPageId}`, label: "Open community" } : null;
     }
     default:
+      if (postId) {
+        return {
+          href: contentHref(postId, postType, ownerId),
+          label: `View ${contentNoun(postType)}`,
+        };
+      }
       return fromId ? { href: `/profile/${fromId}`, label: "View" } : null;
   }
 }

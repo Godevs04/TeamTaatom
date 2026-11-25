@@ -73,6 +73,10 @@ function actionCopy(n: Notification): string {
       const groupName = (n.metadata?.groupName as string) || "the group chat";
       return n.metadata?.message || `accepted your request to join ${groupName}`;
     }
+    case "community_event_published": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "a new event";
+      return n.metadata?.message || `published ${eventTitle}`;
+    }
     case "community_event_team_invite": {
       const teamName = (n.metadata?.teamName as string) || "a team";
       const eventTitle = (n.metadata?.eventTitle as string) || "an event";
@@ -85,6 +89,8 @@ function actionCopy(n: Notification): string {
         `removed your competition entry for ${eventTitle}. You may upload a new post or short with fresh counts.`
       );
     }
+    case "creator_program":
+      return n.metadata?.message || "updated Creator Monetization";
     default:
       return "sent you a notification";
   }
