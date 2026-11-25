@@ -685,6 +685,30 @@ export default function NotificationsScreen() {
           ? `${userName} ${metadata.message}`
           : `${userName} removed your competition entry for ${eventTitle}. You may upload a new post or short with fresh counts.`;
       }
+      case 'community_event_reminder': {
+        const eventTitle = (metadata?.eventTitle as string) || 'an event';
+        return metadata?.message
+          ? String(metadata.message)
+          : `${eventTitle} is coming up soon`;
+      }
+      case 'community_competition_closing': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? String(metadata.message)
+          : `Competition for ${eventTitle} closes soon`;
+      }
+      case 'community_event_waitlist_promoted': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? String(metadata.message)
+          : `A spot opened — you're in for ${eventTitle}`;
+      }
+      case 'community_event_showcase_published': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `Winners are up for ${eventTitle}`;
+      }
       default:
         return 'You have a new notification';
     }

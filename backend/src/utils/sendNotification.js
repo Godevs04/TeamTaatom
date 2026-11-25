@@ -133,6 +133,10 @@ const getScreenForType = (type, notificationData = {}) => {
     type === 'community_event_published' ||
     type === 'community_event_team_invite' ||
     type === 'community_competition_removed' ||
+    type === 'community_event_reminder' ||
+    type === 'community_competition_closing' ||
+    type === 'community_event_waitlist_promoted' ||
+    type === 'community_event_showcase_published' ||
     (isConnectPageFollowKind(notificationData) && connectPageId)
   ) {
     if (connectPageId) return `/connect/page/${connectPageId}`;

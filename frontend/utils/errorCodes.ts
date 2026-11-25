@@ -66,8 +66,15 @@ export const parseError = (error: any): { code: string; message: string; userMes
   // Handle Axios errors with standardized error format (error.code)
   if (error?.response?.data?.error?.code) {
     const code = error.response.data.error.code;
-    const message = error.response.data.error.message || ERROR_CODES[code as keyof typeof ERROR_CODES]?.message || 'An error occurred';
-    const userMessage = getErrorMessage(code, message);
+    const catalog = ERROR_CODES[code as keyof typeof ERROR_CODES];
+    const message =
+      error.response.data.error.message || catalog?.message || 'An error occurred';
+    // Prefer the API's specific message over generic catalog copy (e.g. BIZ_7001
+    // "Submissions are closed" instead of "This action is not allowed").
+    const userMessage =
+      message && message !== catalog?.message
+        ? message
+        : getErrorMessage(code, message);
     
     return { code, message, userMessage };
   }

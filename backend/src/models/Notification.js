@@ -32,6 +32,10 @@ const notificationSchema = new mongoose.Schema({
       'community_event_published',
       'community_event_team_invite',
       'community_competition_removed',
+      'community_event_reminder',
+      'community_competition_closing',
+      'community_event_waitlist_promoted',
+      'community_event_showcase_published',
     ],
     required: true
   },

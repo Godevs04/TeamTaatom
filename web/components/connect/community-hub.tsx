@@ -21,6 +21,8 @@ import {
   Megaphone,
   Ticket,
   CheckCircle2,
+  Clock,
+  Hourglass,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -34,17 +36,21 @@ import {
   createEventTeam,
   createGroupChat,
   getCompetitionLeaderboard,
+  getCompetitionShowcase,
   inviteToGroupChat,
   joinGroupChat,
+  leaveCommunityEvent,
   listCommunityEvents,
   listCommunityRoles,
   listGroupChats,
   listGroupJoinRequests,
   openEventHostDm,
+  publishCompetitionShowcase,
   registerForCommunityEvent,
   removeCompetitionSubmission,
   reviewGroupJoinRequest,
   revokeCommunityRole,
+  scoreCompetitionSubmission,
   searchCommunityMembers,
   submitCompetitionEntry,
   updateCommunityEvent,
@@ -55,6 +61,7 @@ import {
   type CommunityJoinRequest,
   type CommunityMember,
   type CommunityStaffMember,
+  type EventTemplateKey,
   type LeaderboardRow,
 } from "../../lib/community-api";
 import type { Post } from "../../types/post";
@@ -63,6 +70,69 @@ type Tab = "chats" | "events" | "find";
 
 const ALL_ENTRY_MEDIA: AllowedEntryMedia[] = ["post", "short", "long_video"];
 
+const EVENT_TEMPLATES: Array<{
+  key: EventTemplateKey;
+  label: string;
+  titleHint: string;
+  media: AllowedEntryMedia[];
+  mode: "individual" | "group" | "both";
+  rankBy: "likes" | "views";
+}> = [
+  {
+    key: "best_short",
+    label: "Best short",
+    titleHint: "Best Short Challenge",
+    media: ["short"],
+    mode: "individual",
+    rankBy: "likes",
+  },
+  {
+    key: "photo_dump",
+    label: "Photo dump",
+    titleHint: "Photo Dump Challenge",
+    media: ["post"],
+    mode: "individual",
+    rankBy: "likes",
+  },
+  {
+    key: "long_story",
+    label: "Long story",
+    titleHint: "Long Story Challenge",
+    media: ["long_video"],
+    mode: "individual",
+    rankBy: "views",
+  },
+  {
+    key: "open_media",
+    label: "Open media",
+    titleHint: "Open Media Challenge",
+    media: ["post", "short", "long_video"],
+    mode: "individual",
+    rankBy: "likes",
+  },
+  {
+    key: "team_challenge",
+    label: "Team challenge",
+    titleHint: "Team Challenge",
+    media: ["post", "short", "long_video"],
+    mode: "group",
+    rankBy: "likes",
+  },
+];
+
+function formatEventCountdown(startsAt: string | Date): string | null {
+  const start = new Date(startsAt).getTime();
+  if (!Number.isFinite(start)) return null;
+  const diff = start - Date.now();
+  if (diff <= 0) return "Started";
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `Starts in ${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `Starts in ${hours}h`;
+  const days = Math.round(hours / 24);
+  return `Starts in ${days}d`;
+}
+
 function normalizeAllowedMedia(
   value?: string | string[] | null
 ): AllowedEntryMedia[] {
@@ -70,13 +140,20 @@ function normalizeAllowedMedia(
     return [...ALL_ENTRY_MEDIA];
   }
   if (Array.isArray(value)) {
+    if (
+      value.length === 0 ||
+      value.every((v) => v === "both" || v === "all" || v == null || v === "")
+    ) {
+      return [...ALL_ENTRY_MEDIA];
+    }
     const set = new Set(
       value.filter(
         (v): v is AllowedEntryMedia =>
           v === "post" || v === "short" || v === "long_video"
       )
     );
-    return ALL_ENTRY_MEDIA.filter((k) => set.has(k));
+    const resolved = ALL_ENTRY_MEDIA.filter((k) => set.has(k));
+    return resolved.length ? resolved : [...ALL_ENTRY_MEDIA];
   }
   if (value === "post" || value === "short" || value === "long_video") {
     return [value];
@@ -94,8 +171,32 @@ function postMatchesAllowedMedia(
   postType: string | undefined,
   allowed: AllowedEntryMedia[]
 ): boolean {
-  if (!allowed.length) return false;
-  return allowed.includes(postTypeToEntryKind(postType));
+  const kinds = allowed.length ? allowed : ALL_ENTRY_MEDIA;
+  return kinds.includes(postTypeToEntryKind(postType));
+}
+
+function mediaThumbUri(media: {
+  thumbnailUrl?: string;
+  imageUrl?: string;
+  images?: Array<{ url?: string } | string>;
+  mediaUrl?: string;
+  post?: { thumbnailUrl?: string; imageUrl?: string } | null;
+} | null | undefined): string {
+  if (!media) return "";
+  const fromImages = Array.isArray(media.images)
+    ? typeof media.images[0] === "string"
+      ? media.images[0]
+      : media.images[0]?.url || ""
+    : "";
+  return String(
+    media.thumbnailUrl ||
+      media.imageUrl ||
+      fromImages ||
+      media.mediaUrl ||
+      media.post?.thumbnailUrl ||
+      media.post?.imageUrl ||
+      ""
+  );
 }
 
 function formatAllowedMediaLabel(allowed: AllowedEntryMedia[]): string {
@@ -164,9 +265,13 @@ export function CommunityHub({
   const [eventAllowedMedia, setEventAllowedMedia] = React.useState<AllowedEntryMedia[]>([
     ...ALL_ENTRY_MEDIA,
   ]);
+  const [eventTemplateKey, setEventTemplateKey] = React.useState<EventTemplateKey | null>(null);
   const [eventRegistrationOpen, setEventRegistrationOpen] = React.useState(true);
   const [showCreateEvent, setShowCreateEvent] = React.useState(false);
   const [editingEventId, setEditingEventId] = React.useState<string | null>(null);
+  const [showcaseByEvent, setShowcaseByEvent] = React.useState<
+    Record<string, NonNullable<NonNullable<CommunityEvent["competition"]>["showcase"]>>
+  >({});
   const [teamEventId, setTeamEventId] = React.useState<string | null>(null);
   const [teamName, setTeamName] = React.useState("My Team");
   const [teamSize, setTeamSize] = React.useState("2");
@@ -566,6 +671,45 @@ export function CommunityHub({
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
                   {editingEventId ? "Edit event" : "Schedule an event"}
                 </p>
+                {!editingEventId ? (
+                  <div className="mb-3">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Challenge template
+                    </p>
+                    <p className="mb-2 text-xs text-slate-500">
+                      Optional preset — fills media, mode, and enables a competition
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {EVENT_TEMPLATES.map((tpl) => {
+                        const active = eventTemplateKey === tpl.key;
+                        return (
+                          <button
+                            key={tpl.key}
+                            type="button"
+                            className={cn(
+                              "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                              active
+                                ? "border-primary/40 bg-primary/10 text-primary"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                            )}
+                            onClick={() => {
+                              if (active) {
+                                setEventTemplateKey(null);
+                                return;
+                              }
+                              setEventTemplateKey(tpl.key);
+                              if (!eventTitle.trim()) setEventTitle(tpl.titleHint);
+                              setEventAllowedMedia([...tpl.media]);
+                              setEventMode(tpl.mode);
+                            }}
+                          >
+                            {tpl.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block sm:col-span-2">
                     <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -745,13 +889,29 @@ export function CommunityHub({
                             visibility: eventVisibility,
                             participationMode: eventMode,
                             allowedEntryMedia: eventAllowedMedia,
+                            templateKey: eventTemplateKey,
                             registrationOpen: eventRegistrationOpen,
                           };
                           if (editingEventId) {
                             await updateCommunityEvent(editingEventId, payload);
                             toast.success("Event updated");
                           } else {
-                            await createCommunityEvent(pageId, payload);
+                            const created = await createCommunityEvent(pageId, payload);
+                            const createdId = created?.event?._id;
+                            if (createdId && eventTemplateKey) {
+                              const tpl = EVENT_TEMPLATES.find((t) => t.key === eventTemplateKey);
+                              try {
+                                await upsertEventCompetition(createdId, {
+                                  enabled: true,
+                                  rankBy: tpl?.rankBy || "likes",
+                                  rankMode: "engagement",
+                                  allowedMedia: eventAllowedMedia,
+                                  submissionsOpen: true,
+                                });
+                              } catch {
+                                /* host can enable later */
+                              }
+                            }
                             toast.success("Event created");
                           }
                           setEventTitle("");
@@ -761,6 +921,7 @@ export function CommunityHub({
                           setEventLocation("");
                           setEventMax("");
                           setEventAllowedMedia([...ALL_ENTRY_MEDIA]);
+                          setEventTemplateKey(null);
                           setEventRegistrationOpen(true);
                           setEditingEventId(null);
                           setShowCreateEvent(false);
@@ -779,6 +940,7 @@ export function CommunityHub({
                       onClick={() => {
                         setShowCreateEvent(false);
                         setEditingEventId(null);
+                        setEventTemplateKey(null);
                       }}
                     >
                       Cancel
@@ -815,10 +977,19 @@ export function CommunityHub({
                   });
                   const competitionOn = !!ev.competition?.enabled;
                   const regOpen = ev.registrationOpen !== false && ev.status !== "cancelled";
+                  const isWaitlisted = !!ev.isWaitlisted;
+                  const countdown = formatEventCountdown(ev.startsAt);
+                  const showcase =
+                    showcaseByEvent[ev._id] || ev.competition?.showcase || null;
                   const canRegisterSolo =
-                    !ev.isRegistered && isMember && regOpen && ev.participationMode !== "group";
+                    !ev.isRegistered &&
+                    !isWaitlisted &&
+                    isMember &&
+                    regOpen &&
+                    ev.participationMode !== "group";
                   const canCreateTeam =
                     !ev.isRegistered &&
+                    !isWaitlisted &&
                     isMember &&
                     regOpen &&
                     ev.participationMode !== "individual";
@@ -830,6 +1001,16 @@ export function CommunityHub({
                       setManageEventId(null);
                       const res = await getCompetitionLeaderboard(ev._id);
                       setLeaderboard(res.leaderboard || []);
+                      if (!showcaseByEvent[ev._id] && !ev.competition?.showcase?.entries?.length) {
+                        try {
+                          const sc = await getCompetitionShowcase(ev._id);
+                          if (sc?.showcase) {
+                            setShowcaseByEvent((prev) => ({ ...prev, [ev._id]: sc.showcase }));
+                          }
+                        } catch {
+                          /* no showcase yet */
+                        }
+                      }
                       if (user?._id) {
                         setMyContentLoading(true);
                         try {
@@ -881,6 +1062,10 @@ export function CommunityHub({
                             {timeLabel}
                             {"  ·  "}
                             {MODE_LABEL[ev.participationMode] || ev.participationMode}
+                            {countdown ? `  ·  ${countdown}` : ""}
+                            {ev.waitlistCount
+                              ? `  ·  ${ev.waitlistCount} waitlisted`
+                              : ""}
                           </p>
                           {ev.location?.address ? (
                             <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
@@ -893,6 +1078,18 @@ export function CommunityHub({
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
                                 <CheckCircle2 className="h-3 w-3" />
                                 You’re in
+                              </span>
+                            ) : null}
+                            {isWaitlisted ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
+                                <Hourglass className="h-3 w-3" />
+                                Waitlisted
+                              </span>
+                            ) : null}
+                            {countdown && countdown !== "Started" ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300">
+                                <Clock className="h-3 w-3" />
+                                {countdown}
                               </span>
                             ) : null}
                             {competitionOn ? (
@@ -910,7 +1107,7 @@ export function CommunityHub({
                         </div>
                       </div>
 
-                      {(canRegisterSolo || canCreateTeam || ev.isRegistered) && (
+                      {(canRegisterSolo || canCreateTeam || ev.isRegistered || isWaitlisted) && (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {canRegisterSolo ? (
                             <Button
@@ -918,8 +1115,12 @@ export function CommunityHub({
                               className="h-10 flex-1 rounded-xl bg-gradient-to-r from-teal-600 to-sky-600 text-sm font-bold text-white shadow-sm"
                               onClick={async () => {
                                 try {
-                                  await registerForCommunityEvent(ev._id);
-                                  toast.success("Registered");
+                                  const res = await registerForCommunityEvent(ev._id);
+                                  toast.success(
+                                    res?.isWaitlisted || ev.isFull
+                                      ? "Joined waitlist"
+                                      : "Registered"
+                                  );
                                   await load();
                                 } catch (e) {
                                   toast.error(getFriendlyErrorMessage(e));
@@ -927,7 +1128,7 @@ export function CommunityHub({
                               }}
                             >
                               <Ticket className="mr-1.5 h-4 w-4" />
-                              Register
+                              {ev.isFull ? "Join waitlist" : "Register"}
                             </Button>
                           ) : null}
                           {canCreateTeam ? (
@@ -951,14 +1152,86 @@ export function CommunityHub({
                               Create team
                             </Button>
                           ) : null}
-                          {ev.isRegistered && !canRegisterSolo && !canCreateTeam ? (
-                            <div className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500/10 text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                              <CheckCircle2 className="h-4 w-4" />
-                              You’re registered
+                          {(ev.isRegistered || isWaitlisted) &&
+                          !canRegisterSolo &&
+                          !canCreateTeam ? (
+                            <div
+                              className={cn(
+                                "flex h-10 flex-1 items-center gap-2 rounded-xl px-3 text-sm font-bold",
+                                isWaitlisted
+                                  ? "bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                              )}
+                            >
+                              {isWaitlisted ? (
+                                <Hourglass className="h-4 w-4 shrink-0" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                              )}
+                              <span className="min-w-0 flex-1 truncate">
+                                {isWaitlisted ? "On waitlist" : "You’re registered"}
+                              </span>
+                              <button
+                                type="button"
+                                className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+                                onClick={async () => {
+                                  try {
+                                    await leaveCommunityEvent(ev._id);
+                                    toast.success(
+                                      isWaitlisted ? "Left waitlist" : "Left event"
+                                    );
+                                    await load();
+                                  } catch (e) {
+                                    toast.error(getFriendlyErrorMessage(e));
+                                  }
+                                }}
+                              >
+                                Leave
+                              </button>
                             </div>
                           ) : null}
                         </div>
                       )}
+
+                      {showcase?.entries && showcase.entries.length > 0 ? (
+                        <div className="mt-3 rounded-xl border border-amber-200/70 bg-amber-50/50 p-2.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                            Winners
+                          </p>
+                          <div className="flex gap-2 overflow-x-auto pb-0.5">
+                            {showcase.entries.slice(0, 5).map((entry, idx) => {
+                              const thumb =
+                                entry.post?.thumbnailUrl || entry.post?.imageUrl || "";
+                              const name =
+                                entry.user?.fullName ||
+                                entry.user?.username ||
+                                `Rank ${entry.rank ?? idx + 1}`;
+                              return (
+                                <div
+                                  key={entry.submissionId || entry.postId || `${idx}`}
+                                  className="flex w-20 shrink-0 flex-col items-center gap-1"
+                                >
+                                  {thumb ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={thumb}
+                                      alt=""
+                                      className="h-14 w-14 rounded-lg object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-amber-500/15 text-xs font-bold text-amber-800 dark:text-amber-300">
+                                      #{entry.rank ?? idx + 1}
+                                    </div>
+                                  )}
+                                  <span className="w-full truncate text-center text-[10px] font-medium text-slate-600 dark:text-zinc-300">
+                                    {name}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl border border-slate-100 bg-slate-50/70 p-1 dark:border-zinc-800 dark:bg-zinc-800/40 sm:grid-cols-4">
                         {ev.chatId && (ev.isRegistered || ev.canManage) ? (
@@ -1152,6 +1425,9 @@ export function CommunityHub({
                           ev.allowedEntryMedia || ev.competition?.allowedMedia
                         )
                       );
+                      setEventTemplateKey(
+                        (ev.templateKey as EventTemplateKey) || null
+                      );
                       setEventRegistrationOpen(ev.registrationOpen !== false);
                       setManageEventId(null);
                       setShowCreateEvent(true);
@@ -1172,6 +1448,8 @@ export function CommunityHub({
                         await upsertEventCompetition(manageEventId, {
                           enabled: true,
                           rankBy: "likes",
+                          rankMode: "engagement",
+                          judgeWeight: 50,
                           allowedMedia,
                           submissionsOpen: true,
                         });
@@ -1197,6 +1475,8 @@ export function CommunityHub({
                         await upsertEventCompetition(manageEventId, {
                           enabled: true,
                           rankBy: "views",
+                          rankMode: "engagement",
+                          judgeWeight: 50,
                           allowedMedia,
                           submissionsOpen: true,
                         });
@@ -1208,6 +1488,28 @@ export function CommunityHub({
                     }}
                   >
                     Rank by views
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full text-xs"
+                    onClick={async () => {
+                      try {
+                        const res = await publishCompetitionShowcase(manageEventId, 5);
+                        if (res?.showcase) {
+                          setShowcaseByEvent((prev) => ({
+                            ...prev,
+                            [manageEventId]: res.showcase!,
+                          }));
+                        }
+                        toast.success("Winners published");
+                        await load();
+                      } catch (e) {
+                        toast.error(getFriendlyErrorMessage(e));
+                      }
+                    }}
+                  >
+                    Publish winners
                   </Button>
                   <Button
                     size="sm"
@@ -1243,6 +1545,53 @@ export function CommunityHub({
                     Cancel event
                   </Button>
                 </div>
+                {(() => {
+                  const manageEv = events.find((e) => e._id === manageEventId);
+                  const showcase =
+                    showcaseByEvent[manageEventId] ||
+                    manageEv?.competition?.showcase ||
+                    null;
+                  if (!showcase?.entries?.length) return null;
+                  return (
+                    <div className="mt-3 rounded-xl border border-amber-200/70 bg-amber-50/50 p-2.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                        Showcase
+                      </p>
+                      <div className="flex gap-2 overflow-x-auto">
+                        {showcase.entries.slice(0, 5).map((entry, idx) => {
+                          const thumb =
+                            entry.post?.thumbnailUrl || entry.post?.imageUrl || "";
+                          const name =
+                            entry.user?.fullName ||
+                            entry.user?.username ||
+                            `Rank ${entry.rank ?? idx + 1}`;
+                          return (
+                            <div
+                              key={entry.submissionId || entry.postId || `${idx}`}
+                              className="flex w-20 shrink-0 flex-col items-center gap-1"
+                            >
+                              {thumb ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={thumb}
+                                  alt=""
+                                  className="h-14 w-14 rounded-lg object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-amber-500/15 text-xs font-bold text-amber-800">
+                                  #{entry.rank ?? idx + 1}
+                                </div>
+                              )}
+                              <span className="w-full truncate text-center text-[10px] font-medium text-slate-600 dark:text-zinc-300">
+                                {name}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : null}
 
@@ -1267,10 +1616,73 @@ export function CommunityHub({
                   const allowed = normalizeAllowedMedia(
                     activeEv?.competition?.allowedMedia || activeEv?.allowedEntryMedia
                   );
+                  const showcase =
+                    (activeEventId && showcaseByEvent[activeEventId]) ||
+                    activeEv?.competition?.showcase ||
+                    null;
                   return (
-                    <p className="mb-3 text-xs text-slate-500">
-                      Allowed: {formatAllowedMediaLabel(allowed)}. Pick your content — no IDs needed.
-                    </p>
+                    <>
+                      <p className="mb-3 text-xs text-slate-500">
+                        Allowed: {formatAllowedMediaLabel(allowed)}. Pick your content — no IDs
+                        needed.
+                      </p>
+                      {showcase?.entries && showcase.entries.length > 0 ? (
+                        <div className="mb-3 rounded-xl border border-amber-200/70 bg-amber-50/50 p-2.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                            Winners
+                          </p>
+                          <div className="flex gap-3 overflow-x-auto pb-1">
+                            {showcase.entries.slice(0, 8).map((entry, idx) => {
+                              const thumb = mediaThumbUri(entry.post || entry);
+                              const kind =
+                                entry.post?.type === "short"
+                                  ? "Short"
+                                  : entry.post?.type === "long_video"
+                                    ? "Video"
+                                    : "Post";
+                              const name =
+                                entry.user?.fullName ||
+                                entry.user?.username ||
+                                `Rank ${entry.rank ?? idx + 1}`;
+                              return (
+                                <div
+                                  key={entry.submissionId || entry.postId || `${idx}`}
+                                  className="w-36 shrink-0 overflow-hidden rounded-2xl border border-amber-200/60 bg-white shadow-sm dark:border-amber-500/20 dark:bg-zinc-900"
+                                >
+                                  <div className="relative h-40 bg-slate-100 dark:bg-zinc-800">
+                                    {thumb ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={thumb}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full items-center justify-center text-2xl text-slate-400">
+                                        {kind === "Short" ? "▶" : kind === "Video" ? "🎬" : "▣"}
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent px-2.5 pb-2.5 pt-8">
+                                      <p className="text-[10px] font-bold text-amber-300">
+                                        #{entry.rank ?? idx + 1} · {kind}
+                                      </p>
+                                      <p className="truncate text-xs font-semibold text-white">
+                                        {name}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {entry.post?.caption ? (
+                                    <p className="line-clamp-2 px-2.5 py-2 text-[10px] text-slate-500 dark:text-zinc-400">
+                                      {entry.post.caption}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
                   );
                 })()}
                 {myContentLoading ? (
@@ -1283,7 +1695,7 @@ export function CommunityHub({
                     You don’t have posts, shorts, or videos yet. Create one, then come back to enter.
                   </p>
                 ) : (
-                  <div className="mb-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-100 p-1 dark:border-zinc-800">
+                  <div className="mb-3 max-h-72 overflow-y-auto rounded-xl border border-slate-100 p-2 dark:border-zinc-800">
                     {(() => {
                       const activeEv = events.find((e) => e._id === activeEventId);
                       const allowed = normalizeAllowedMedia(
@@ -1300,51 +1712,68 @@ export function CommunityHub({
                           </p>
                         );
                       }
-                      return filtered.map((p) => {
-                      const id = String(p._id);
-                      const selected = selectedPostId === id;
-                      const kind =
-                        p.type === "short"
-                          ? "Short"
-                          : p.type === "long_video"
-                            ? "Video"
-                            : "Post";
-                      const thumb =
-                        p.thumbnailUrl ||
-                        p.imageUrl ||
-                        (Array.isArray(p.images) ? p.images[0] : undefined) ||
-                        p.mediaUrl ||
-                        "";
-                      const label = p.caption?.trim() || kind;
                       return (
-                        <button
-                          key={id}
-                          type="button"
-                          className={cn(
-                            "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                            selected
-                              ? "bg-slate-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                              : "hover:bg-slate-50 dark:hover:bg-zinc-800"
-                          )}
-                          onClick={() => setSelectedPostId(id)}
-                        >
-                          {thumb ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={thumb}
-                              alt=""
-                              className="h-10 w-10 shrink-0 rounded-md object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-zinc-800">
-                              {kind === "Short" ? "▶" : kind === "Video" ? "🎬" : "▣"}
-                            </div>
-                          )}
-                          <span className="min-w-0 flex-1 truncate">{label}</span>
-                          <span className="shrink-0 text-[10px] opacity-70">{kind}</span>
-                        </button>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {filtered.map((p) => {
+                            const id = String(p._id);
+                            const selected = selectedPostId === id;
+                            const kind =
+                              p.type === "short"
+                                ? "Short"
+                                : p.type === "long_video"
+                                  ? "Video"
+                                  : "Post";
+                            const thumb = mediaThumbUri(p);
+                            const label = p.caption?.trim() || `${kind} entry`;
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className={cn(
+                                  "overflow-hidden rounded-2xl border text-left transition-all",
+                                  selected
+                                    ? "border-slate-900 ring-2 ring-slate-900/20 dark:border-zinc-100 dark:ring-zinc-100/20"
+                                    : "border-slate-100 hover:border-slate-300 dark:border-zinc-800 dark:hover:border-zinc-600"
+                                )}
+                                onClick={() => setSelectedPostId(id)}
+                              >
+                                <div className="relative h-28 bg-slate-100 dark:bg-zinc-800">
+                                  {thumb ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={thumb}
+                                      alt=""
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full items-center justify-center text-xl text-slate-400">
+                                      {kind === "Short" ? "▶" : kind === "Video" ? "🎬" : "▣"}
+                                    </div>
+                                  )}
+                                  {(kind === "Short" || kind === "Video") && (
+                                    <span className="absolute bottom-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/55 text-[10px] text-white">
+                                      ▶
+                                    </span>
+                                  )}
+                                  {selected ? (
+                                    <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] text-white dark:bg-zinc-100 dark:text-zinc-900">
+                                      ✓
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="space-y-0.5 p-2">
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                                    {kind}
+                                  </p>
+                                  <p className="line-clamp-2 text-xs font-medium text-slate-800 dark:text-zinc-100">
+                                    {label}
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       );
-                    });
                     })()}
                   </div>
                 )}
@@ -1373,45 +1802,115 @@ export function CommunityHub({
                 {leaderboard.length === 0 ? (
                   <p className="text-sm text-slate-500">No submissions yet</p>
                 ) : (
-                  leaderboard.map((row) => (
-                    <div
-                      key={`${row.rank}-${row.submissionId || row.team?._id}`}
-                      className="flex items-center justify-between gap-2 border-b border-slate-100 py-2.5 text-sm last:border-0 dark:border-zinc-800"
-                    >
-                      <span className="min-w-0 truncate">
-                        <span className="mr-2 font-bold text-slate-400">#{row.rank}</span>
-                        {row.mode === "team"
-                          ? row.team?.name || "Team"
-                          : row.user?.fullName || row.user?.username || "Entrant"}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold tabular-nums">{row.metric}</span>
-                        {canModerate && row.submissionId ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs text-red-600"
-                            onClick={async () => {
-                              try {
-                                await removeCompetitionSubmission(
-                                  activeEventId,
-                                  row.submissionId!,
-                                  "Removed by host"
-                                );
-                                const res = await getCompetitionLeaderboard(activeEventId);
-                                setLeaderboard(res.leaderboard || []);
-                                toast.success("Submission removed — entrant may resubmit");
-                              } catch (e) {
-                                toast.error(getFriendlyErrorMessage(e));
-                              }
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        ) : null}
+                  leaderboard.map((row) => {
+                    const activeEv = events.find((e) => e._id === activeEventId);
+                    const canScore =
+                      !!(canManage || activeEv?.canManage || canManageStaff) &&
+                      !!row.submissionId;
+                    const thumb = mediaThumbUri(row.post);
+                    const kind =
+                      row.post?.type === "short"
+                        ? "Short"
+                        : row.post?.type === "long_video"
+                          ? "Video"
+                          : row.mode === "team"
+                            ? "Team"
+                            : "Post";
+                    return (
+                      <div
+                        key={`${row.rank}-${row.submissionId || row.team?._id}`}
+                        className="flex items-center gap-3 border-b border-slate-100 py-2.5 text-sm last:border-0 dark:border-zinc-800"
+                      >
+                        <span className="w-7 shrink-0 font-bold text-slate-400">#{row.rank}</span>
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100 dark:bg-zinc-800">
+                          {thumb ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={thumb} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                              {kind === "Short" ? "▶" : kind === "Video" ? "🎬" : "▣"}
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-slate-900 dark:text-zinc-50">
+                            {row.mode === "team"
+                              ? row.team?.name || "Team"
+                              : row.user?.fullName || row.user?.username || "Entrant"}
+                          </p>
+                          <p className="truncate text-[11px] text-slate-500 dark:text-zinc-400">
+                            {kind}
+                            {row.post?.caption ? ` · ${row.post.caption}` : ""}
+                          </p>
+                          {row.judgeScore != null ? (
+                            <p className="mt-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                              Judge {Number(row.judgeScore).toFixed(1)}/10
+                            </p>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <span className="font-semibold tabular-nums">{row.metric}</span>
+                          {canScore ? (
+                            <select
+                              className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                              defaultValue=""
+                              aria-label="Score submission"
+                              onChange={async (e) => {
+                                const score = Number(e.target.value);
+                                if (!score || !activeEventId || !row.submissionId) return;
+                                try {
+                                  await scoreCompetitionSubmission(
+                                    activeEventId,
+                                    row.submissionId,
+                                    score
+                                  );
+                                  const res = await getCompetitionLeaderboard(activeEventId);
+                                  setLeaderboard(res.leaderboard || []);
+                                  toast.success(`Scored ${score}/10`);
+                                } catch (err) {
+                                  toast.error(getFriendlyErrorMessage(err));
+                                } finally {
+                                  e.target.value = "";
+                                }
+                              }}
+                            >
+                              <option value="" disabled>
+                                Score
+                              </option>
+                              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                          {canModerate && row.submissionId ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-red-600"
+                              onClick={async () => {
+                                try {
+                                  await removeCompetitionSubmission(
+                                    activeEventId,
+                                    row.submissionId!,
+                                    "Removed by host"
+                                  );
+                                  const res = await getCompetitionLeaderboard(activeEventId);
+                                  setLeaderboard(res.leaderboard || []);
+                                  toast.success("Submission removed — entrant may resubmit");
+                                } catch (e) {
+                                  toast.error(getFriendlyErrorMessage(e));
+                                }
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             ) : null}

@@ -48,10 +48,17 @@ const CommunityEventSchema = new Schema(
       type: [{ type: String, enum: ['post', 'short', 'long_video'] }],
       default: () => ['post', 'short', 'long_video'],
     },
+    /** Challenge template key applied at create (analytics / UI presets). */
+    templateKey: {
+      type: String,
+      enum: ['best_short', 'photo_dump', 'long_story', 'open_media', 'team_challenge'],
+      default: undefined,
+    },
     hostIds: [{ type: Types.ObjectId, ref: 'User' }],
     createdBy: { type: Types.ObjectId, ref: 'User', required: true },
     registrationOpen: { type: Boolean, default: true },
     participantCount: { type: Number, default: 0 },
+    waitlistCount: { type: Number, default: 0 },
     chatId: { type: Types.ObjectId, ref: 'Chat', default: null },
     announcementChatId: { type: Types.ObjectId, ref: 'Chat', default: null },
     status: {
@@ -59,6 +66,10 @@ const CommunityEventSchema = new Schema(
       enum: ['draft', 'published', 'cancelled', 'completed'],
       default: 'published',
       index: true,
+    },
+    remindersSent: {
+      start24h: { type: Date, default: null },
+      start1h: { type: Date, default: null },
     },
   },
   { timestamps: true }

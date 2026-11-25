@@ -244,7 +244,11 @@ export const handleNotificationClick = async (notification: any): Promise<{
       case 'community_group_join_approved':
       case 'community_event_published':
       case 'community_event_team_invite':
-      case 'community_competition_removed': {
+      case 'community_competition_removed':
+      case 'community_event_reminder':
+      case 'community_competition_closing':
+      case 'community_event_waitlist_promoted':
+      case 'community_event_showcase_published': {
         const connectPageId =
           notification.metadata?.connectPageId ||
           notification.connectPageId ||

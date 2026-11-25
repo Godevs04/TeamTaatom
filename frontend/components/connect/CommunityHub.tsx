@@ -11,6 +11,7 @@ import {
   ScrollView,
   Platform,
   Image,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,6 +36,7 @@ import {
   listGroupJoinRequests,
   openEventHostDm,
   registerForCommunityEvent,
+  leaveCommunityEvent,
   reviewGroupJoinRequest,
   revokeCommunityRole,
   searchCommunityMembers,
@@ -44,10 +46,77 @@ import {
   listCommunityRoles,
   submitCompetitionEntry,
   removeCompetitionSubmission,
+  scoreCompetitionSubmission,
+  publishCompetitionShowcase,
+  getCompetitionShowcase,
+  EventTemplateKey,
   LeaderboardRow,
 } from '../../services/community';
 
 const ALL_ENTRY_MEDIA: AllowedEntryMedia[] = ['post', 'short', 'long_video'];
+
+const EVENT_TEMPLATES: Array<{
+  key: EventTemplateKey;
+  label: string;
+  titleHint: string;
+  media: AllowedEntryMedia[];
+  mode: 'individual' | 'group' | 'both';
+  rankBy: 'likes' | 'views';
+}> = [
+  {
+    key: 'best_short',
+    label: 'Best short',
+    titleHint: 'Best Short Challenge',
+    media: ['short'],
+    mode: 'individual',
+    rankBy: 'likes',
+  },
+  {
+    key: 'photo_dump',
+    label: 'Photo dump',
+    titleHint: 'Photo Dump Challenge',
+    media: ['post'],
+    mode: 'individual',
+    rankBy: 'likes',
+  },
+  {
+    key: 'long_story',
+    label: 'Long story',
+    titleHint: 'Long Story Challenge',
+    media: ['long_video'],
+    mode: 'individual',
+    rankBy: 'views',
+  },
+  {
+    key: 'open_media',
+    label: 'Open media',
+    titleHint: 'Open Media Challenge',
+    media: ['post', 'short', 'long_video'],
+    mode: 'individual',
+    rankBy: 'likes',
+  },
+  {
+    key: 'team_challenge',
+    label: 'Team challenge',
+    titleHint: 'Team Challenge',
+    media: ['post', 'short', 'long_video'],
+    mode: 'group',
+    rankBy: 'likes',
+  },
+];
+
+function formatEventCountdown(startsAt: string | Date): string | null {
+  const start = new Date(startsAt).getTime();
+  if (!Number.isFinite(start)) return null;
+  const diff = start - Date.now();
+  if (diff <= 0) return 'Started';
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `Starts in ${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `Starts in ${hours}h`;
+  const days = Math.round(hours / 24);
+  return `Starts in ${days}d`;
+}
 
 function normalizeAllowedMedia(
   value?: string | string[] | null
@@ -56,12 +125,19 @@ function normalizeAllowedMedia(
     return [...ALL_ENTRY_MEDIA];
   }
   if (Array.isArray(value)) {
+    if (
+      value.length === 0 ||
+      value.every((v) => v === 'both' || v === 'all' || v == null || v === '')
+    ) {
+      return [...ALL_ENTRY_MEDIA];
+    }
     const set = new Set(
       value.filter((v): v is AllowedEntryMedia =>
         v === 'post' || v === 'short' || v === 'long_video'
       )
     );
-    return ALL_ENTRY_MEDIA.filter((k) => set.has(k));
+    const resolved = ALL_ENTRY_MEDIA.filter((k) => set.has(k));
+    return resolved.length ? resolved : [...ALL_ENTRY_MEDIA];
   }
   if (value === 'post' || value === 'short' || value === 'long_video') {
     return [value];
@@ -79,8 +155,63 @@ function postMatchesAllowedMedia(
   postType: string | undefined,
   allowed: AllowedEntryMedia[]
 ): boolean {
-  if (!allowed.length) return false;
-  return allowed.includes(postTypeToEntryKind(postType));
+  const kinds = allowed.length ? allowed : ALL_ENTRY_MEDIA;
+  return kinds.includes(postTypeToEntryKind(postType));
+}
+
+function mediaThumbUri(media: {
+  thumbnailUrl?: string;
+  imageUrl?: string;
+  mediaUrl?: string;
+  images?: Array<{ url?: string } | string>;
+  post?: {
+    thumbnailUrl?: string;
+    imageUrl?: string;
+    images?: Array<{ url?: string } | string>;
+  } | null;
+} | null | undefined): string {
+  if (!media) return '';
+  const nested = media.post;
+  const pickImages = (images?: Array<{ url?: string } | string>) =>
+    Array.isArray(images)
+      ? typeof images[0] === 'string'
+        ? images[0]
+        : images[0]?.url || ''
+      : '';
+  return String(
+    media.thumbnailUrl ||
+      media.imageUrl ||
+      pickImages(media.images) ||
+      media.mediaUrl ||
+      nested?.thumbnailUrl ||
+      nested?.imageUrl ||
+      pickImages(nested?.images) ||
+      ''
+  );
+}
+
+function friendlyCompetitionError(raw?: string): string {
+  const msg = (raw || '').trim();
+  const lower = msg.toLowerCase();
+  if (!msg || lower === 'this action is not allowed' || lower === 'invalid operation') {
+    return 'This competition is locked for new scores or entries. Open Manage event → turn submissions back on, or score before publishing winners.';
+  }
+  if (lower.includes('frozen') || lower.includes('showcase')) {
+    return 'Winners were already published. You can still update judge scores — then publish the showcase again if ranks change.';
+  }
+  if (lower.includes('submissions are closed')) {
+    return 'Submissions are closed. Hosts can reopen them under Manage event → Competition.';
+  }
+  if (lower.includes('not allowed for this event') || lower.includes('media type')) {
+    return 'That content type isn’t allowed for this challenge. Pick a matching post, short, or video — or ask the host to update allowed media.';
+  }
+  if (lower.includes('already') && (lower.includes('submit') || lower.includes('entr'))) {
+    return 'You already have an entry on the board. Remove it (or ask a host) before submitting a new one.';
+  }
+  if (lower.includes('permission') || lower.includes("don't have permission")) {
+    return 'Only event hosts or assigned judges can score entries.';
+  }
+  return msg;
 }
 
 const MEDIA_KIND_LABEL: Record<AllowedEntryMedia, string> = {
@@ -169,7 +300,11 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
   const [eventVisibility, setEventVisibility] = useState<'public' | 'members' | 'private'>('members');
   const [eventMode, setEventMode] = useState<'individual' | 'group' | 'both'>('individual');
   const [eventAllowedMedia, setEventAllowedMedia] = useState<AllowedEntryMedia[]>([...ALL_ENTRY_MEDIA]);
+  const [eventTemplateKey, setEventTemplateKey] = useState<EventTemplateKey | null>(null);
   const [eventRegistrationOpen, setEventRegistrationOpen] = useState(true);
+  const [showcaseByEvent, setShowcaseByEvent] = useState<
+    Record<string, NonNullable<CommunityEvent['competition']>['showcase']>
+  >({});
 
   const [eventDetailId, setEventDetailId] = useState<string | null>(null);
   const [manageEventId, setManageEventId] = useState<string | null>(null);
@@ -178,6 +313,10 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
   const [myContentLoading, setMyContentLoading] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [competitionFeedback, setCompetitionFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+  const [manageFeedback, setManageFeedback] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
@@ -308,6 +447,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
     setEventVisibility('members');
     setEventMode('individual');
     setEventAllowedMedia([...ALL_ENTRY_MEDIA]);
+    setEventTemplateKey(null);
     setEventRegistrationOpen(true);
   };
 
@@ -329,6 +469,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
     setEventAllowedMedia(
       normalizeAllowedMedia(ev.competition?.allowedMedia || ev.allowedEntryMedia)
     );
+    setEventTemplateKey((ev.templateKey as EventTemplateKey) || null);
     setEventRegistrationOpen(ev.registrationOpen !== false);
     setCreateEventOpen(true);
   };
@@ -360,12 +501,31 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
         visibility: eventVisibility,
         participationMode: eventMode,
         allowedEntryMedia: eventAllowedMedia,
+        templateKey: eventTemplateKey,
         registrationOpen: eventRegistrationOpen,
       };
+      let createdId = editingEventId;
       if (editingEventId) {
         await updateCommunityEvent(editingEventId, payload);
       } else {
-        await createCommunityEvent(pageId, payload);
+        const created = await createCommunityEvent(pageId, payload);
+        createdId = created?.event?._id || null;
+        // Auto-enable competition for challenge templates
+        if (createdId && eventTemplateKey) {
+          const tpl = EVENT_TEMPLATES.find((t) => t.key === eventTemplateKey);
+          try {
+            await upsertEventCompetition(createdId, {
+              enabled: true,
+              rankBy: tpl?.rankBy || 'likes',
+              rankMode: 'engagement',
+              allowedMedia: eventAllowedMedia,
+              submissionsOpen: true,
+              rulesText: `Challenge: ${tpl?.label || 'Open'}. Allowed: ${formatAllowedMediaLabel(eventAllowedMedia)}.`,
+            });
+          } catch {
+            /* non-fatal — host can enable later */
+          }
+        }
       }
       setCreateEventOpen(false);
       resetEventForm();
@@ -412,11 +572,21 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
     setManageEventId(null);
     await refreshCompetitionBoard(eventId);
     void loadMyContentForCompetition();
+    try {
+      const res = await getCompetitionShowcase(eventId);
+      setShowcaseByEvent((prev) => ({ ...prev, [eventId]: res.showcase }));
+    } catch {
+      /* no showcase yet */
+    }
   };
 
   const manageEvent = events.find((e) => e._id === manageEventId) || null;
 
-  const enableCompetition = async (eventId: string, rankBy: 'likes' | 'views') => {
+  const enableCompetition = async (
+    eventId: string,
+    rankBy: 'likes' | 'views',
+    rankMode: 'engagement' | 'judges' | 'hybrid' = 'engagement'
+  ) => {
     try {
       const ev = events.find((e) => e._id === eventId);
       const allowedMedia = normalizeAllowedMedia(
@@ -425,9 +595,11 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
       await upsertEventCompetition(eventId, {
         enabled: true,
         rankBy,
+        rankMode,
+        judgeWeight: 50,
         allowedMedia,
         submissionsOpen: true,
-        rulesText: `Ranked by ${rankBy}. Allowed: ${formatAllowedMediaLabel(allowedMedia)}.`,
+        rulesText: `Ranked by ${rankBy} (${rankMode}). Allowed: ${formatAllowedMediaLabel(allowedMedia)}.`,
       });
       setManageEventId(null);
       await loadTab();
@@ -720,10 +892,20 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                 });
                 const competitionOn = !!ev.competition?.enabled;
                 const regOpen = ev.registrationOpen !== false && ev.status !== 'cancelled';
+                const isWaitlisted = !!ev.isWaitlisted;
+                const countdown = formatEventCountdown(ev.startsAt);
                 const canRegisterSolo =
-                  !ev.isRegistered && isMember && regOpen && ev.participationMode !== 'group';
+                  !ev.isRegistered &&
+                  !isWaitlisted &&
+                  isMember &&
+                  regOpen &&
+                  ev.participationMode !== 'group';
                 const canCreateTeam =
-                  !ev.isRegistered && isMember && regOpen && ev.participationMode !== 'individual';
+                  !ev.isRegistered &&
+                  !isWaitlisted &&
+                  isMember &&
+                  regOpen &&
+                  ev.participationMode !== 'individual';
                 const showChat = !!(ev.chatId && (ev.isRegistered || ev.canManage));
                 const showAnnounce = !!(ev.announcementChatId && (ev.isRegistered || ev.canManage));
                 const showTeam = !!ev.myTeam?.chatId;
@@ -774,7 +956,10 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                           </Text>
                           {ev.canManage ? (
                             <TouchableOpacity
-                              onPress={() => setManageEventId(ev._id)}
+                              onPress={() => {
+                                setManageFeedback(null);
+                                setManageEventId(ev._id);
+                              }}
                               hitSlop={10}
                               style={[
                                 styles.eventOverflowBtn,
@@ -794,6 +979,8 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                           {timeLabel}
                           {'  ·  '}
                           {MODE_LABEL[ev.participationMode] || ev.participationMode}
+                          {countdown ? `  ·  ${countdown}` : ''}
+                          {ev.waitlistCount ? `  ·  ${ev.waitlistCount} waitlisted` : ''}
                         </Text>
 
                         {ev.location?.address ? (
@@ -830,6 +1017,33 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                                 }}
                               >
                                 You’re in
+                              </Text>
+                            </View>
+                          ) : null}
+                          {isWaitlisted ? (
+                            <View
+                              style={[
+                                styles.miniBadge,
+                                {
+                                  backgroundColor: isDark
+                                    ? 'rgba(245,158,11,0.18)'
+                                    : 'rgba(245,158,11,0.12)',
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name="hourglass-outline"
+                                size={11}
+                                color={isDark ? '#FBBF24' : '#D97706'}
+                              />
+                              <Text
+                                style={{
+                                  color: isDark ? '#FBBF24' : '#B45309',
+                                  fontSize: 10,
+                                  fontWeight: '700',
+                                }}
+                              >
+                                Waitlisted
                               </Text>
                             </View>
                           ) : null}
@@ -880,7 +1094,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                       </View>
                     </View>
 
-                    {(canRegisterSolo || canCreateTeam || ev.isRegistered) && (
+                    {(canRegisterSolo || canCreateTeam || ev.isRegistered || isWaitlisted) && (
                       <View style={styles.eventCtaRow}>
                         {canRegisterSolo ? (
                           <TouchableOpacity
@@ -888,8 +1102,11 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                             activeOpacity={0.88}
                             onPress={async () => {
                               try {
-                                await registerForCommunityEvent(ev._id);
+                                const res = await registerForCommunityEvent(ev._id);
                                 await loadTab();
+                                if (res?.isWaitlisted) {
+                                  setError(null);
+                                }
                               } catch (e: any) {
                                 setError(e?.message || 'Register failed');
                               }
@@ -902,7 +1119,9 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                               style={styles.eventPrimaryCtaInner}
                             >
                               <Ionicons name="ticket-outline" size={16} color="#fff" />
-                              <Text style={styles.eventPrimaryCtaText}>Register</Text>
+                              <Text style={styles.eventPrimaryCtaText}>
+                                {ev.isFull ? 'Join waitlist' : 'Register'}
+                              </Text>
                             </LinearGradient>
                           </TouchableOpacity>
                         ) : null}
@@ -927,31 +1146,66 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                             </Text>
                           </TouchableOpacity>
                         ) : null}
-                        {ev.isRegistered && !canRegisterSolo && !canCreateTeam ? (
+                        {(ev.isRegistered || isWaitlisted) && !canRegisterSolo && !canCreateTeam ? (
                           <View
                             style={[
                               styles.eventRegisteredBar,
                               {
                                 backgroundColor: isDark
-                                  ? 'rgba(80,200,120,0.12)'
-                                  : 'rgba(16,124,65,0.08)',
+                                  ? isWaitlisted
+                                    ? 'rgba(245,158,11,0.12)'
+                                    : 'rgba(80,200,120,0.12)'
+                                  : isWaitlisted
+                                    ? 'rgba(245,158,11,0.1)'
+                                    : 'rgba(16,124,65,0.08)',
+                                flex: 1,
                               },
                             ]}
                           >
                             <Ionicons
-                              name="checkmark-circle"
+                              name={isWaitlisted ? 'hourglass-outline' : 'checkmark-circle'}
                               size={16}
-                              color={isDark ? '#7DDEA3' : '#107C41'}
+                              color={
+                                isWaitlisted
+                                  ? isDark
+                                    ? '#FBBF24'
+                                    : '#D97706'
+                                  : isDark
+                                    ? '#7DDEA3'
+                                    : '#107C41'
+                              }
                             />
                             <Text
                               style={{
-                                color: isDark ? '#7DDEA3' : '#107C41',
+                                color: isWaitlisted
+                                  ? isDark
+                                    ? '#FBBF24'
+                                    : '#B45309'
+                                  : isDark
+                                    ? '#7DDEA3'
+                                    : '#107C41',
                                 fontWeight: '700',
                                 fontSize: 13,
+                                flex: 1,
                               }}
                             >
-                              You’re registered
+                              {isWaitlisted ? 'On waitlist' : "You're registered"}
                             </Text>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                try {
+                                  await leaveCommunityEvent(ev._id);
+                                  await loadTab();
+                                } catch (e: any) {
+                                  setError(e?.message || 'Failed to leave');
+                                }
+                              }}
+                              hitSlop={8}
+                            >
+                              <Text style={{ color: muted, fontSize: 12, fontWeight: '600' }}>
+                                Leave
+                              </Text>
+                            </TouchableOpacity>
                           </View>
                         ) : null}
                       </View>
@@ -1306,6 +1560,59 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                   },
                 ]}
               >
+                <Text style={[styles.formSectionTitle, { color: muted }]}>Challenge template</Text>
+                <Text style={{ color: muted, fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+                  Optional preset — fills media, mode, and enables a competition
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingBottom: 10 }}
+                >
+                  {EVENT_TEMPLATES.map((tpl) => {
+                    const active = eventTemplateKey === tpl.key;
+                    return (
+                      <TouchableOpacity
+                        key={tpl.key}
+                        onPress={() => {
+                          if (active) {
+                            setEventTemplateKey(null);
+                            return;
+                          }
+                          setEventTemplateKey(tpl.key);
+                          if (!eventTitle.trim()) setEventTitle(tpl.titleHint);
+                          setEventAllowedMedia([...tpl.media]);
+                          setEventMode(tpl.mode);
+                        }}
+                        style={[
+                          styles.miniBadge,
+                          {
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: active ? accent : hairline,
+                            backgroundColor: active
+                              ? isDark
+                                ? 'rgba(56,189,248,0.16)'
+                                : 'rgba(28,115,180,0.1)'
+                              : 'transparent',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: active ? accent : ink,
+                            fontSize: 12,
+                            fontWeight: '700',
+                          }}
+                        >
+                          {tpl.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
                 <Text style={[styles.formSectionTitle, { color: muted }]}>Basics</Text>
                 <TextInput
                   value={eventTitle}
@@ -1870,7 +2177,10 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             <View style={styles.modalHeaderRow}>
               <Text style={[styles.modalTitle, { color: ink, marginBottom: 0, flex: 1 }]}>Manage event</Text>
               <TouchableOpacity
-                onPress={() => setManageEventId(null)}
+                onPress={() => {
+                  setManageFeedback(null);
+                  setManageEventId(null);
+                }}
                 hitSlop={10}
                 style={[styles.modalCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }]}
                 accessibilityLabel="Close"
@@ -1881,6 +2191,66 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
             <Text style={[styles.modalHint, { color: muted }]}>
               {manageEvent?.title || 'Event'} — edit details, open a competition ranking, or close registration.
             </Text>
+            {manageFeedback ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  marginBottom: 12,
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor:
+                    manageFeedback.type === 'success'
+                      ? isDark
+                        ? 'rgba(80,200,120,0.35)'
+                        : 'rgba(16,124,65,0.25)'
+                      : isDark
+                        ? 'rgba(248,113,113,0.4)'
+                        : 'rgba(220,38,38,0.25)',
+                  backgroundColor:
+                    manageFeedback.type === 'success'
+                      ? isDark
+                        ? 'rgba(80,200,120,0.12)'
+                        : 'rgba(16,124,65,0.08)'
+                      : isDark
+                        ? 'rgba(248,113,113,0.12)'
+                        : 'rgba(254,226,226,0.9)',
+                }}
+              >
+                <Ionicons
+                  name={manageFeedback.type === 'success' ? 'checkmark-circle' : 'alert-circle'}
+                  size={18}
+                  color={
+                    manageFeedback.type === 'success'
+                      ? isDark
+                        ? '#7DDEA3'
+                        : '#107C41'
+                      : theme.colors.error
+                  }
+                />
+                <Text
+                  style={{
+                    flex: 1,
+                    color:
+                      manageFeedback.type === 'success'
+                        ? isDark
+                          ? '#7DDEA3'
+                          : '#107C41'
+                        : theme.colors.error,
+                    fontSize: 13,
+                    fontWeight: '600',
+                    lineHeight: 18,
+                  }}
+                >
+                  {manageFeedback.text}
+                </Text>
+                <TouchableOpacity onPress={() => setManageFeedback(null)} hitSlop={10}>
+                  <Ionicons name="close" size={16} color={muted} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={{ gap: 8 }}>
               <TouchableOpacity
                 style={[styles.manageRow, { borderColor: hairline }]}
@@ -1909,13 +2279,17 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                 style={[styles.manageRow, { borderColor: hairline }]}
                 onPress={async () => {
                   if (!manageEvent) return;
+                  setManageFeedback(null);
                   try {
                     await enableCompetition(manageEvent._id, 'likes');
+                    setManageFeedback(null);
                     setManageEventId(null);
                     await loadTab();
                     await openEventCompetition(manageEvent._id);
                   } catch (e: any) {
-                    setError(e?.message || 'Failed');
+                    const msg = e?.userMessage || e?.message || 'Could not open competition. Try again.';
+                    setManageFeedback({ type: 'error', text: msg });
+                    Alert.alert('Competition', msg);
                   }
                 }}
               >
@@ -1926,19 +2300,75 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                 style={[styles.manageRow, { borderColor: hairline }]}
                 onPress={async () => {
                   if (!manageEvent) return;
+                  setManageFeedback(null);
                   try {
                     await enableCompetition(manageEvent._id, 'views');
                     setManageEventId(null);
                     await loadTab();
                     await openEventCompetition(manageEvent._id);
                   } catch (e: any) {
-                    setError(e?.message || 'Failed');
+                    const msg = e?.userMessage || e?.message || 'Could not open competition. Try again.';
+                    setManageFeedback({ type: 'error', text: msg });
+                    Alert.alert('Competition', msg);
                   }
                 }}
               >
                 <Ionicons name="eye-outline" size={18} color={accent} />
                 <Text style={[styles.manageRowText, { color: ink }]}>Open competition · rank by views</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.manageRow, { borderColor: hairline }]}
+                onPress={async () => {
+                  if (!manageEvent) return;
+                  setManageFeedback(null);
+                  try {
+                    await enableCompetition(manageEvent._id, 'likes', 'hybrid');
+                    setManageEventId(null);
+                    await loadTab();
+                    await openEventCompetition(manageEvent._id);
+                  } catch (e: any) {
+                    const msg = e?.userMessage || e?.message || 'Could not open competition. Try again.';
+                    setManageFeedback({ type: 'error', text: msg });
+                    Alert.alert('Competition', msg);
+                  }
+                }}
+              >
+                <Ionicons name="git-merge-outline" size={18} color={accent} />
+                <Text style={[styles.manageRowText, { color: ink }]}>
+                  Open competition · hybrid (likes + judges)
+                </Text>
+              </TouchableOpacity>
+              {manageEvent?.competition?.enabled ? (
+                <TouchableOpacity
+                  style={[styles.manageRow, { borderColor: hairline }]}
+                  onPress={async () => {
+                    if (!manageEvent) return;
+                    setManageFeedback(null);
+                    try {
+                      const res = await publishCompetitionShowcase(manageEvent._id, 5);
+                      setShowcaseByEvent((prev) => ({
+                        ...prev,
+                        [manageEvent._id]: res.showcase,
+                      }));
+                      setManageFeedback({
+                        type: 'success',
+                        text: 'Winner showcase published. Members can see the top entries on the competition screen.',
+                      });
+                      await loadTab();
+                    } catch (e: any) {
+                      const msg =
+                        e?.userMessage ||
+                        e?.message ||
+                        'Could not publish winners. Add competition entries first, then try again.';
+                      setManageFeedback({ type: 'error', text: msg });
+                      Alert.alert('Couldn’t publish winners', msg);
+                    }
+                  }}
+                >
+                  <Ionicons name="ribbon-outline" size={18} color={accent} />
+                  <Text style={[styles.manageRowText, { color: ink }]}>Publish winner showcase</Text>
+                </TouchableOpacity>
+              ) : null}
               {manageEvent?.registrationOpen !== false ? (
                 <TouchableOpacity
                   style={[styles.manageRow, { borderColor: hairline }]}
@@ -2039,12 +2469,94 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                 const allowed = normalizeAllowedMedia(
                   detailEv?.competition?.allowedMedia || detailEv?.allowedEntryMedia
                 );
+                const mode = detailEv?.competition?.rankMode || 'engagement';
                 return (
                   <Text style={[styles.modalHint, { color: muted }]}>
-                    Allowed: {formatAllowedMediaLabel(allowed)}. If a host removes your entry, upload a new one — counts start fresh.
+                    Allowed: {formatAllowedMediaLabel(allowed)}. Ranking: {mode}. If a host removes your entry, upload a new one — counts start fresh.
                   </Text>
                 );
               })()}
+
+              {eventDetailId &&
+              showcaseByEvent[eventDetailId]?.publishedAt &&
+              (showcaseByEvent[eventDetailId]?.entries?.length || 0) > 0 ? (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={[styles.rowMeta, { color: muted, fontWeight: '700', marginBottom: 10 }]}>
+                    Winner showcase
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 8 }}>
+                    {(showcaseByEvent[eventDetailId]?.entries || []).map((entry) => {
+                      const thumb = mediaThumbUri(entry.post || entry);
+                      const kind =
+                        entry.post?.type === 'short'
+                          ? 'Short'
+                          : entry.post?.type === 'long_video'
+                            ? 'Video'
+                            : 'Post';
+                      return (
+                        <View
+                          key={String(entry.submissionId || entry.postId || entry.rank)}
+                          style={{
+                            width: 148,
+                            borderRadius: 16,
+                            overflow: 'hidden',
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: hairline,
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                          }}
+                        >
+                          <View style={{ height: 168, backgroundColor: isDark ? '#1e293b' : '#e2e8f0' }}>
+                            {thumb ? (
+                              <Image source={{ uri: thumb }} style={{ width: '100%', height: '100%' }} />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                <Ionicons
+                                  name={
+                                    kind === 'Short'
+                                      ? 'flash-outline'
+                                      : kind === 'Video'
+                                        ? 'videocam-outline'
+                                        : 'image-outline'
+                                  }
+                                  size={28}
+                                  color={muted}
+                                />
+                              </View>
+                            )}
+                            <LinearGradient
+                              colors={['transparent', 'rgba(15,23,42,0.78)']}
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                paddingHorizontal: 10,
+                                paddingBottom: 10,
+                                paddingTop: 28,
+                              }}
+                            >
+                              <Text style={{ color: '#FDE68A', fontWeight: '800', fontSize: 12 }}>
+                                #{entry.rank} · {kind}
+                              </Text>
+                              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }} numberOfLines={1}>
+                                {entry.user?.fullName || entry.user?.username || 'Winner'}
+                              </Text>
+                            </LinearGradient>
+                          </View>
+                          {entry.post?.caption ? (
+                            <Text
+                              style={{ color: muted, fontSize: 11, paddingHorizontal: 10, paddingVertical: 8 }}
+                              numberOfLines={2}
+                            >
+                              {entry.post.caption}
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
 
               <Text style={[styles.rowMeta, { color: muted, fontWeight: '700', marginBottom: 8 }]}>
                 Your content
@@ -2072,67 +2584,111 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                         </Text>
                       );
                     }
-                    return filtered.map((p) => {
-                    const id = String(p._id);
-                    const selected = selectedPostId === id;
-                    const thumb =
-                      p.thumbnailUrl ||
-                      p.imageUrl ||
-                      (Array.isArray(p.images) ? p.images[0]?.url || p.images[0] : '') ||
-                      '';
-                    const kind =
-                      p.type === 'short'
-                        ? 'Short'
-                        : p.type === 'long_video'
-                          ? 'Video'
-                          : 'Post';
                     return (
-                      <TouchableOpacity
-                        key={id}
-                        style={[
-                          styles.contentPickRow,
-                          {
-                            borderColor: selected ? accent : hairline,
-                            backgroundColor: selected
-                              ? isDark
-                                ? 'rgba(56,189,248,0.12)'
-                                : 'rgba(28,115,180,0.08)'
-                              : 'transparent',
-                          },
-                        ]}
-                        onPress={() => {
-                          setSelectedPostId(id);
-                          setCompetitionFeedback((prev) =>
-                            prev?.type === 'error' ? null : prev
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        {filtered.map((p) => {
+                          const id = String(p._id);
+                          const selected = selectedPostId === id;
+                          const thumb = mediaThumbUri(p);
+                          const kind =
+                            p.type === 'short'
+                              ? 'Short'
+                              : p.type === 'long_video'
+                                ? 'Video'
+                                : 'Post';
+                          return (
+                            <TouchableOpacity
+                              key={id}
+                              style={{
+                                width: '47%',
+                                flexGrow: 1,
+                                maxWidth: '48%',
+                                borderRadius: 16,
+                                overflow: 'hidden',
+                                borderWidth: selected ? 2 : StyleSheet.hairlineWidth,
+                                borderColor: selected ? accent : hairline,
+                                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                              }}
+                              onPress={() => {
+                                setSelectedPostId(id);
+                                setCompetitionFeedback((prev) =>
+                                  prev?.type === 'error' ? null : prev
+                                );
+                              }}
+                              activeOpacity={0.85}
+                            >
+                              <View style={{ height: 132, backgroundColor: isDark ? '#1e293b' : '#e2e8f0' }}>
+                                {thumb ? (
+                                  <Image source={{ uri: thumb }} style={{ width: '100%', height: '100%' }} />
+                                ) : (
+                                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                    <Ionicons
+                                      name={
+                                        kind === 'Short'
+                                          ? 'flash-outline'
+                                          : kind === 'Video'
+                                            ? 'videocam-outline'
+                                            : 'image-outline'
+                                      }
+                                      size={26}
+                                      color={muted}
+                                    />
+                                  </View>
+                                )}
+                                {(kind === 'Short' || kind === 'Video') && (
+                                  <View
+                                    style={{
+                                      position: 'absolute',
+                                      right: 8,
+                                      bottom: 8,
+                                      width: 28,
+                                      height: 28,
+                                      borderRadius: 14,
+                                      backgroundColor: 'rgba(15,23,42,0.55)',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Ionicons name="play" size={14} color="#fff" />
+                                  </View>
+                                )}
+                                {selected ? (
+                                  <View
+                                    style={{
+                                      position: 'absolute',
+                                      top: 8,
+                                      right: 8,
+                                      width: 24,
+                                      height: 24,
+                                      borderRadius: 12,
+                                      backgroundColor: accent,
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Ionicons name="checkmark" size={14} color="#fff" />
+                                  </View>
+                                ) : null}
+                              </View>
+                              <View style={{ padding: 10, gap: 2 }}>
+                                <Text style={{ color: accent, fontSize: 10, fontWeight: '800' }}>
+                                  {kind}
+                                </Text>
+                                <Text style={{ color: ink, fontWeight: '600', fontSize: 12 }} numberOfLines={2}>
+                                  {p.caption || p.title || `${kind} entry`}
+                                </Text>
+                                <Text style={{ color: muted, fontSize: 10 }}>
+                                  {typeof p.likesCount === 'number' ? `${p.likesCount} likes` : ''}
+                                  {typeof p.viewsCount === 'number'
+                                    ? `${typeof p.likesCount === 'number' ? ' · ' : ''}${p.viewsCount} views`
+                                    : ''}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
                           );
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        {thumb ? (
-                          <Image source={{ uri: String(thumb) }} style={styles.contentThumb} />
-                        ) : (
-                          <View style={[styles.contentThumb, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)', alignItems: 'center', justifyContent: 'center' }]}>
-                            <Ionicons name="image-outline" size={16} color={muted} />
-                          </View>
-                        )}
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: ink, fontWeight: '600', fontSize: 13 }} numberOfLines={2}>
-                            {p.caption || p.title || `${kind} · ${id.slice(-6)}`}
-                          </Text>
-                          <Text style={{ color: muted, fontSize: 11, marginTop: 2 }}>
-                            {kind}
-                            {typeof p.likesCount === 'number' ? ` · ${p.likesCount} likes` : ''}
-                            {typeof p.viewsCount === 'number' ? ` · ${p.viewsCount} views` : ''}
-                          </Text>
-                        </View>
-                        <Ionicons
-                          name={selected ? 'radio-button-on' : 'radio-button-off'}
-                          size={20}
-                          color={selected ? accent : muted}
-                        />
-                      </TouchableOpacity>
+                        })}
+                      </View>
                     );
-                    });
                   })()}
                 </View>
               )}
@@ -2228,10 +2784,9 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                     } catch (e: any) {
                       setCompetitionFeedback({
                         type: 'error',
-                        text:
-                          e?.userMessage ||
-                          e?.message ||
-                          'Could not submit entry. Try again.',
+                        text: friendlyCompetitionError(
+                          e?.message || e?.userMessage || 'Could not submit entry. Try again.'
+                        ),
                       });
                     } finally {
                       setCompetitionSubmitting(false);
@@ -2247,15 +2802,110 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
               <Text style={[styles.rowMeta, { color: muted, fontWeight: '700', marginTop: 16, marginBottom: 8 }]}>
                 Leaderboard
               </Text>
-              {leaderboard.map((row) => (
-                <View key={`${row.rank}-${row.submissionId || row.team?._id}`} style={[styles.requestRow, { borderColor: hairline }]}>
-                  <Text style={{ color: ink, fontWeight: '700', width: 28 }}>#{row.rank}</Text>
-                  <Text style={{ color: ink, flex: 1 }} numberOfLines={1}>
-                    {row.mode === 'team'
-                      ? row.team?.name || 'Team'
-                      : row.user?.fullName || row.user?.username || 'Entrant'}
+              {leaderboard.map((row) => {
+                const thumb = mediaThumbUri(row.post);
+                const kind =
+                  row.post?.type === 'short'
+                    ? 'Short'
+                    : row.post?.type === 'long_video'
+                      ? 'Video'
+                      : row.mode === 'team'
+                        ? 'Team'
+                        : 'Post';
+                return (
+                <View
+                  key={`${row.rank}-${row.submissionId || row.team?._id}`}
+                  style={[
+                    styles.requestRow,
+                    {
+                      borderColor: hairline,
+                      alignItems: 'center',
+                      gap: 10,
+                      paddingVertical: 10,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: ink, fontWeight: '800', width: 28 }}>#{row.rank}</Text>
+                  <View
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 14,
+                      overflow: 'hidden',
+                      backgroundColor: isDark ? '#1e293b' : '#e2e8f0',
+                    }}
+                  >
+                    {thumb ? (
+                      <Image source={{ uri: thumb }} style={{ width: '100%', height: '100%' }} />
+                    ) : (
+                      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons
+                          name={
+                            kind === 'Short'
+                              ? 'flash-outline'
+                              : kind === 'Video'
+                                ? 'videocam-outline'
+                                : 'image-outline'
+                          }
+                          size={18}
+                          color={muted}
+                        />
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: ink, fontWeight: '700' }} numberOfLines={1}>
+                      {row.mode === 'team'
+                        ? row.team?.name || 'Team'
+                        : row.user?.fullName || row.user?.username || 'Entrant'}
+                    </Text>
+                    <Text style={{ color: muted, fontSize: 11 }} numberOfLines={1}>
+                      {kind}
+                      {row.post?.caption ? ` · ${row.post.caption}` : ''}
+                    </Text>
+                    {row.judgeScore != null ? (
+                      <Text style={{ color: accent, fontSize: 11, fontWeight: '600', marginTop: 2 }}>
+                        Judge {Number(row.judgeScore).toFixed(1)}/10
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={{ color: muted, fontWeight: '700' }}>
+                    {typeof row.metric === 'number' ? Math.round(row.metric * 10) / 10 : row.metric}
                   </Text>
-                  <Text style={{ color: muted, fontWeight: '600' }}>{row.metric}</Text>
+                  {!!events.find((e) => e._id === eventDetailId)?.canManage &&
+                  row.submissionId &&
+                  eventDetailId ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const sid = row.submissionId!;
+                        const eid = eventDetailId;
+                        Alert.alert('Judge score', 'Pick a score from 1–10', [
+                          ...[10, 8, 6, 4, 2].map((score) => ({
+                            text: String(score),
+                            onPress: async () => {
+                              try {
+                                await scoreCompetitionSubmission(eid, sid, score);
+                                await refreshCompetitionBoard(eid);
+                                setCompetitionFeedback({
+                                  type: 'success',
+                                  text: `Judge score saved (${score}/10). Republish winners if you want the showcase updated.`,
+                                });
+                              } catch (e: any) {
+                                setCompetitionFeedback({
+                                  type: 'error',
+                                  text: friendlyCompetitionError(e?.message),
+                                });
+                              }
+                            },
+                          })),
+                          { text: 'Cancel', style: 'cancel' as const },
+                        ]);
+                      }}
+                      style={{ marginLeft: 2 }}
+                    >
+                      <Ionicons name="star-outline" size={16} color={accent} />
+                    </TouchableOpacity>
+                  ) : null}
                   {canModerate && row.submissionId && eventDetailId ? (
                     <TouchableOpacity
                       onPress={async () => {
@@ -2273,7 +2923,9 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                         } catch (e: any) {
                           setCompetitionFeedback({
                             type: 'error',
-                            text: e?.message || 'Could not remove that entry.',
+                            text: friendlyCompetitionError(
+                              e?.message || e?.userMessage || 'Could not remove that entry.'
+                            ),
                           });
                         }
                       }}
@@ -2284,7 +2936,8 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                     </TouchableOpacity>
                   ) : null}
                 </View>
-              ))}
+                );
+              })}
               {leaderboard.length === 0 ? (
                 <Text style={{ color: muted, textAlign: 'center', paddingVertical: 12 }}>No submissions yet</Text>
               ) : null}

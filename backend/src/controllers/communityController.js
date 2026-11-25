@@ -12,6 +12,7 @@ const CommunityEventTeam = require('../models/CommunityEventTeam');
 const CommunityEventRegistration = require('../models/CommunityEventRegistration');
 const CommunityEventCompetition = require('../models/CommunityEventCompetition');
 const CommunityEventSubmission = require('../models/CommunityEventSubmission');
+const CommunityEventJudgeScore = require('../models/CommunityEventJudgeScore');
 const Notification = require('../models/Notification');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
@@ -24,10 +25,70 @@ const {
   isEventHost,
 } = require('../utils/communityRoles');
 const { ownerAdminEntry } = require('../utils/connectGroupAdmins');
+const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 
 async function loadPage(pageId) {
   if (!mongoose.Types.ObjectId.isValid(pageId)) return null;
   return ConnectPage.findById(pageId);
+}
+
+/** Resolve a displayable preview image for posts/shorts/long videos in competition UIs. */
+async function resolveCompetitionPostPreview(post) {
+  if (!post) return null;
+  const out = {
+    _id: post._id,
+    type: post.type,
+    caption: post.caption || '',
+    thumbnailUrl: post.thumbnailUrl || '',
+    imageUrl: post.imageUrl || '',
+    images: Array.isArray(post.images) ? post.images.slice(0, 4) : [],
+  };
+
+  try {
+    if (post.type === 'photo' || !post.type) {
+      if (post.storageKeys?.length) {
+        const urls = await generateSignedUrls(post.storageKeys.slice(0, 4), 'IMAGE');
+        if (urls?.length) {
+          out.images = urls.filter(Boolean);
+          out.imageUrl = urls[0] || out.imageUrl;
+          out.thumbnailUrl = out.thumbnailUrl || urls[0] || '';
+        }
+      } else if (post.storageKey) {
+        const url = await generateSignedUrl(post.storageKey, 'IMAGE');
+        if (url) {
+          out.imageUrl = url;
+          out.thumbnailUrl = out.thumbnailUrl || url;
+        }
+      }
+    } else if (post.type === 'short' || post.type === 'long_video') {
+      const thumbKey =
+        post.thumbnailUrl && !/^https?:\/\//i.test(post.thumbnailUrl)
+          ? post.thumbnailUrl
+          : (post.storageKeys || []).find(
+              (k) => k && (k.endsWith('.jpg') || k.endsWith('.jpeg') || k.endsWith('.png') || k.endsWith('.webp'))
+            );
+      if (thumbKey) {
+        const url = await generateSignedUrl(thumbKey, 'IMAGE');
+        if (url) {
+          out.thumbnailUrl = url;
+          out.imageUrl = out.imageUrl || url;
+        }
+      } else if (post.thumbnailUrl && /^https?:\/\//i.test(post.thumbnailUrl)) {
+        out.thumbnailUrl = post.thumbnailUrl;
+        out.imageUrl = out.imageUrl || post.thumbnailUrl;
+      } else if (post.imageUrl && /^https?:\/\//i.test(post.imageUrl)) {
+        out.thumbnailUrl = post.imageUrl;
+        out.imageUrl = post.imageUrl;
+      }
+    }
+  } catch (e) {
+    logger.warn('resolveCompetitionPostPreview failed:', e?.message);
+  }
+
+  if (!out.thumbnailUrl) {
+    out.thumbnailUrl = out.imageUrl || (out.images && out.images[0]) || '';
+  }
+  return out;
 }
 
 async function assertCommunityMember(pageId, userId) {
@@ -105,10 +166,18 @@ function normalizeAllowedMedia(value) {
     return [...ALL_ENTRY_MEDIA];
   }
   if (Array.isArray(value)) {
+    // Legacy docs sometimes stored ['both'] / ['all'] after schema migration
+    if (
+      value.length === 0 ||
+      value.every((v) => v === 'both' || v === 'all' || v == null || v === '')
+    ) {
+      return [...ALL_ENTRY_MEDIA];
+    }
     const set = new Set(
       value.filter((v) => typeof v === 'string' && ENTRY_MEDIA_KINDS.includes(v))
     );
-    return ENTRY_MEDIA_KINDS.filter((k) => set.has(k));
+    const resolved = ENTRY_MEDIA_KINDS.filter((k) => set.has(k));
+    return resolved.length ? resolved : [...ALL_ENTRY_MEDIA];
   }
   if (typeof value === 'string' && ENTRY_MEDIA_KINDS.includes(value)) {
     return [value];
@@ -139,6 +208,14 @@ function isEntryMediaAllowed(allowedMedia, postType) {
   return allowed.includes(postTypeToEntryKind(postType));
 }
 
+const EVENT_TEMPLATE_KEYS = [
+  'best_short',
+  'photo_dump',
+  'long_story',
+  'open_media',
+  'team_challenge',
+];
+
 function serializeEvent(doc, extras = {}) {
   const o = doc.toObject ? doc.toObject() : { ...doc };
   return {
@@ -154,10 +231,12 @@ function serializeEvent(doc, extras = {}) {
     visibility: o.visibility,
     participationMode: o.participationMode,
     allowedEntryMedia: normalizeAllowedMedia(o.allowedEntryMedia),
+    templateKey: o.templateKey || null,
     hostIds: o.hostIds || [],
     createdBy: o.createdBy,
     registrationOpen: o.registrationOpen !== false,
     participantCount: o.participantCount || 0,
+    waitlistCount: o.waitlistCount || 0,
     chatId: o.chatId,
     announcementChatId: o.announcementChatId,
     status: o.status,
@@ -165,6 +244,98 @@ function serializeEvent(doc, extras = {}) {
     updatedAt: o.updatedAt,
     ...extras,
   };
+}
+
+function isEventFull(event) {
+  return !!(event.maxParticipants && (event.participantCount || 0) >= event.maxParticipants);
+}
+
+async function addUserToEventChats(event, userId) {
+  if (event.chatId) {
+    await Chat.findByIdAndUpdate(event.chatId, { $addToSet: { participants: userId } });
+  }
+  if (event.announcementChatId) {
+    await Chat.findByIdAndUpdate(event.announcementChatId, {
+      $addToSet: { participants: userId },
+    });
+  }
+}
+
+/** Promote oldest waitlisted individual registration into an open seat. */
+async function promoteNextWaitlisted(event) {
+  if (!event || isEventFull(event)) return null;
+  const next = await CommunityEventRegistration.findOne({
+    eventId: event._id,
+    status: 'waitlisted',
+    userId: { $ne: null },
+  }).sort({ createdAt: 1 });
+  if (!next) return null;
+
+  next.status = 'active';
+  await next.save();
+  event.participantCount = (event.participantCount || 0) + 1;
+  event.waitlistCount = Math.max(0, (event.waitlistCount || 0) - 1);
+  await event.save();
+  await addUserToEventChats(event, next.userId);
+
+  try {
+    const page = await loadPage(event.connectPageId);
+    const pageName = page?.name || 'community';
+    const body = `A spot opened — you're in for ${event.title}`;
+    await Notification.createNotification({
+      type: 'community_event_waitlist_promoted',
+      fromUser: event.createdBy,
+      toUser: next.userId,
+      metadata: {
+        kind: 'community_event_waitlist_promoted',
+        connectPageId: event.connectPageId.toString(),
+        eventId: event._id.toString(),
+        pageName,
+        eventTitle: event.title,
+        message: `A spot opened — you're in for ${event.title}`,
+      },
+    }).catch(() => null);
+    await sendNotificationToUser({
+      userId: next.userId.toString(),
+      title: "You're off the waitlist",
+      body,
+      data: {
+        type: 'community_event_waitlist_promoted',
+        connectPageId: event.connectPageId.toString(),
+        eventId: event._id.toString(),
+        fromUserId: event.createdBy.toString(),
+        pageName,
+        eventTitle: event.title,
+        kind: 'community_event_waitlist_promoted',
+      },
+    }).catch(() => null);
+  } catch (e) {
+    logger.warn('promoteNextWaitlisted notify failed:', e?.message);
+  }
+  return next;
+}
+
+function canJudgeCompetition(event, competition, userId, page = null) {
+  if (isEventHost(event, userId)) return true;
+  if (page && canManageCommunity(page, userId)) return true;
+  const uid = userId.toString();
+  return (competition.judgeIds || []).some((id) => id && id.toString() === uid);
+}
+
+/** Coerce legacy string allowedMedia ('both'|'all'|'post'|…) before mongoose array enum validation. */
+function sanitizeCompetitionDoc(competition) {
+  if (!competition) return competition;
+  competition.allowedMedia = normalizeAllowedMedia(competition.allowedMedia);
+  if (typeof competition.markModified === 'function') {
+    competition.markModified('allowedMedia');
+  }
+  if (!['engagement', 'judges', 'hybrid'].includes(competition.rankMode)) {
+    competition.rankMode = 'engagement';
+  }
+  if (competition.judgeWeight == null || Number.isNaN(Number(competition.judgeWeight))) {
+    competition.judgeWeight = 50;
+  }
+  return competition;
 }
 
 // ─────────────────────────────────────────────
@@ -770,7 +941,7 @@ const listEvents = async (req, res) => {
     const eventIds = events.map((e) => e._id);
     const myRegs = await CommunityEventRegistration.find({
       eventId: { $in: eventIds },
-      status: 'active',
+      status: { $in: ['active', 'waitlisted'] },
       $or: [{ userId: req.user._id }, { teamId: { $exists: true } }],
     }).lean();
 
@@ -791,27 +962,48 @@ const listEvents = async (req, res) => {
     );
 
     const registeredEventIds = new Set();
+    const waitlistedEventIds = new Set();
+    const regStatusByEvent = {};
     myRegs.forEach((r) => {
+      const eid = r.eventId.toString();
       if (r.userId && r.userId.toString() === req.user._id.toString()) {
-        registeredEventIds.add(r.eventId.toString());
+        regStatusByEvent[eid] = r.status;
+        if (r.status === 'active') registeredEventIds.add(eid);
+        if (r.status === 'waitlisted') waitlistedEventIds.add(eid);
       }
-      const myTeam = teamByEvent[r.eventId.toString()];
-      if (r.teamId && myTeam && myTeam._id.toString() === r.teamId.toString()) {
-        registeredEventIds.add(r.eventId.toString());
+      const myTeam = teamByEvent[eid];
+      if (r.teamId && myTeam && myTeam._id.toString() === r.teamId.toString() && r.status === 'active') {
+        registeredEventIds.add(eid);
+        regStatusByEvent[eid] = 'active';
       }
     });
     // Team membership alone counts as registered for group/both modes
-    Object.keys(teamByEvent).forEach((eid) => registeredEventIds.add(eid));
+    Object.keys(teamByEvent).forEach((eid) => {
+      registeredEventIds.add(eid);
+      if (!regStatusByEvent[eid]) regStatusByEvent[eid] = 'active';
+    });
 
     return sendSuccess(res, 200, 'Events', {
       events: events.map((e) => {
         const eid = e._id.toString();
+        const competition = competitionByEvent[eid] || null;
+        const competitionOut = competition
+          ? {
+              ...competition,
+              allowedMedia: normalizeAllowedMedia(
+                competition.allowedMedia || e.allowedEntryMedia
+              ),
+            }
+          : null;
         return serializeEvent(e, {
           isRegistered: registeredEventIds.has(eid),
+          isWaitlisted: waitlistedEventIds.has(eid),
+          registrationStatus: regStatusByEvent[eid] || null,
+          isFull: isEventFull(e),
           canManage:
             canManageCommunity(access.page, req.user._id) || isEventHost(e, req.user._id),
           myTeam: teamByEvent[eid] || null,
-          competition: competitionByEvent[eid] || null,
+          competition: competitionOut,
         });
       }),
     });
@@ -841,6 +1033,7 @@ const createEvent = async (req, res) => {
       visibility = 'members',
       participationMode = 'individual',
       allowedEntryMedia = 'all',
+      templateKey = null,
       hostIds = [],
       registrationOpen = true,
     } = req.body;
@@ -853,6 +1046,9 @@ const createEvent = async (req, res) => {
     }
     if (!['public', 'members', 'private'].includes(visibility)) {
       return sendError(res, 'VALIDATION_FAILED', 'Invalid visibility');
+    }
+    if (templateKey && !EVENT_TEMPLATE_KEYS.includes(templateKey)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid templateKey');
     }
     if (!isValidAllowedMediaInput(allowedEntryMedia)) {
       return sendError(
@@ -911,12 +1107,14 @@ const createEvent = async (req, res) => {
       visibility,
       participationMode,
       allowedEntryMedia: resolvedEntryMedia,
+      templateKey: templateKey || undefined,
       hostIds: hosts,
       createdBy: req.user._id,
       registrationOpen: registrationOpen !== false,
       chatId: eventChat._id,
       announcementChatId: announceChat._id,
       status: 'published',
+      waitlistCount: 0,
     });
 
     eventChat.relatedEntity = { type: 'community_event', refId: event._id };
@@ -1014,22 +1212,28 @@ const getEvent = async (req, res) => {
     }
 
     const competition = await CommunityEventCompetition.findOne({ eventId }).lean();
-    const myIndividual = await CommunityEventRegistration.findOne({
+    const myRegistration = await CommunityEventRegistration.findOne({
       eventId,
       userId: req.user._id,
-      status: 'active',
+      status: { $in: ['active', 'waitlisted'] },
     }).lean();
     const myTeam = await CommunityEventTeam.findOne({
       eventId,
       $or: [{ captainId: req.user._id }, { memberIds: req.user._id }],
       status: { $ne: 'withdrawn' },
     }).lean();
+    const isRegistered =
+      !!(myRegistration && myRegistration.status === 'active') || !!myTeam;
+    const isWaitlisted = !!(myRegistration && myRegistration.status === 'waitlisted');
 
     return sendSuccess(res, 200, 'Event', {
       event: serializeEvent(event, {
         canManage:
           canManageCommunity(access.page, req.user._id) || isEventHost(event, req.user._id),
-        isRegistered: !!(myIndividual || myTeam),
+        isRegistered,
+        isWaitlisted,
+        registrationStatus: myRegistration?.status || (myTeam ? 'active' : null),
+        isFull: isEventFull(event),
         myTeam: myTeam || null,
         competition: competition || null,
       }),
@@ -1058,6 +1262,7 @@ const updateEvent = async (req, res) => {
       'visibility',
       'participationMode',
       'allowedEntryMedia',
+      'templateKey',
       'registrationOpen',
       'status',
     ];
@@ -1078,6 +1283,11 @@ const updateEvent = async (req, res) => {
             return sendError(res, 'VALIDATION_FAILED', 'Select at least one allowed entry type');
           }
           event[key] = resolved;
+        } else if (key === 'templateKey') {
+          if (req.body[key] && !EVENT_TEMPLATE_KEYS.includes(req.body[key])) {
+            return sendError(res, 'VALIDATION_FAILED', 'Invalid templateKey');
+          }
+          event[key] = req.body[key] || undefined;
         } else {
           event[key] = req.body[key];
         }
@@ -1090,7 +1300,7 @@ const updateEvent = async (req, res) => {
     if (req.body.allowedEntryMedia !== undefined) {
       await CommunityEventCompetition.updateOne(
         { eventId: event._id },
-        { $set: { allowedMedia: event.allowedEntryMedia } }
+        { $set: { allowedMedia: normalizeAllowedMedia(event.allowedEntryMedia) } }
       );
     }
 
@@ -1122,42 +1332,101 @@ const registerForEvent = async (req, res) => {
     const existing = await CommunityEventRegistration.findOne({
       eventId,
       userId: req.user._id,
-      status: 'active',
+      status: { $in: ['active', 'waitlisted'] },
     });
     if (existing) {
-      return sendSuccess(res, 200, 'Already registered', { registration: existing });
+      return sendSuccess(res, 200, existing.status === 'waitlisted' ? 'Already waitlisted' : 'Already registered', {
+        registration: existing,
+        isWaitlisted: existing.status === 'waitlisted',
+        isRegistered: existing.status === 'active',
+      });
     }
 
-    if (event.maxParticipants && event.participantCount >= event.maxParticipants) {
-      return sendError(res, 'BUSINESS_LIMIT_EXCEEDED', 'Event is full');
-    }
-
-    const registration = await CommunityEventRegistration.create({
+    // Reactivate a prior cancellation if a seat is free; otherwise waitlist
+    const prior = await CommunityEventRegistration.findOne({
       eventId,
-      connectPageId: event.connectPageId,
-      mode: 'individual',
       userId: req.user._id,
-      status: 'active',
+      status: 'cancelled',
     });
 
-    event.participantCount = (event.participantCount || 0) + 1;
+    const full = isEventFull(event);
+    const nextStatus = full ? 'waitlisted' : 'active';
+
+    let registration;
+    if (prior) {
+      prior.status = nextStatus;
+      prior.mode = 'individual';
+      await prior.save();
+      registration = prior;
+    } else {
+      registration = await CommunityEventRegistration.create({
+        eventId,
+        connectPageId: event.connectPageId,
+        mode: 'individual',
+        userId: req.user._id,
+        status: nextStatus,
+      });
+    }
+
+    if (nextStatus === 'active') {
+      event.participantCount = (event.participantCount || 0) + 1;
+      await event.save();
+      await addUserToEventChats(event, req.user._id);
+      return sendSuccess(res, 201, 'Registered', {
+        registration,
+        isRegistered: true,
+        isWaitlisted: false,
+      });
+    }
+
+    event.waitlistCount = (event.waitlistCount || 0) + 1;
     await event.save();
-
-    if (event.chatId) {
-      await Chat.findByIdAndUpdate(event.chatId, {
-        $addToSet: { participants: req.user._id },
-      });
-    }
-    if (event.announcementChatId) {
-      await Chat.findByIdAndUpdate(event.announcementChatId, {
-        $addToSet: { participants: req.user._id },
-      });
-    }
-
-    return sendSuccess(res, 201, 'Registered', { registration });
+    return sendSuccess(res, 201, 'Added to waitlist', {
+      registration,
+      isRegistered: false,
+      isWaitlisted: true,
+    });
   } catch (error) {
     logger.error('registerForEvent error:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to register');
+  }
+};
+
+const leaveEvent = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const event = await CommunityEvent.findById(eventId);
+    if (!event) return sendError(res, 'RESOURCE_NOT_FOUND', 'Event not found');
+
+    const registration = await CommunityEventRegistration.findOne({
+      eventId,
+      userId: req.user._id,
+      status: { $in: ['active', 'waitlisted'] },
+    });
+    if (!registration) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'You are not registered for this event');
+    }
+
+    const wasActive = registration.status === 'active';
+    const wasWaitlisted = registration.status === 'waitlisted';
+    registration.status = 'cancelled';
+    await registration.save();
+
+    if (wasActive) {
+      event.participantCount = Math.max(0, (event.participantCount || 0) - 1);
+      await event.save();
+      await promoteNextWaitlisted(event);
+    } else if (wasWaitlisted) {
+      event.waitlistCount = Math.max(0, (event.waitlistCount || 0) - 1);
+      await event.save();
+    }
+
+    return sendSuccess(res, 200, 'Left event', {
+      event: serializeEvent(event),
+    });
+  } catch (error) {
+    logger.error('leaveEvent error:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to leave event');
   }
 };
 
@@ -1427,6 +1696,9 @@ const upsertCompetition = async (req, res) => {
     const {
       enabled = true,
       rankBy = 'likes',
+      rankMode = 'engagement',
+      judgeWeight = 50,
+      judgeIds,
       allowedMedia,
       rulesText = '',
       submissionsOpen = true,
@@ -1438,6 +1710,10 @@ const upsertCompetition = async (req, res) => {
     if (!['likes', 'views'].includes(rankBy)) {
       return sendError(res, 'VALIDATION_FAILED', 'rankBy must be likes or views');
     }
+    if (!['engagement', 'judges', 'hybrid'].includes(rankMode)) {
+      return sendError(res, 'VALIDATION_FAILED', 'rankMode must be engagement, judges, or hybrid');
+    }
+    const resolvedJudgeWeight = Math.max(0, Math.min(100, Number(judgeWeight) || 50));
     const mediaInput =
       allowedMedia !== undefined ? allowedMedia : event.allowedEntryMedia || ALL_ENTRY_MEDIA;
     if (!isValidAllowedMediaInput(mediaInput)) {
@@ -1451,6 +1727,10 @@ const upsertCompetition = async (req, res) => {
     if (resolvedMedia.length === 0) {
       return sendError(res, 'VALIDATION_FAILED', 'Select at least one allowed entry type');
     }
+    const resolvedJudgeIds = Array.isArray(judgeIds)
+      ? [...new Set(judgeIds.map((id) => String(id)).filter((id) => mongoose.Types.ObjectId.isValid(id)))]
+          .map((id) => new mongoose.Types.ObjectId(id))
+      : undefined;
 
     let competition = await CommunityEventCompetition.findOne({ eventId });
     if (!competition) {
@@ -1459,6 +1739,9 @@ const upsertCompetition = async (req, res) => {
         connectPageId: event.connectPageId,
         enabled: !!enabled,
         rankBy,
+        rankMode,
+        judgeWeight: resolvedJudgeWeight,
+        judgeIds: resolvedJudgeIds || [],
         allowedMedia: resolvedMedia,
         rulesText: String(rulesText || '').slice(0, 4000),
         submissionsOpen: submissionsOpen !== false,
@@ -1470,12 +1753,16 @@ const upsertCompetition = async (req, res) => {
     } else {
       competition.enabled = enabled !== undefined ? !!enabled : competition.enabled;
       competition.rankBy = rankBy;
+      competition.rankMode = rankMode;
+      competition.judgeWeight = resolvedJudgeWeight;
+      if (resolvedJudgeIds !== undefined) competition.judgeIds = resolvedJudgeIds;
       competition.allowedMedia = resolvedMedia;
       if (rulesText !== undefined) competition.rulesText = String(rulesText).slice(0, 4000);
       if (submissionsOpen !== undefined) competition.submissionsOpen = !!submissionsOpen;
       if (startsAt !== undefined) competition.startsAt = startsAt ? new Date(startsAt) : null;
       if (endsAt !== undefined) competition.endsAt = endsAt ? new Date(endsAt) : null;
       if (frozen !== undefined) competition.frozen = !!frozen;
+      sanitizeCompetitionDoc(competition);
       await competition.save();
     }
 
@@ -1767,10 +2054,13 @@ const getCompetitionLeaderboard = async (req, res) => {
       );
       competition.frozen = true;
       competition.submissionsOpen = false;
+      sanitizeCompetitionDoc(competition);
       await competition.save();
     }
 
     const competitionLean = competition.toObject ? competition.toObject() : competition;
+    const rankMode = competitionLean.rankMode || 'engagement';
+    const judgeWeight = Math.max(0, Math.min(100, Number(competitionLean.judgeWeight) || 50));
 
     const submissions = await CommunityEventSubmission.find({
       competitionId: competition._id,
@@ -1782,9 +2072,14 @@ const getCompetitionLeaderboard = async (req, res) => {
 
     const postIds = submissions.map((s) => s.postId);
     const posts = await Post.find({ _id: { $in: postIds } })
-      .select('type caption thumbnailUrl imageUrl videoUrl likesCount viewsCount views user')
+      .select(
+        'type caption thumbnailUrl imageUrl images videoUrl storageKey storageKeys likesCount viewsCount views user'
+      )
       .lean();
-    const postById = Object.fromEntries(posts.map((p) => [p._id.toString(), p]));
+    const previewList = await Promise.all(posts.map((p) => resolveCompetitionPostPreview(p)));
+    const postById = Object.fromEntries(
+      posts.map((p, i) => [p._id.toString(), { ...p, preview: previewList[i] }])
+    );
 
     const likeCounts = {};
     if (!competitionLean.frozen) {
@@ -1797,6 +2092,18 @@ const getCompetitionLeaderboard = async (req, res) => {
       });
     }
 
+    const subIds = submissions.map((s) => s._id);
+    const scores = await CommunityEventJudgeScore.find({
+      competitionId: competition._id,
+      submissionId: { $in: subIds },
+    }).lean();
+    const scoresBySub = {};
+    scores.forEach((s) => {
+      const key = s.submissionId.toString();
+      if (!scoresBySub[key]) scoresBySub[key] = [];
+      scoresBySub[key].push(s.score);
+    });
+
     const rows = [];
     for (const sub of submissions) {
       const post = postById[sub.postId.toString()];
@@ -1807,7 +2114,13 @@ const getCompetitionLeaderboard = async (req, res) => {
       const views = competitionLean.frozen
         ? sub.snapshotViews ?? 0
         : post.viewsCount || post.views || 0;
-      const metric = competitionLean.rankBy === 'views' ? views : likes;
+      const engagement = competitionLean.rankBy === 'views' ? views : likes;
+      const judgeList = scoresBySub[sub._id.toString()] || [];
+      const judgeScore =
+        judgeList.length > 0
+          ? judgeList.reduce((a, b) => a + b, 0) / judgeList.length
+          : null;
+      const preview = post.preview || {};
       rows.push({
         submissionId: sub._id,
         mode: sub.mode,
@@ -1817,13 +2130,33 @@ const getCompetitionLeaderboard = async (req, res) => {
           _id: post._id,
           type: post.type,
           caption: post.caption,
-          thumbnailUrl: post.thumbnailUrl || post.imageUrl,
+          thumbnailUrl: preview.thumbnailUrl || post.thumbnailUrl || post.imageUrl || '',
+          imageUrl: preview.imageUrl || post.imageUrl || '',
+          images: preview.images || post.images || [],
         },
         likes,
         views,
-        metric,
+        engagement,
+        judgeScore,
+        judgeCount: judgeList.length,
+        metric: engagement,
       });
     }
+
+    // Normalize for hybrid/judges ranking
+    const maxEngagement = Math.max(...rows.map((r) => r.engagement), 1);
+    rows.forEach((row) => {
+      const engNorm = (row.engagement / maxEngagement) * 10;
+      const judgeNorm = row.judgeScore == null ? 0 : row.judgeScore;
+      if (rankMode === 'judges') {
+        row.metric = judgeNorm;
+      } else if (rankMode === 'hybrid') {
+        const w = judgeWeight / 100;
+        row.metric = engNorm * (1 - w) + judgeNorm * w;
+      } else {
+        row.metric = row.engagement;
+      }
+    });
 
     // Team aggregation: sum member metrics under the same teamId
     const teamBuckets = new Map();
@@ -1837,16 +2170,32 @@ const getCompetitionLeaderboard = async (req, res) => {
           submissions: [],
           likes: 0,
           views: 0,
+          engagement: 0,
+          judgeScore: null,
+          judgeCount: 0,
           metric: 0,
+          _judgeSum: 0,
+          _judgeN: 0,
         };
         bucket.submissions.push(row);
         bucket.likes += row.likes;
         bucket.views += row.views;
+        bucket.engagement += row.engagement;
         bucket.metric += row.metric;
+        if (row.judgeScore != null) {
+          bucket._judgeSum += row.judgeScore;
+          bucket._judgeN += 1;
+        }
+        bucket.judgeCount += row.judgeCount;
         teamBuckets.set(key, bucket);
       } else {
         individualRows.push(row);
       }
+    }
+    for (const bucket of teamBuckets.values()) {
+      bucket.judgeScore = bucket._judgeN > 0 ? bucket._judgeSum / bucket._judgeN : null;
+      delete bucket._judgeSum;
+      delete bucket._judgeN;
     }
 
     const leaderboard = [...individualRows, ...teamBuckets.values()].sort(
@@ -1860,11 +2209,272 @@ const getCompetitionLeaderboard = async (req, res) => {
       competition: competitionLean,
       leaderboard,
       rankBy: competitionLean.rankBy,
+      rankMode,
+      judgeWeight,
       frozen: !!competitionLean.frozen,
     });
   } catch (error) {
     logger.error('getCompetitionLeaderboard error:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to load leaderboard');
+  }
+};
+
+const scoreCompetitionSubmission = async (req, res) => {
+  try {
+    const { eventId, submissionId } = req.params;
+    const score = Number(req.body.score);
+    if (!Number.isFinite(score) || score < 1 || score > 10) {
+      return sendError(res, 'VALIDATION_FAILED', 'score must be between 1 and 10');
+    }
+
+    const event = await CommunityEvent.findById(eventId);
+    if (!event) return sendError(res, 'RESOURCE_NOT_FOUND', 'Event not found');
+    const competition = await CommunityEventCompetition.findOne({ eventId, enabled: true });
+    if (!competition) return sendError(res, 'RESOURCE_NOT_FOUND', 'Competition not found');
+    const page = await loadPage(event.connectPageId);
+    if (!canJudgeCompetition(event, competition, req.user._id, page)) {
+      return sendError(
+        res,
+        'BUSINESS_INSUFFICIENT_PERMISSIONS',
+        'Only event hosts, community managers, or assigned judges can score entries'
+      );
+    }
+    // Allow scoring even after freeze/showcase so hosts can finalize hybrid ranks,
+    // then republish the showcase if needed.
+
+    const submission = await CommunityEventSubmission.findOne({
+      _id: submissionId,
+      eventId,
+      status: 'active',
+    });
+    if (!submission) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'That entry is no longer on the leaderboard');
+    }
+
+    const doc = await CommunityEventJudgeScore.findOneAndUpdate(
+      {
+        competitionId: competition._id,
+        submissionId: submission._id,
+        judgeId: req.user._id,
+      },
+      {
+        $set: {
+          score,
+          eventId: event._id,
+        },
+        $setOnInsert: {
+          competitionId: competition._id,
+          submissionId: submission._id,
+          judgeId: req.user._id,
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    return sendSuccess(res, 200, 'Score saved', { score: doc });
+  } catch (error) {
+    logger.error('scoreCompetitionSubmission error:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to save score');
+  }
+};
+
+const publishCompetitionShowcase = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const limit = Math.min(Math.max(Number(req.body.limit) || 5, 1), 20);
+    const event = await CommunityEvent.findById(eventId);
+    if (!event) return sendError(res, 'RESOURCE_NOT_FOUND', 'Event not found');
+    const page = await loadPage(event.connectPageId);
+    if (!page || (!canManageCommunity(page, req.user._id) && !isEventHost(event, req.user._id))) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only hosts can publish showcase');
+    }
+
+    const competition = await CommunityEventCompetition.findOne({ eventId, enabled: true });
+    if (!competition) return sendError(res, 'RESOURCE_NOT_FOUND', 'Competition not found');
+
+    const submissions = await CommunityEventSubmission.find({
+      competitionId: competition._id,
+      status: 'active',
+    }).lean();
+    if (!submissions.length) {
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'No active submissions to showcase');
+    }
+
+    const postIds = submissions.map((s) => s.postId);
+    const posts = await Post.find({ _id: { $in: postIds } })
+      .select('likesCount viewsCount views')
+      .lean();
+    const postById = Object.fromEntries(posts.map((p) => [p._id.toString(), p]));
+    const likeCounts = {};
+    const counts = await Like.aggregate([
+      { $match: { post: { $in: postIds } } },
+      { $group: { _id: '$post', count: { $sum: 1 } } },
+    ]);
+    counts.forEach((c) => {
+      likeCounts[c._id.toString()] = c.count;
+    });
+
+    const scores = await CommunityEventJudgeScore.find({
+      competitionId: competition._id,
+      submissionId: { $in: submissions.map((s) => s._id) },
+    }).lean();
+    const scoresBySub = {};
+    scores.forEach((s) => {
+      const key = s.submissionId.toString();
+      if (!scoresBySub[key]) scoresBySub[key] = [];
+      scoresBySub[key].push(s.score);
+    });
+
+    const rankMode = competition.rankMode || 'engagement';
+    const judgeWeight = Math.max(0, Math.min(100, Number(competition.judgeWeight) || 50));
+    const rows = submissions.map((sub) => {
+      const post = postById[sub.postId.toString()];
+      const likes = competition.frozen
+        ? sub.snapshotLikes ?? 0
+        : likeCounts[sub.postId.toString()] ?? post?.likesCount ?? 0;
+      const views = competition.frozen
+        ? sub.snapshotViews ?? 0
+        : post?.viewsCount || post?.views || 0;
+      const engagement = competition.rankBy === 'views' ? views : likes;
+      const judgeList = scoresBySub[sub._id.toString()] || [];
+      const judgeScore =
+        judgeList.length > 0
+          ? judgeList.reduce((a, b) => a + b, 0) / judgeList.length
+          : null;
+      return {
+        submissionId: sub._id,
+        postId: sub.postId,
+        userId: sub.userId,
+        engagement,
+        judgeScore,
+      };
+    });
+    const maxEngagement = Math.max(...rows.map((r) => r.engagement), 1);
+    rows.forEach((row) => {
+      const engNorm = (row.engagement / maxEngagement) * 10;
+      const judgeNorm = row.judgeScore == null ? 0 : row.judgeScore;
+      if (rankMode === 'judges') row.metric = judgeNorm;
+      else if (rankMode === 'hybrid') {
+        const w = judgeWeight / 100;
+        row.metric = engNorm * (1 - w) + judgeNorm * w;
+      } else row.metric = row.engagement;
+    });
+    rows.sort((a, b) => b.metric - a.metric);
+    const top = rows.slice(0, limit).map((r, idx) => ({
+      submissionId: r.submissionId,
+      postId: r.postId,
+      userId: r.userId,
+      rank: idx + 1,
+      metric: r.metric,
+    }));
+
+    competition.showcase = {
+      publishedAt: new Date(),
+      entries: top,
+    };
+    if (!competition.frozen) {
+      competition.frozen = true;
+      competition.submissionsOpen = false;
+    }
+    sanitizeCompetitionDoc(competition);
+    await competition.save();
+
+    try {
+      const registrants = await CommunityEventRegistration.find({
+        eventId,
+        status: 'active',
+        userId: { $ne: null },
+      })
+        .select('userId')
+        .limit(200)
+        .lean();
+      const pageName = page.name || 'community';
+      const body = `Winners are up for ${event.title}`;
+      await Promise.all(
+        registrants.map(async (reg) => {
+          if (!reg.userId) return;
+          await Notification.createNotification({
+            type: 'community_event_showcase_published',
+            fromUser: req.user._id,
+            toUser: reg.userId,
+            metadata: {
+              kind: 'community_event_showcase_published',
+              connectPageId: event.connectPageId.toString(),
+              eventId: event._id.toString(),
+              pageName,
+              eventTitle: event.title,
+              message: `published winners for ${event.title}`,
+            },
+          }).catch(() => null);
+          await sendNotificationToUser({
+            userId: reg.userId.toString(),
+            title: 'Event winners',
+            body,
+            data: {
+              type: 'community_event_showcase_published',
+              connectPageId: event.connectPageId.toString(),
+              eventId: event._id.toString(),
+              fromUserId: req.user._id.toString(),
+              pageName,
+              eventTitle: event.title,
+              kind: 'community_event_showcase_published',
+            },
+          }).catch(() => null);
+        })
+      );
+    } catch (e) {
+      logger.warn('showcase notify failed:', e?.message);
+    }
+
+    return sendSuccess(res, 200, 'Showcase published', {
+      showcase: competition.showcase,
+      competition,
+    });
+  } catch (error) {
+    logger.error('publishCompetitionShowcase error:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to publish showcase');
+  }
+};
+
+const getCompetitionShowcase = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const competition = await CommunityEventCompetition.findOne({ eventId }).lean();
+    if (!competition) return sendError(res, 'RESOURCE_NOT_FOUND', 'Competition not found');
+    const showcase = competition.showcase || { publishedAt: null, entries: [] };
+    if (!showcase.publishedAt || !showcase.entries?.length) {
+      return sendSuccess(res, 200, 'Showcase', { showcase: { publishedAt: null, entries: [] } });
+    }
+
+    const postIds = showcase.entries.map((e) => e.postId).filter(Boolean);
+    const userIds = showcase.entries.map((e) => e.userId).filter(Boolean);
+    const [posts, users] = await Promise.all([
+      Post.find({ _id: { $in: postIds } })
+        .select('type caption thumbnailUrl imageUrl images storageKey storageKeys')
+        .lean(),
+      User.find({ _id: { $in: userIds } })
+        .select('fullName username profilePic')
+        .lean(),
+    ]);
+    const previews = await Promise.all(posts.map((p) => resolveCompetitionPostPreview(p)));
+    const postById = Object.fromEntries(
+      posts.map((p, i) => [p._id.toString(), previews[i] || p])
+    );
+    const userById = Object.fromEntries(users.map((u) => [u._id.toString(), u]));
+
+    return sendSuccess(res, 200, 'Showcase', {
+      showcase: {
+        publishedAt: showcase.publishedAt,
+        entries: showcase.entries.map((e) => ({
+          ...e,
+          post: postById[e.postId?.toString()] || null,
+          user: userById[e.userId?.toString()] || null,
+        })),
+      },
+    });
+  } catch (error) {
+    logger.error('getCompetitionShowcase error:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to load showcase');
   }
 };
 
@@ -1884,6 +2494,7 @@ module.exports = {
   getEvent,
   updateEvent,
   registerForEvent,
+  leaveEvent,
   createEventTeam,
   acceptTeamInvite,
   openEventHostDm,
@@ -1891,4 +2502,7 @@ module.exports = {
   submitCompetitionEntry,
   removeCompetitionSubmission,
   getCompetitionLeaderboard,
+  scoreCompetitionSubmission,
+  publishCompetitionShowcase,
+  getCompetitionShowcase,
 };

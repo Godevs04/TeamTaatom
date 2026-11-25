@@ -45,13 +45,35 @@ export type CommunityJoinRequest = {
 
 export type AllowedEntryMedia = "post" | "short" | "long_video";
 
+export type EventTemplateKey =
+  | "best_short"
+  | "photo_dump"
+  | "long_story"
+  | "open_media"
+  | "team_challenge";
+
 export type CommunityCompetition = {
   _id?: string;
   enabled?: boolean;
   submissionsOpen?: boolean;
   rankBy?: "likes" | "views" | string;
+  rankMode?: "engagement" | "judges" | "hybrid";
+  judgeWeight?: number;
+  judgeIds?: string[];
   frozen?: boolean;
   allowedMedia?: AllowedEntryMedia[] | AllowedEntryMedia | "all" | "both" | string;
+  showcase?: {
+    publishedAt?: string | null;
+    entries?: Array<{
+      submissionId?: string;
+      postId?: string;
+      userId?: string;
+      rank?: number;
+      metric?: number;
+      post?: { _id?: string; type?: string; caption?: string; thumbnailUrl?: string; imageUrl?: string };
+      user?: { _id?: string; fullName?: string; username?: string; profilePic?: string };
+    }>;
+  };
 };
 
 export type LeaderboardRow = {
@@ -59,8 +81,18 @@ export type LeaderboardRow = {
   metric?: number | string;
   submissionId?: string;
   mode?: "individual" | "team" | string;
+  judgeScore?: number | null;
+  judgeCount?: number;
   user?: { _id?: string; fullName?: string; username?: string } | null;
   team?: { _id?: string; name?: string } | null;
+  post?: {
+    _id?: string;
+    type?: string;
+    caption?: string;
+    thumbnailUrl?: string;
+    imageUrl?: string;
+    images?: string[];
+  } | null;
 };
 
 export type CommunityGroupChat = {
@@ -85,7 +117,12 @@ export type CommunityEvent = {
   participationMode: "individual" | "group" | "both";
   /** Multi-select array; legacy string still accepted on read. */
   allowedEntryMedia?: AllowedEntryMedia[] | AllowedEntryMedia | "all" | "both";
+  templateKey?: EventTemplateKey | null;
+  waitlistCount?: number;
   isRegistered?: boolean;
+  isWaitlisted?: boolean;
+  isFull?: boolean;
+  registrationStatus?: "active" | "waitlisted" | "cancelled" | null;
   canManage?: boolean;
   chatId?: string | null;
   announcementChatId?: string | null;
@@ -194,7 +231,16 @@ export async function createCommunityEvent(pageId: string, body: Record<string, 
 
 export async function registerForCommunityEvent(eventId: string) {
   const res = await api.post(`/connect/events/${eventId}/register`);
-  return unwrap<Record<string, unknown>>(res);
+  return unwrap<{
+    registration?: unknown;
+    isRegistered?: boolean;
+    isWaitlisted?: boolean;
+  }>(res);
+}
+
+export async function leaveCommunityEvent(eventId: string) {
+  const res = await api.delete(`/connect/events/${eventId}/register`);
+  return unwrap<{ event: CommunityEvent }>(res);
 }
 
 export async function createEventTeam(
@@ -237,6 +283,32 @@ export async function getCompetitionLeaderboard(eventId: string) {
     competition: CommunityCompetition;
     leaderboard: LeaderboardRow[];
     rankBy: "likes" | "views";
+    rankMode?: "engagement" | "judges" | "hybrid";
+    judgeWeight?: number;
     frozen: boolean;
   }>(res);
+}
+
+export async function scoreCompetitionSubmission(
+  eventId: string,
+  submissionId: string,
+  score: number
+) {
+  const res = await api.put(
+    `/connect/events/${eventId}/competition/submissions/${submissionId}/score`,
+    { score }
+  );
+  return unwrap<Record<string, unknown>>(res);
+}
+
+export async function publishCompetitionShowcase(eventId: string, limit = 5) {
+  const res = await api.post(`/connect/events/${eventId}/competition/showcase`, { limit });
+  return unwrap<{ showcase: CommunityCompetition["showcase"]; competition: CommunityCompetition }>(
+    res
+  );
+}
+
+export async function getCompetitionShowcase(eventId: string) {
+  const res = await api.get(`/connect/events/${eventId}/competition/showcase`);
+  return unwrap<{ showcase: NonNullable<CommunityCompetition["showcase"]> }>(res);
 }

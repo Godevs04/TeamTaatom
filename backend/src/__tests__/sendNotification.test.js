@@ -91,6 +91,18 @@ describe('getScreenForType', () => {
     })).toBe(`/connect/page/${pageId}`);
   });
 
+  it('routes event reminder, waitlist, and showcase pushes to the community page', () => {
+    const pageId = '658428800000000000000099';
+    for (const type of [
+      'community_event_reminder',
+      'community_competition_closing',
+      'community_event_waitlist_promoted',
+      'community_event_showcase_published',
+    ]) {
+      expect(getScreenForType(type, { connectPageId: pageId })).toBe(`/connect/page/${pageId}`);
+    }
+  });
+
   it('opens profile follow requests in the notifications inbox', () => {
     expect(getScreenForType('follow_request', { fromUserId: SENDER_ID })).toBe('/notifications');
   });

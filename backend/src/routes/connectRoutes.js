@@ -214,6 +214,12 @@ router.post(
   authMiddleware,
   communityController.registerForEvent
 );
+router.delete(
+  '/events/:eventId/register',
+  validateEventId,
+  authMiddleware,
+  communityController.leaveEvent
+);
 router.post(
   '/events/:eventId/teams',
   validateEventId,
@@ -263,6 +269,25 @@ router.get(
   validateEventId,
   authMiddleware,
   communityController.getCompetitionLeaderboard
+);
+router.put(
+  '/events/:eventId/competition/submissions/:submissionId/score',
+  validateEventId,
+  validateSubmissionId,
+  authMiddleware,
+  communityController.scoreCompetitionSubmission
+);
+router.post(
+  '/events/:eventId/competition/showcase',
+  validateEventId,
+  authMiddleware,
+  communityController.publishCompetitionShowcase
+);
+router.get(
+  '/events/:eventId/competition/showcase',
+  validateEventId,
+  authMiddleware,
+  communityController.getCompetitionShowcase
 );
 
 module.exports = router;

@@ -89,6 +89,22 @@ function actionCopy(n: Notification): string {
         `removed your competition entry for ${eventTitle}. You may upload a new post or short with fresh counts.`
       );
     }
+    case "community_event_reminder": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "an event";
+      return n.metadata?.message || `${eventTitle} is coming up soon`;
+    }
+    case "community_competition_closing": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return n.metadata?.message || `competition for ${eventTitle} closes soon`;
+    }
+    case "community_event_waitlist_promoted": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return n.metadata?.message || `a spot opened — you're in for ${eventTitle}`;
+    }
+    case "community_event_showcase_published": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return n.metadata?.message || `published winners for ${eventTitle}`;
+    }
     case "creator_program":
       return n.metadata?.message || "updated Creator Monetization";
     default:

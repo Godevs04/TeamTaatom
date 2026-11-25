@@ -721,8 +721,9 @@
  *   get:
  *     summary: Competition leaderboard
  *     description: |
- *       Sorts by host rankBy (likes or views). Team events aggregate as **sum** of members'
- *       active submission metrics. Auto-freezes when competition endsAt has passed.
+ *       Sorts by host rankBy (likes or views) combined with rankMode (engagement|judges|hybrid).
+ *       Team events aggregate as **sum** of members' active submission metrics.
+ *       Auto-freezes when competition endsAt has passed.
  *     tags: [Community]
  *     security:
  *       - bearerAuth: []
@@ -734,7 +735,109 @@
  *           type: string
  *     responses:
  *       200:
- *         description: competition, leaderboard[], rankBy, frozen
+ *         description: competition, leaderboard[], rankBy, rankMode, judgeWeight, frozen
+ */
+
+/**
+ * @swagger
+ * /api/v1/connect/events/{eventId}/register:
+ *   delete:
+ *     summary: Leave event / leave waitlist
+ *     description: Cancels active or waitlisted registration. Leaving an active seat FIFO-promotes the oldest waitlisted member.
+ *     tags: [Community]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Left event; may have promoted waitlist
+ */
+
+/**
+ * @swagger
+ * /api/v1/connect/events/{eventId}/competition/submissions/{submissionId}/score:
+ *   put:
+ *     summary: Judge scores a competition submission
+ *     description: Hosts and competition judgeIds may set a 1–10 score. Upserts per judge.
+ *     tags: [Community]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: submissionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [score]
+ *             properties:
+ *               score:
+ *                 type: number
+ *                 minimum: 1
+ *                 maximum: 10
+ *     responses:
+ *       200:
+ *         description: Score saved
+ */
+
+/**
+ * @swagger
+ * /api/v1/connect/events/{eventId}/competition/showcase:
+ *   get:
+ *     summary: Get published winner showcase
+ *     tags: [Community]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: showcase with ranked entries (post + user populated)
+ *   post:
+ *     summary: Publish winner showcase from current leaderboard
+ *     description: Freezes competition if needed and stores top N entries. Notifies active registrants.
+ *     tags: [Community]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: eventId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               limit:
+ *                 type: integer
+ *                 default: 5
+ *                 minimum: 1
+ *                 maximum: 20
+ *     responses:
+ *       200:
+ *         description: Showcase published
  */
 
 module.exports = {};

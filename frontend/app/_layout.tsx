@@ -117,6 +117,10 @@ const CONNECT_NOTIFICATION_TYPES = new Set([
   'community_event_published',
   'community_event_team_invite',
   'community_competition_removed',
+  'community_event_reminder',
+  'community_competition_closing',
+  'community_event_waitlist_promoted',
+  'community_event_showcase_published',
 ]);
 const REQUEST_INBOX_TYPES = new Set([
   'follow_request',
