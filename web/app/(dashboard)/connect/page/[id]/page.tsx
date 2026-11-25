@@ -188,11 +188,12 @@ export default function ConnectPageDetailPage() {
 
   // Backend may lazily create group chat when owner opens Members — sync into page cache
   // so Group Chat link + promote buttons stay available without a full reload.
+  const pageDetail = detailQ.data;
   React.useEffect(() => {
     const roomId = followersQ.data?.chatRoomId;
-    if (!id || !roomId || !detailQ.data?.page) return;
-    if (detailQ.data.page.chatRoomId === roomId && detailQ.data.page.features?.groupChat) return;
-    qc.setQueryData(["connect-page", id], (old: typeof detailQ.data) => {
+    if (!id || !roomId || !pageDetail?.page) return;
+    if (pageDetail.page.chatRoomId === roomId && pageDetail.page.features?.groupChat) return;
+    qc.setQueryData(["connect-page", id], (old: typeof pageDetail) => {
       if (!old?.page) return old;
       return {
         ...old,
@@ -203,7 +204,7 @@ export default function ConnectPageDetailPage() {
         },
       };
     });
-  }, [followersQ.data?.chatRoomId, id, detailQ.data, qc]);
+  }, [followersQ.data?.chatRoomId, id, pageDetail, qc]);
 
   React.useEffect(() => {
     if (id) void connectRecordView(id);
@@ -687,8 +688,13 @@ export default function ConnectPageDetailPage() {
                       isCommunityPage &&
                       (isOwner || myCommunityRole === "owner" || myCommunityRole === "admin");
                     const communityStaffMap: Partial<Record<string, "admin" | "moderator">> = {};
-                    (communityRolesQ.data?.staff || []).forEach((s: any) => {
-                      const uid = String(s.userId?._id || s.userId || "");
+                    (communityRolesQ.data?.staff || []).forEach((s) => {
+                      const rawUserId = s.userId;
+                      const uid = String(
+                        typeof rawUserId === "object" && rawUserId
+                          ? rawUserId._id || ""
+                          : rawUserId || ""
+                      );
                       if (uid && (s.role === "admin" || s.role === "moderator")) {
                         communityStaffMap[uid] = s.role;
                       }

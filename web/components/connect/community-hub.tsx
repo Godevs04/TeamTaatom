@@ -51,7 +51,12 @@ import {
   upsertEventCompetition,
   type CommunityEvent,
   type CommunityGroupChat,
+  type CommunityJoinRequest,
+  type CommunityMember,
+  type CommunityStaffMember,
+  type LeaderboardRow,
 } from "../../lib/community-api";
+import type { Post } from "../../types/post";
 
 type Tab = "chats" | "events" | "find";
 
@@ -88,13 +93,13 @@ export function CommunityHub({
   const { user } = useAuth();
   const [tab, setTab] = React.useState<Tab>("chats");
   const [loading, setLoading] = React.useState(false);
-  const [myContent, setMyContent] = React.useState<any[]>([]);
+  const [myContent, setMyContent] = React.useState<Post[]>([]);
   const [myContentLoading, setMyContentLoading] = React.useState(false);
   const [selectedPostId, setSelectedPostId] = React.useState<string | null>(null);
   const [manageEventId, setManageEventId] = React.useState<string | null>(null);
   const [groupChats, setGroupChats] = React.useState<CommunityGroupChat[]>([]);
   const [events, setEvents] = React.useState<CommunityEvent[]>([]);
-  const [members, setMembers] = React.useState<any[]>([]);
+  const [members, setMembers] = React.useState<CommunityMember[]>([]);
   const [q, setQ] = React.useState("");
   const [chatName, setChatName] = React.useState("");
   const [chatPrivacy, setChatPrivacy] = React.useState<"public" | "request" | "invite">("public");
@@ -115,15 +120,15 @@ export function CommunityHub({
   const [teamSize, setTeamSize] = React.useState("2");
   const [teamMemberIds, setTeamMemberIds] = React.useState<string[]>([]);
   const [teamQ, setTeamQ] = React.useState("");
-  const [teamCandidates, setTeamCandidates] = React.useState<any[]>([]);
-  const [leaderboard, setLeaderboard] = React.useState<any[]>([]);
+  const [teamCandidates, setTeamCandidates] = React.useState<CommunityMember[]>([]);
+  const [leaderboard, setLeaderboard] = React.useState<LeaderboardRow[]>([]);
   const [activeEventId, setActiveEventId] = React.useState<string | null>(null);
-  const [requests, setRequests] = React.useState<any[]>([]);
+  const [requests, setRequests] = React.useState<CommunityJoinRequest[]>([]);
   const [myRole, setMyRole] = React.useState<string | null>(canManage ? "owner" : null);
-  const [staff, setStaff] = React.useState<any[]>([]);
+  const [staff, setStaff] = React.useState<CommunityStaffMember[]>([]);
   const [inviteGroupId, setInviteGroupId] = React.useState<string | null>(null);
   const [inviteQ, setInviteQ] = React.useState("");
-  const [inviteCandidates, setInviteCandidates] = React.useState<any[]>([]);
+  const [inviteCandidates, setInviteCandidates] = React.useState<CommunityMember[]>([]);
   const canManageStaff = canManage || myRole === "owner" || myRole === "admin";
   const canModerate = canManageStaff || myRole === "moderator";
 
@@ -1165,10 +1170,14 @@ export function CommunityHub({
                     {myContent.map((p) => {
                       const id = String(p._id);
                       const selected = selectedPostId === id;
-                      const label =
-                        p.caption?.trim() ||
-                        p.title?.trim() ||
-                        (p.type === "short" || p.isShort ? "Short" : "Post");
+                      const isShort = p.type === "short";
+                      const thumb =
+                        p.thumbnailUrl ||
+                        p.imageUrl ||
+                        (Array.isArray(p.images) ? p.images[0] : undefined) ||
+                        p.mediaUrl ||
+                        "";
+                      const label = p.caption?.trim() || (isShort ? "Short" : "Post");
                       return (
                         <button
                           key={id}
@@ -1181,16 +1190,16 @@ export function CommunityHub({
                           )}
                           onClick={() => setSelectedPostId(id)}
                         >
-                          {p.media?.[0]?.url || p.thumbnailUrl ? (
+                          {thumb ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={p.media?.[0]?.url || p.thumbnailUrl}
+                              src={thumb}
                               alt=""
                               className="h-10 w-10 shrink-0 rounded-md object-cover"
                             />
                           ) : (
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-zinc-800">
-                              {p.type === "short" || p.isShort ? "▶" : "▣"}
+                              {isShort ? "▶" : "▣"}
                             </div>
                           )}
                           <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -1246,7 +1255,7 @@ export function CommunityHub({
                               try {
                                 await removeCompetitionSubmission(
                                   activeEventId,
-                                  row.submissionId,
+                                  row.submissionId!,
                                   "Removed by host"
                                 );
                                 const res = await getCompetitionLeaderboard(activeEventId);
@@ -1278,7 +1287,12 @@ export function CommunityHub({
                 </p>
                 <ul className="space-y-2">
                   {staff.map((s) => {
-                    const uid = String(s.userId?._id || s.userId);
+                    const rawUserId = s.userId;
+                    const uid = String(
+                      typeof rawUserId === "object" && rawUserId
+                        ? rawUserId._id || ""
+                        : rawUserId || ""
+                    );
                     const name = s.user?.fullName || s.user?.username || "Staff";
                     return (
                       <li key={uid} className="flex items-center justify-between gap-2 text-sm">

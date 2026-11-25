@@ -1,8 +1,65 @@
 import { api } from "./axios";
 
-async function unwrap<T>(res: { data: any }): Promise<T> {
+type ApiEnvelope<T> = {
+  data?: T;
+} & T;
+
+async function unwrap<T>(res: { data: ApiEnvelope<T> }): Promise<T> {
   return (res.data?.data ?? res.data) as T;
 }
+
+export type CommunityMember = {
+  _id: string;
+  fullName?: string;
+  username?: string;
+  profilePic?: string;
+  communityRole?: "owner" | "admin" | "moderator" | "member" | null;
+};
+
+export type CommunityStaffMember = {
+  userId: string | { _id?: string };
+  role: "admin" | "moderator";
+  user?: {
+    _id?: string;
+    fullName?: string;
+    username?: string;
+    profilePic?: string;
+  } | null;
+};
+
+export type CommunityOwner = {
+  _id?: string;
+  fullName?: string;
+  username?: string;
+  profilePic?: string;
+} | null;
+
+export type CommunityJoinRequest = {
+  _id: string;
+  userId?: {
+    _id?: string;
+    fullName?: string;
+    username?: string;
+  } | null;
+};
+
+export type CommunityCompetition = {
+  _id?: string;
+  enabled?: boolean;
+  submissionsOpen?: boolean;
+  rankBy?: "likes" | "views" | string;
+  frozen?: boolean;
+  allowedMedia?: string;
+};
+
+export type LeaderboardRow = {
+  rank: number;
+  metric?: number | string;
+  submissionId?: string;
+  mode?: "individual" | "team" | string;
+  user?: { _id?: string; fullName?: string; username?: string } | null;
+  team?: { _id?: string; name?: string } | null;
+};
 
 export type CommunityGroupChat = {
   _id: string;
@@ -37,17 +94,17 @@ export type CommunityEvent = {
   status?: string;
   location?: { address?: string };
   myTeam?: { _id?: string; chatId?: string; name?: string; isComplete?: boolean } | null;
-  competition?: { enabled?: boolean; submissionsOpen?: boolean; rankBy?: string } | null;
+  competition?: CommunityCompetition | null;
 };
 
 export async function searchCommunityMembers(pageId: string, q = "") {
   const res = await api.get(`/connect/page/${pageId}/members/search`, { params: { q } });
-  return unwrap<{ members: any[] }>(res);
+  return unwrap<{ members: CommunityMember[] }>(res);
 }
 
 export async function listCommunityRoles(pageId: string) {
   const res = await api.get(`/connect/page/${pageId}/roles`);
-  return unwrap<{ owner: any; myRole: string; staff: any[] }>(res);
+  return unwrap<{ owner: CommunityOwner; myRole: string; staff: CommunityStaffMember[] }>(res);
 }
 
 export async function assignCommunityRole(
@@ -56,17 +113,17 @@ export async function assignCommunityRole(
   role: "admin" | "moderator"
 ) {
   const res = await api.post(`/connect/page/${pageId}/roles`, { userId, role });
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function revokeCommunityRole(pageId: string, userId: string) {
   const res = await api.delete(`/connect/page/${pageId}/roles/${userId}`);
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function inviteToGroupChat(groupChatId: string, userId: string) {
   const res = await api.post(`/connect/group-chats/${groupChatId}/invite`, { userId });
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function getCommunityEvent(eventId: string) {
@@ -108,17 +165,17 @@ export async function joinGroupChat(
   body?: { proofText?: string; proofFileUrl?: string }
 ) {
   const res = await api.post(`/connect/group-chats/${groupChatId}/join`, body || {});
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function listGroupJoinRequests(groupChatId: string) {
   const res = await api.get(`/connect/group-chats/${groupChatId}/join-requests`);
-  return unwrap<{ requests: any[] }>(res);
+  return unwrap<{ requests: CommunityJoinRequest[] }>(res);
 }
 
 export async function reviewGroupJoinRequest(requestId: string, action: "accept" | "reject") {
   const res = await api.post(`/connect/group-join-requests/${requestId}/review`, { action });
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function listCommunityEvents(pageId: string) {
@@ -133,7 +190,7 @@ export async function createCommunityEvent(pageId: string, body: Record<string, 
 
 export async function registerForCommunityEvent(eventId: string) {
   const res = await api.post(`/connect/events/${eventId}/register`);
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function createEventTeam(
@@ -141,22 +198,22 @@ export async function createEventTeam(
   body: { name: string; expectedSize: number; memberIds?: string[] }
 ) {
   const res = await api.post(`/connect/events/${eventId}/teams`, body);
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function acceptEventTeamInvite(teamId: string) {
   const res = await api.post(`/connect/event-teams/${teamId}/accept`);
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function upsertEventCompetition(eventId: string, body: Record<string, unknown>) {
   const res = await api.post(`/connect/events/${eventId}/competition`, body);
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function submitCompetitionEntry(eventId: string, postId: string) {
   const res = await api.post(`/connect/events/${eventId}/competition/submissions`, { postId });
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function removeCompetitionSubmission(
@@ -167,14 +224,14 @@ export async function removeCompetitionSubmission(
   const res = await api.delete(`/connect/events/${eventId}/competition/submissions/${submissionId}`, {
     data: { reason },
   });
-  return unwrap(res);
+  return unwrap<Record<string, unknown>>(res);
 }
 
 export async function getCompetitionLeaderboard(eventId: string) {
   const res = await api.get(`/connect/events/${eventId}/competition/leaderboard`);
   return unwrap<{
-    competition: any;
-    leaderboard: any[];
+    competition: CommunityCompetition;
+    leaderboard: LeaderboardRow[];
     rankBy: "likes" | "views";
     frozen: boolean;
   }>(res);
