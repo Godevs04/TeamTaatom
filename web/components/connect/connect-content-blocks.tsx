@@ -65,18 +65,37 @@ export function ConnectContentBlocks({
   if (pageBackground) containerStyle.backgroundColor = pageBackground;
   if (pageTextColor) containerStyle.color = pageTextColor;
   const hasPageStyle = !!(pageBackground || pageTextColor);
+  const isSparse =
+    list.length <= 3 &&
+    list.every((b) => b.type === "heading" || b.type === "text" || b.type === "divider");
 
   return (
     <div
-      className={cn("space-y-6", hasPageStyle && "rounded-2xl p-6", className)}
+      className={cn(
+        "space-y-5 sm:space-y-6",
+        hasPageStyle &&
+          "overflow-hidden rounded-2xl px-5 py-8 shadow-[0_10px_40px_rgba(15,23,42,0.08)] sm:px-8 sm:py-10",
+        hasPageStyle && isSparse && "flex min-h-[280px] flex-col justify-center sm:min-h-[360px]",
+        className
+      )}
       style={containerStyle}
     >
+      {isSparse && hasPageStyle ? (
+        <div className="mb-1 flex flex-col items-center gap-3">
+          <span
+            className="h-1 w-10 rounded-full"
+            style={{
+              backgroundColor: pageTextColor ? `${pageTextColor}55` : "rgba(255,255,255,0.35)",
+            }}
+          />
+        </div>
+      ) : null}
       {rows.map((row, ri) => {
         const isSingle = row.length === 1 && row[0].blocks.length === 1;
         return isSingle ? (
           <ConnectBlock key={`row-${ri}`} block={row[0].blocks[0]} pageTextColor={pageTextColor} />
         ) : (
-          <div key={`row-${ri}`} className="grid grid-cols-12 gap-3">
+          <div key={`row-${ri}`} className="grid grid-cols-12 gap-3 sm:gap-4">
             {row.map((cell, ci) => {
               const spanClass = COL_SPAN[Math.max(1, Math.min(12, cell.col))] ?? "col-span-12";
               const isStackedCell = cell.blocks.length > 1;
@@ -147,14 +166,19 @@ function ConnectBlock({
   switch (block.type) {
     case "heading": {
       const hAlign = block.align || "center";
-      const hSizeClass = block.fontSize === "small" ? "text-base" : block.fontSize === "large" ? "text-2xl" : "text-xl";
+      const hSizeClass =
+        block.fontSize === "small"
+          ? "text-lg sm:text-xl"
+          : block.fontSize === "large"
+            ? "text-3xl sm:text-4xl"
+            : "text-2xl sm:text-3xl";
       const hStyle: React.CSSProperties = {};
       if (textColor) hStyle.color = textColor;
       hStyle.textAlign = hAlign as React.CSSProperties["textAlign"];
       return wrap(
         <h3
           className={cn(
-            `font-display ${hSizeClass} font-bold`,
+            `font-display ${hSizeClass} font-bold tracking-tight`,
             block.bold && "font-extrabold",
             !textColor && "text-slate-900 dark:text-white"
           )}
@@ -166,7 +190,12 @@ function ConnectBlock({
     }
     case "text": {
       const tAlign = block.align || "left";
-      const tSizeClass = block.fontSize === "small" ? "text-xs" : block.fontSize === "large" ? "text-lg" : "text-[15px]";
+      const tSizeClass =
+        block.fontSize === "small"
+          ? "text-sm"
+          : block.fontSize === "large"
+            ? "text-lg sm:text-xl"
+            : "text-base sm:text-[17px]";
       const tStyle: React.CSSProperties = {};
       if (textColor) tStyle.color = textColor;
       tStyle.textAlign = tAlign as React.CSSProperties["textAlign"];

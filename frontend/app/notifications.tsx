@@ -240,6 +240,19 @@ export default function NotificationsScreen() {
         return;
       }
 
+      if (notification.type === 'community_event_team_invite') {
+        const teamId = notification.metadata?.teamId as string | undefined;
+        if (teamId) {
+          try {
+            const { acceptEventTeamInvite } = await import('../services/community');
+            await acceptEventTeamInvite(teamId);
+            showInfo('Joined the event team');
+          } catch (e: any) {
+            showError(e?.message || 'Could not accept team invite');
+          }
+        }
+      }
+
       // Use the new handleNotificationClick service
       const result = await handleNotificationClick(notification);
       
@@ -530,13 +543,18 @@ export default function NotificationsScreen() {
       case 'follow_request':
       case 'follow_approved':
       case 'route_access_request':
+      case 'community_group_join':
+      case 'community_event_published':
+      case 'community_event_team_invite':
         return '#007AFF'; // Blue color for follows and requests
       case 'follow_request_accepted':
       case 'route_access_approved':
       case 'route_access_accepted':
+      case 'community_group_join_approved':
         return '#34C759'; // Green for accepted/approved
       case 'follow_request_rejected':
       case 'route_access_rejected':
+      case 'community_competition_removed':
         return '#8E8E93'; // Grey for rejected
       case 'subscription_active':
         return '#34C759'; // Green for paid activations — distinct from social events
@@ -556,15 +574,21 @@ export default function NotificationsScreen() {
       case 'follow':
         return 'person-add';
       case 'follow_request':
+      case 'community_group_join':
+      case 'community_event_team_invite':
         return 'person-add-outline';
+      case 'community_event_published':
+        return 'calendar-outline';
       case 'follow_approved':
       case 'route_access_approved':
       case 'route_access_accepted':
+      case 'community_group_join_approved':
         return 'checkmark-circle';
       case 'follow_request_accepted':
         return 'checkmark-circle';
       case 'follow_request_rejected':
       case 'route_access_rejected':
+      case 'community_competition_removed':
         return 'close-circle';
       case 'route_access_request':
         return 'map-outline';
@@ -630,6 +654,61 @@ export default function NotificationsScreen() {
       }
       case 'creator_program':
         return metadata?.message || 'Creator Monetization was updated. Open Creator Dashboard for the current rules.';
+      case 'community_group_join': {
+        const groupName = (metadata?.groupName as string) || 'a group chat';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `${userName} requested to join ${groupName}`;
+      }
+      case 'community_group_join_approved': {
+        const groupName = (metadata?.groupName as string) || 'the group chat';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `${userName} accepted your request to join ${groupName}`;
+      }
+      case 'community_event_published': {
+        const eventTitle = (metadata?.eventTitle as string) || 'a new event';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `${userName} published ${eventTitle}`;
+      }
+      case 'community_event_team_invite': {
+        const teamName = (metadata?.teamName as string) || 'a team';
+        const eventTitle = (metadata?.eventTitle as string) || 'an event';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `${userName} invited you to join team ${teamName} for ${eventTitle}`;
+      }
+      case 'community_competition_removed': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `${userName} removed your competition entry for ${eventTitle}. You may upload a new post or short with fresh counts.`;
+      }
+      case 'community_event_reminder': {
+        const eventTitle = (metadata?.eventTitle as string) || 'an event';
+        return metadata?.message
+          ? String(metadata.message)
+          : `${eventTitle} is coming up soon`;
+      }
+      case 'community_competition_closing': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? String(metadata.message)
+          : `Competition for ${eventTitle} closes soon`;
+      }
+      case 'community_event_waitlist_promoted': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? String(metadata.message)
+          : `A spot opened — you're in for ${eventTitle}`;
+      }
+      case 'community_event_showcase_published': {
+        const eventTitle = (metadata?.eventTitle as string) || 'the event';
+        return metadata?.message
+          ? `${userName} ${metadata.message}`
+          : `Winners are up for ${eventTitle}`;
+      }
       default:
         return 'You have a new notification';
     }

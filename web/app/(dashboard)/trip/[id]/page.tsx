@@ -35,6 +35,20 @@ export async function generateMetadata({ params }: { params: { id?: string } }):
       image: post.thumbnailUrl || post.imageUrl || null,
       path: `/watch/${id}`,
       openGraphType: "article",
+      ogImageSize: { width: 1200, height: 630 },
+      ogImageAlt: title,
+    });
+  }
+  if (post?.type === "short") {
+    const title = post?.caption ? post.caption.slice(0, 60) : "Short on Taatom";
+    return createMetadata({
+      title,
+      description: "Watch this short on Taatom",
+      image: post.thumbnailUrl || post.imageUrl || null,
+      path: `/trip/${id}`,
+      openGraphType: "article",
+      ogImageSize: { width: 1200, height: 630 },
+      ogImageAlt: title,
     });
   }
   const title = post?.caption ? post.caption.slice(0, 60) : "Trip";

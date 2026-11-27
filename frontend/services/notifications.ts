@@ -119,10 +119,13 @@ export const handleNotificationClick = async (notification: any): Promise<{
           contentUnavailable: true
         };
 
-      case 'follow_request': {
-        const meta = notification.metadata || {};
-        const connectPageId = meta.connectPageId || notification.connectPageId;
-        if (meta.kind === 'connect_page_follow' && connectPageId) {
+      case 'connect_follow_request':
+      case 'connect_follow_accepted': {
+        const connectPageId =
+          notification.metadata?.connectPageId ||
+          notification.connectPageId ||
+          notification.entityId;
+        if (connectPageId) {
           return {
             success: true,
             message: 'Opening community...',
@@ -130,20 +133,31 @@ export const handleNotificationClick = async (notification: any): Promise<{
             navigationPath: `/connect/page/${connectPageId}`,
           };
         }
-        // In-app list opens FollowRequestPopup; from handler (e.g. push) navigate to requester profile
-        if (notification.fromUserId || notification.fromUser?._id) {
-          const userId = notification.fromUserId || notification.fromUser?._id;
-          return {
-            success: true,
-            message: 'Navigating to profile...',
-            shouldNavigate: true,
-            navigationPath: `/profile/${userId}`
-          };
-        }
         return {
           success: true,
-          message: 'This user account is no longer available.',
-          shouldNavigate: false
+          message: 'This community is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true,
+        };
+      }
+
+      case 'follow_request': {
+        const meta = notification.metadata || {};
+        const connectPageId = meta.connectPageId || notification.connectPageId;
+        if ((meta.kind === 'connect_page_follow' || connectPageId) && connectPageId) {
+          return {
+            success: true,
+            message: 'Opening community...',
+            shouldNavigate: true,
+            navigationPath: `/connect/page/${connectPageId}`,
+          };
+        }
+        // Match push deep link: profile follow requests open the inbox for Approve/Decline
+        return {
+          success: true,
+          message: 'Opening notifications...',
+          shouldNavigate: true,
+          navigationPath: '/notifications',
         };
       }
 
@@ -225,6 +239,35 @@ export const handleNotificationClick = async (notification: any): Promise<{
           shouldNavigate: true,
           navigationPath: '/creator-monetization',
         };
+
+      case 'community_group_join':
+      case 'community_group_join_approved':
+      case 'community_event_published':
+      case 'community_event_team_invite':
+      case 'community_competition_removed':
+      case 'community_event_reminder':
+      case 'community_competition_closing':
+      case 'community_event_waitlist_promoted':
+      case 'community_event_showcase_published': {
+        const connectPageId =
+          notification.metadata?.connectPageId ||
+          notification.connectPageId ||
+          notification.entityId;
+        if (connectPageId) {
+          return {
+            success: true,
+            message: 'Opening community...',
+            shouldNavigate: true,
+            navigationPath: `/connect/page/${connectPageId}`,
+          };
+        }
+        return {
+          success: true,
+          message: 'This community is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true,
+        };
+      }
 
       case 'post_deleted':
       case 'short_deleted':

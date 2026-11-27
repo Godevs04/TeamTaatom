@@ -302,6 +302,13 @@ process.on('unhandledRejection', async (reason, promise) => {
         logger.warn('Failed to start stale subscription poll job:', err.message);
       }
 
+      try {
+        const { startEventReminderPollJob } = require('./jobs/eventReminderPoll');
+        startEventReminderPollJob();
+      } catch (err) {
+        logger.warn('Failed to start event reminder poll job:', err.message);
+      }
+
       // Warm the FX rate cache so the first /api/v1/connect/page/* request
       // doesn't pay the live-fetch latency. Non-fatal if it fails; the
       // service falls back to hardcoded rates.

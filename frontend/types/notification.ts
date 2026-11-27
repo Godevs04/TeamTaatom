@@ -9,12 +9,23 @@ export interface Notification {
     | 'post_mention'
     | 'follow_request_accepted'
     | 'follow_request_rejected'
+    | 'connect_follow_request'
+    | 'connect_follow_accepted'
     | 'subscription_active'
     | 'route_access_request'
     | 'route_access_approved'
     | 'route_access_accepted'
     | 'route_access_rejected'
-    | 'creator_program';
+    | 'creator_program'
+    | 'community_group_join'
+    | 'community_group_join_approved'
+    | 'community_event_published'
+    | 'community_event_team_invite'
+    | 'community_competition_removed'
+    | 'community_event_reminder'
+    | 'community_competition_closing'
+    | 'community_event_waitlist_promoted'
+    | 'community_event_showcase_published';
   fromUser: {
     _id: string;
     fullName: string;

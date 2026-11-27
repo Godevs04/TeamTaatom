@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { getNotifications, markAllNotificationsAsRead } from "../../../lib/api";
 import { groupNotificationsByTime, getNotificationLink, isCommentMention } from "../../../lib/notifications";
 import { contentNoun } from "../../../lib/content-routes";
@@ -14,6 +15,8 @@ import { Skeleton } from "../../../components/ui/skeleton";
 import { FollowRequestModal } from "../../../components/notifications/follow-request-modal";
 import { cn } from "../../../lib/utils";
 import { useMounted } from "../../../hooks/use-mounted";
+import { acceptEventTeamInvite } from "../../../lib/community-api";
+import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 
 type NotificationSocketPayload = { userId?: string; notification?: Notification };
 
@@ -62,6 +65,48 @@ function actionCopy(n: Notification): string {
       return "approved your route access request";
     case "route_access_rejected":
       return "declined your route access request";
+    case "community_group_join": {
+      const groupName = (n.metadata?.groupName as string) || "a group chat";
+      return n.metadata?.message || `requested to join ${groupName}`;
+    }
+    case "community_group_join_approved": {
+      const groupName = (n.metadata?.groupName as string) || "the group chat";
+      return n.metadata?.message || `accepted your request to join ${groupName}`;
+    }
+    case "community_event_published": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "a new event";
+      return n.metadata?.message || `published ${eventTitle}`;
+    }
+    case "community_event_team_invite": {
+      const teamName = (n.metadata?.teamName as string) || "a team";
+      const eventTitle = (n.metadata?.eventTitle as string) || "an event";
+      return n.metadata?.message || `invited you to join team ${teamName} for ${eventTitle}`;
+    }
+    case "community_competition_removed": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return (
+        n.metadata?.message ||
+        `removed your competition entry for ${eventTitle}. You may upload a new post or short with fresh counts.`
+      );
+    }
+    case "community_event_reminder": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "an event";
+      return n.metadata?.message || `${eventTitle} is coming up soon`;
+    }
+    case "community_competition_closing": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return n.metadata?.message || `competition for ${eventTitle} closes soon`;
+    }
+    case "community_event_waitlist_promoted": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return n.metadata?.message || `a spot opened — you're in for ${eventTitle}`;
+    }
+    case "community_event_showcase_published": {
+      const eventTitle = (n.metadata?.eventTitle as string) || "the event";
+      return n.metadata?.message || `published winners for ${eventTitle}`;
+    }
+    case "creator_program":
+      return n.metadata?.message || "updated Creator Monetization";
     default:
       return "sent you a notification";
   }
@@ -87,6 +132,7 @@ function TypeGlyph({ type }: { type?: NotificationType }) {
     case "follow_request_accepted":
     case "route_access_approved":
     case "route_access_accepted":
+    case "community_group_join_approved":
       return (
         <span className={cn(wrap, "bg-emerald-500")}>
           <UserCheck className="h-2.5 w-2.5" />
@@ -94,6 +140,8 @@ function TypeGlyph({ type }: { type?: NotificationType }) {
       );
     case "follow":
     case "follow_request":
+    case "community_group_join":
+    case "community_event_team_invite":
       return (
         <span className={cn(wrap, "bg-primary")}>
           <UserPlus className="h-2.5 w-2.5" />
@@ -188,6 +236,11 @@ function NotificationRow({ n, onOpenRequest }: { n: Notification; onOpenRequest:
           Review
         </span>
       ) : null}
+      {n.type === "community_event_team_invite" ? (
+        <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+          Accept
+        </span>
+      ) : null}
 
       {showPostThumb ? (
         <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-slate-100 ring-1 ring-slate-200/60 dark:bg-zinc-800 dark:ring-zinc-700/60">
@@ -207,6 +260,31 @@ function NotificationRow({ n, onOpenRequest }: { n: Notification; onOpenRequest:
   if (n.type === "follow_request") {
     return (
       <button type="button" onClick={() => onOpenRequest(n)} className="block w-full text-left">
+        {row}
+      </button>
+    );
+  }
+  if (n.type === "community_event_team_invite") {
+    return (
+      <button
+        type="button"
+        className="block w-full text-left"
+        onClick={async () => {
+          const teamId = n.metadata?.teamId as string | undefined;
+          const pageId = n.metadata?.connectPageId as string | undefined;
+          try {
+            if (teamId) {
+              await acceptEventTeamInvite(teamId);
+              toast.success("Joined the event team");
+            }
+            if (pageId) {
+              window.location.href = `/connect/page/${pageId}`;
+            }
+          } catch (e) {
+            toast.error(getFriendlyErrorMessage(e));
+          }
+        }}
+      >
         {row}
       </button>
     );

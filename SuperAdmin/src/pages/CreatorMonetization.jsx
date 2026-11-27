@@ -408,7 +408,7 @@ function VideosTab() {
       <Card>
         <CardContent className="space-y-3 pt-6">
           <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); load() }}>
-            <input className={fieldClass} placeholder="Caption or video id" value={q} onChange={(event) => setQ(event.target.value)} />
+            <input className={fieldClass} placeholder="Search by caption or creator username" value={q} onChange={(event) => setQ(event.target.value)} />
             <button type="submit" className="rounded-lg border px-4 text-sm font-semibold hover:bg-gray-50">Search</button>
           </form>
           <textarea className={fieldClass} rows={2} placeholder="Reason shown to the creator" value={reason} onChange={(event) => setReason(event.target.value)} />
@@ -570,6 +570,10 @@ function AdjustmentsTab() {
     target: 'available',
     reason: '',
   })
+  const [creatorLabel, setCreatorLabel] = useState('')
+  const [creatorQuery, setCreatorQuery] = useState('')
+  const [creatorOptions, setCreatorOptions] = useState([])
+  const [creatorSearching, setCreatorSearching] = useState(false)
   const [rows, setRows] = useState([])
 
   const load = () => {
@@ -580,7 +584,36 @@ function AdjustmentsTab() {
 
   useEffect(() => { load() }, [])
 
+  useEffect(() => {
+    if (form.userId && creatorLabel) return undefined
+    const q = creatorQuery.trim()
+    if (q.length < 2) {
+      setCreatorOptions([])
+      return undefined
+    }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setCreatorSearching(true)
+      try {
+        const result = await listMonetizedCreators({ q, page: 1, limit: 20 })
+        if (!cancelled) setCreatorOptions(result.creators || result.docs || [])
+      } catch {
+        if (!cancelled) setCreatorOptions([])
+      } finally {
+        if (!cancelled) setCreatorSearching(false)
+      }
+    }, 280)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [creatorQuery, form.userId, creatorLabel])
+
   const submit = async () => {
+    if (!form.userId) {
+      toast.error('Select a creator first')
+      return
+    }
     try {
       await createCreatorAdjustment({
         ...form,
@@ -600,15 +633,107 @@ function AdjustmentsTab() {
       <Card>
         <CardHeader><CardTitle>Adjust earnings or views</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
-          <input className={fieldClass} placeholder="User id" value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })} />
-          <input className={fieldClass} placeholder="Month YYYY-MM (optional)" value={form.monthKey} onChange={(event) => setForm({ ...form, monthKey: event.target.value })} />
-          <input className={fieldClass} placeholder="Eligible views delta" value={form.eligibleViewsDelta} onChange={(event) => setForm({ ...form, eligibleViewsDelta: event.target.value })} />
-          <input className={fieldClass} placeholder="Rupee delta" value={form.amountDelta} onChange={(event) => setForm({ ...form, amountDelta: event.target.value })} />
-          <select className={fieldClass} value={form.target} onChange={(event) => setForm({ ...form, target: event.target.value })}>
-            <option value="available">Available balance</option>
-            <option value="pending">Pending earnings</option>
-          </select>
-          <input className={fieldClass} placeholder="Reason shown to the creator" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
+          <div className="md:col-span-2">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Creator</p>
+            {form.userId && creatorLabel ? (
+              <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+                <span className="font-medium text-emerald-800">{creatorLabel}</span>
+                <button
+                  type="button"
+                  className="text-xs text-emerald-700 underline"
+                  onClick={() => {
+                    setForm((current) => ({ ...current, userId: '' }))
+                    setCreatorLabel('')
+                    setCreatorQuery('')
+                  }}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    className={`${fieldClass} pl-9`}
+                    placeholder="Search monetized creators by name or username"
+                    value={creatorQuery}
+                    onChange={(event) => setCreatorQuery(event.target.value)}
+                  />
+                </div>
+                <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200">
+                  {creatorSearching ? (
+                    <p className="px-3 py-3 text-center text-xs text-gray-400">Searching…</p>
+                  ) : creatorOptions.length === 0 ? (
+                    <p className="px-3 py-3 text-center text-xs text-gray-400">
+                      Type at least 2 characters to find a creator
+                    </p>
+                  ) : (
+                    creatorOptions.map((row) => {
+                      const id = row.user?._id || row.user
+                      const name = row.user?.fullName || row.user?.username || 'Creator'
+                      const username = row.user?.username
+                      if (!id) return null
+                      return (
+                        <button
+                          key={String(id)}
+                          type="button"
+                          className="flex w-full items-center justify-between border-b border-gray-100 px-3 py-2.5 text-left text-sm last:border-0 hover:bg-slate-50"
+                          onClick={() => {
+                            setForm((current) => ({ ...current, userId: String(id) }))
+                            setCreatorLabel(`${name}${username ? ` (@${username})` : ''}`)
+                            setCreatorQuery('')
+                            setCreatorOptions([])
+                          }}
+                        >
+                          <span className="font-medium text-gray-900">{name}</span>
+                          {username ? <span className="text-xs text-gray-500">@{username}</span> : null}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Month</span>
+            <input
+              className={fieldClass}
+              type="month"
+              value={form.monthKey}
+              onChange={(event) => setForm({ ...form, monthKey: event.target.value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Target</span>
+            <select className={fieldClass} value={form.target} onChange={(event) => setForm({ ...form, target: event.target.value })}>
+              <option value="available">Available balance</option>
+              <option value="pending">Pending earnings</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Eligible views delta</span>
+            <input
+              className={fieldClass}
+              type="number"
+              value={form.eligibleViewsDelta}
+              onChange={(event) => setForm({ ...form, eligibleViewsDelta: event.target.value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Rupee delta</span>
+            <input
+              className={fieldClass}
+              type="number"
+              value={form.amountDelta}
+              onChange={(event) => setForm({ ...form, amountDelta: event.target.value })}
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reason</span>
+            <input className={fieldClass} placeholder="Shown to the creator" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
+          </label>
           <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 md:col-span-2" onClick={submit}>Save adjustment</button>
         </CardContent>
       </Card>

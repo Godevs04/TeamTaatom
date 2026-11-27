@@ -182,9 +182,10 @@ export const getConnectShortUrl = async (connectPageId: string): Promise<string>
 };
 
 export type ResolvedShortUrl = {
-  type: 'post' | 'journey' | 'connect_page';
+  type: 'post' | 'short' | 'long_video' | 'journey' | 'connect_page';
   path: string;
   postId?: string;
+  postType?: string;
   journeyId?: string;
   connectPageId?: string;
 };

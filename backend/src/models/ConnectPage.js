@@ -276,6 +276,16 @@ const ConnectPageSchema = new Schema({
     ref: 'Chat',
     default: null
   },
+  /**
+   * Community-level staff (unlimited). Distinct from Chat.admins (max 2 co-admins
+   * on the legacy page group chat). Owner is always ConnectPage.userId.
+   */
+  communityRoles: [{
+    userId: { type: Types.ObjectId, ref: 'User', required: true },
+    role: { type: String, enum: ['admin', 'moderator'], required: true },
+    assignedBy: { type: Types.ObjectId, ref: 'User', default: null },
+    createdAt: { type: Date, default: Date.now },
+  }],
   followerCount: {
     type: Number,
     default: 0

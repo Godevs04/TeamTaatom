@@ -1,0 +1,24 @@
+---
+description: When adding or fixing community groups/events/competitions — keep swagger, notifications, and app/web in sync
+globs:
+  - backend/src/controllers/communityController.js
+  - backend/src/models/CommunityEvent*.js
+  - backend/src/routes/communitySwaggerDocs.js
+  - backend/src/routes/connectRoutes.js
+  - frontend/components/connect/CommunityHub.tsx
+  - frontend/services/community.ts
+  - web/components/connect/community-hub.tsx
+  - web/lib/community-api.ts
+alwaysApply: false
+---
+
+# Community / events development checklist
+
+When creating or changing community groups, events, competitions, registrations, or related notifications:
+
+1. **Backend first**: models → controller → [`connectRoutes.js`](backend/src/routes/connectRoutes.js) → [`communitySwaggerDocs.js`](backend/src/routes/communitySwaggerDocs.js).
+2. **Notifications**: add/update enum in [`Notification.js`](backend/src/models/Notification.js); create in-app + push with **matching title/body**; deep link via [`sendNotification.js`](backend/src/utils/sendNotification.js) `getScreenForType` (usually `/connect/page/{connectPageId}`).
+3. **Client deep links**: wire the same type in app [`_layout.tsx`](frontend/app/_layout.tsx) `CONNECT_NOTIFICATION_TYPES`, [`notifications.ts`](frontend/services/notifications.ts) click handler + copy, and web [`notifications.ts`](web/lib/notifications.ts) + notification page copy; update type unions on app and web.
+4. **Parity**: app [`CommunityHub.tsx`](frontend/components/connect/CommunityHub.tsx) and web [`community-hub.tsx`](web/components/connect/community-hub.tsx) + both community API clients.
+5. **No lint / tsc errors** on touched files before finishing.
+6. Cover owner vs member, app vs web, push tap vs in-app tap, full/waitlist/leave, accept/reject/cancel, and already-processed cases.

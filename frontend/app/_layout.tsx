@@ -107,11 +107,20 @@ if (Platform.OS !== 'web') {
 }
 
 const POST_NOTIFICATION_TYPES = new Set(['like', 'comment', 'mention', 'post_mention', 'share', 'trip_created', 'trip_approved']);
-const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_approved']);
+const PROFILE_NOTIFICATION_TYPES = new Set(['follow', 'follow_approved', 'route_access_approved']);
 const CONNECT_NOTIFICATION_TYPES = new Set([
   'subscription_active',
   'connect_follow_request',
   'connect_follow_accepted',
+  'community_group_join',
+  'community_group_join_approved',
+  'community_event_published',
+  'community_event_team_invite',
+  'community_competition_removed',
+  'community_event_reminder',
+  'community_competition_closing',
+  'community_event_waitlist_promoted',
+  'community_event_showcase_published',
 ]);
 const REQUEST_INBOX_TYPES = new Set([
   'follow_request',
@@ -167,18 +176,39 @@ function notificationTargetPath(data: Record<string, unknown> | undefined | null
   if (screen) return screen.startsWith('/') ? screen : `/${screen}`;
 
   if (postId && type && POST_NOTIFICATION_TYPES.has(type)) {
-    return contentRoute(postId, str(data.postType), str(data.postOwnerId), { openComments: type === 'comment' });
+    // Keep openComments in sync with backend getScreenForType + in-app handleNotificationClick
+    const openComments =
+      type === 'comment' ||
+      (type === 'post_mention' &&
+        !!(str(data.commentId) || metadata?.commentId || metadata?.text));
+    return contentRoute(postId, str(data.postType), str(data.postOwnerId), { openComments });
   }
 
-  // Follow / join requests open the in-app inbox so Approve/Decline is available
+  // Profile follow requests open the in-app inbox so Approve/Decline is available
   if (type && REQUEST_INBOX_TYPES.has(type)) {
     return '/notifications';
+  }
+
+  if (type === 'route_access_request') {
+    return '/settings/route-access-requests';
+  }
+  if (type === 'creator_program') {
+    return '/creator-monetization';
+  }
+  if (type === 'message') {
+    if (chatWith) return `/chat/thread?userId=${encodeURIComponent(chatWith)}`;
+    if (chatId) return `/chat/thread?chatId=${encodeURIComponent(chatId)}`;
+    return '/chat';
   }
 
   if (userId && type && PROFILE_NOTIFICATION_TYPES.has(type)) {
     return `/profile/${userId}`;
   }
-  if (postId) return contentRoute(postId, str(data.postType), str(data.postOwnerId));
+  if (postId) {
+    return contentRoute(postId, str(data.postType), str(data.postOwnerId), {
+      openComments: type === 'comment',
+    });
+  }
   if (userId) return `/profile/${userId}`;
   // Last resort: notifications list, never home
   return type ? '/notifications' : null;
@@ -330,6 +360,14 @@ function RootLayoutInner() {
       } else if (targetPath.startsWith('/journey/')) {
         const id = targetPath.slice('/journey/'.length).split(/[/?#]/)[0];
         targetPath = `/navigate/detail?journeyId=${id}`;
+      } else if (
+        targetPath === '/shorts' ||
+        targetPath.startsWith('/shorts?') ||
+        targetPath.startsWith('/shorts/')
+      ) {
+        // Custom-scheme / web alias → main Shorts tab (keeps bottom nav + vertical scroll)
+        const q = targetPath.includes('?') ? targetPath.slice(targetPath.indexOf('?')) : '';
+        targetPath = `/(tabs)/shorts${q}`;
       }
 
       // Reconstruct query parameters (unless already present, e.g. journey rewrite)
@@ -842,6 +880,8 @@ function RootLayoutInner() {
                               segments[0] === 'upload-long-video' ||
                               segments[0] === 'request-video-creator' ||
                               segments[0] === 'creator-monetization' ||
+                              segments[0] === 's' ||
+                              normalizedPath.startsWith('/s/') ||
                               normalizedPath.startsWith('/post/') ||
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||

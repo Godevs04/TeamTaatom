@@ -54,15 +54,16 @@ const toId = (value) => {
 
 /**
  * Route for a piece of content: long videos open the watch screen, shorts open the
- * creator's shorts viewer on that short, everything else opens the post screen.
+ * main Shorts tab on that short, everything else opens the post screen.
  */
 const contentScreen = (postId, postType, ownerId, { openComments = false } = {}) => {
   const commentsQuery = openComments ? 'comments=1' : '';
   if (postType === 'long_video') {
     return `/watch/${postId}${commentsQuery ? `?${commentsQuery}` : ''}`;
   }
-  if (postType === 'short' && ownerId) {
-    return `/user-shorts/${ownerId}?shortId=${postId}&single=true${commentsQuery ? `&${commentsQuery}` : ''}`;
+  if (postType === 'short') {
+    // Main Shorts tab feed (scrollable) — keep push + in-app deep links in sync
+    return `/(tabs)/shorts?shortId=${postId}${commentsQuery ? `&${commentsQuery}` : ''}`;
   }
   return `/post/${postId}${commentsQuery ? `?${commentsQuery}` : ''}`;
 };
@@ -122,11 +123,20 @@ const getScreenForType = (type, notificationData = {}) => {
 
   const connectPageId = resolveConnectPageId({ ...notificationData, type });
 
-  // Community join / accept — never fall through to /home
+  // Community join / accept / group-event flows — never fall through to /home
   if (
     type === 'connect_follow_request' ||
     type === 'connect_follow_accepted' ||
     type === 'subscription_active' ||
+    type === 'community_group_join' ||
+    type === 'community_group_join_approved' ||
+    type === 'community_event_published' ||
+    type === 'community_event_team_invite' ||
+    type === 'community_competition_removed' ||
+    type === 'community_event_reminder' ||
+    type === 'community_competition_closing' ||
+    type === 'community_event_waitlist_promoted' ||
+    type === 'community_event_showcase_published' ||
     (isConnectPageFollowKind(notificationData) && connectPageId)
   ) {
     if (connectPageId) return `/connect/page/${connectPageId}`;
@@ -134,15 +144,29 @@ const getScreenForType = (type, notificationData = {}) => {
 
   if (POST_NOTIFICATION_TYPES.includes(type)) {
     if (postId) {
-      const openComments = type === 'comment' || (type === 'post_mention' && !!notificationData.commentId);
+      const meta = notificationData.metadata;
+      const metaObj = typeof meta === 'string'
+        ? (() => { try { return JSON.parse(meta); } catch { return null; } })()
+        : meta;
+      const openComments =
+        type === 'comment' ||
+        (type === 'post_mention' &&
+          !!(
+            notificationData.commentId ||
+            notificationData.comment ||
+            metaObj?.commentId ||
+            metaObj?.text != null
+          ));
       return contentScreen(postId, notificationData.postType, notificationData.postOwnerId, { openComments });
     }
     logger.warn(`No post ID found for ${type} notification`);
     return '/notifications';
   }
 
-  // Profile follow requests open the in-app list so the owner can Approve/Decline
+  // Profile follow requests open the in-app list so the owner can Approve/Decline.
+  // Connect-page join requests already returned /connect/page/... above via kind/connectPageId.
   if (type === 'follow_request') {
+    if (connectPageId) return `/connect/page/${connectPageId}`;
     return '/notifications';
   }
 
@@ -184,7 +208,23 @@ const buildPushData = (data) => {
     entityId: String(data.entityId || data.connectPageId || data.fromUserId || ''),
     senderId: String(data.senderId || data.fromUserId || ''),
   };
-  for (const key of ['postId', 'postType', 'chatWith', 'chatId', 'connectPageId', 'fromUserId', 'kind', 'pageName']) {
+  for (const key of [
+    'postId',
+    'postType',
+    'chatWith',
+    'chatId',
+    'connectPageId',
+    'fromUserId',
+    'kind',
+    'pageName',
+    'groupChatId',
+    'groupName',
+    'eventId',
+    'eventTitle',
+    'teamId',
+    'teamName',
+    'submissionId',
+  ]) {
     if (data[key] != null && data[key] !== '') payload[key] = String(data[key]);
   }
   if (!payload.connectPageId) {

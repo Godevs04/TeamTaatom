@@ -157,7 +157,12 @@ exports.listChats = async (req, res) => {
   const whoBlockedMeIds = whoBlockedMe.map(u => u._id.toString());
   const allBlockedIds = new Set([...blockedIds, ...whoBlockedMeIds]);
 
+  const { COMMUNITY_INBOX_HIDDEN_TYPES } = require('../utils/communityRoles');
   const chats = allChats.filter(chat => {
+    // Community/event rooms are entered from Community tabs, not the main inbox.
+    if (COMMUNITY_INBOX_HIDDEN_TYPES.includes(chat.type)) {
+      return false;
+    }
     if (chat.type === 'user_chat') {
       const otherParticipant = (chat.participants || []).find(p => p && p._id && p._id.toString() !== userId.toString());
       if (otherParticipant && allBlockedIds.has(otherParticipant._id.toString())) {
@@ -596,7 +601,9 @@ exports.getChatByRoomId = async (req, res) => {
 
     // Verify the requesting user is a participant. Connect group chats require
     // owner or *active* ConnectFollow — no auto-join (private pending must not bypass).
-    const isParticipant = chat.participants.some(
+    // Community rooms use ensureCommunityRoomAccess (public join / staff / registrant).
+    const { isCommunityChatType, ensureCommunityRoomAccess } = require('../utils/communityRoles');
+    let isParticipant = chat.participants.some(
       (p) => (p._id || p).toString() === userId.toString()
     );
     if (!isParticipant) {
@@ -625,6 +632,15 @@ exports.getChatByRoomId = async (req, res) => {
         await Chat.findByIdAndUpdate(chatId, { $addToSet: { participants: userId } });
         const joiningUser = await mongoose.model('User').findById(userId).select('fullName username profilePic profilePicStorageKey').lean();
         if (joiningUser) chat.participants.push(joiningUser);
+        isParticipant = true;
+      } else if (isCommunityChatType(chat.type)) {
+        const access = await ensureCommunityRoomAccess(chat, userId);
+        if (!access.ok) {
+          return sendError(res, access.error[0], access.error[1]);
+        }
+        const joiningUser = await mongoose.model('User').findById(userId).select('fullName username profilePic profilePicStorageKey').lean();
+        if (joiningUser) chat.participants.push(joiningUser);
+        isParticipant = true;
       } else {
         return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
       }
@@ -663,8 +679,8 @@ exports.getChatByRoomId = async (req, res) => {
       normalizeSendPermission,
       canRoleSendMessages,
     } = require('../utils/connectGroupAdmins');
-    const isGroupChat = chat.type === 'connect_page';
-    if (isGroupChat) {
+    const isGroupChat = chat.type === 'connect_page' || isCommunityChatType(chat.type);
+    if (chat.type === 'connect_page') {
       const ConnectPage = require('../models/ConnectPage');
       const pageId = chat.connectPageId?._id || chat.connectPageId;
       const pageOwner = pageId
@@ -686,6 +702,17 @@ exports.getChatByRoomId = async (req, res) => {
           : resolveGroupRole(chat.admins || [], userId);
       chat.sendPermission = normalizeSendPermission(chat.sendPermission);
       chat.canSendMessages = canRoleSendMessages(chat.sendPermission, chat.myGroupRole);
+    } else if (isCommunityChatType(chat.type)) {
+      // Community rooms: everyone who can open can send (moderation via roles elsewhere)
+      chat.sendPermission = 'everyone';
+      chat.canSendMessages = true;
+      chat.myGroupRole = 'member';
+      if (Array.isArray(chat.participants)) {
+        chat.participants = chat.participants.map((p) => ({
+          ...(typeof p === 'object' && p ? p : { _id: p }),
+          groupRole: 'member',
+        }));
+      }
     }
 
     // Build participants map for sender info in group chat messages
@@ -724,6 +751,16 @@ exports.getChatByRoomId = async (req, res) => {
       return formatted;
     });
 
+    // Prefer room title for community chats (not a 1:1 peer)
+    if (isCommunityChatType(chat.type) && chat.title) {
+      if (!chat.connectPageId || typeof chat.connectPageId !== 'object') {
+        chat.connectPageId = chat.connectPageId || {};
+      }
+      if (typeof chat.connectPageId === 'object' && !chat.connectPageId.name) {
+        chat.connectPageId.name = chat.title;
+      }
+    }
+
     logger.info('✅ [getChatByRoomId] Returning chat', { chatId: chat._id.toString(), type: chat.type, messageCount: chat.messages.length });
     return sendSuccess(res, 200, 'Chat fetched successfully', { chat });
   } catch (error) {
@@ -742,8 +779,8 @@ exports.getMessagesByRoomId = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid chat ID');
     }
 
-    const chat = await Chat.findById(chatId)
-      .select('messages participants type admins connectPageId')
+    let chat = await Chat.findById(chatId)
+      .select('messages participants type admins connectPageId title')
       .populate('participants', 'fullName username profilePic profilePicStorageKey')
       .lean();
 
@@ -751,32 +788,49 @@ exports.getMessagesByRoomId = async (req, res) => {
       return sendSuccess(res, 200, 'Messages fetched successfully', { messages: [] });
     }
 
-    // Verify the requesting user is a participant
-    const isParticipant = chat.participants.some(
+    const { isCommunityChatType, ensureCommunityRoomAccess } = require('../utils/communityRoles');
+
+    // Verify the requesting user is a participant (or may join community rooms)
+    let isParticipant = (chat.participants || []).some(
       (p) => (p._id || p).toString() === userId.toString()
     );
     if (!isParticipant) {
-      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+      if (isCommunityChatType(chat.type)) {
+        const access = await ensureCommunityRoomAccess(chat, userId);
+        if (!access.ok) {
+          return sendError(res, access.error[0], access.error[1]);
+        }
+        isParticipant = true;
+        chat = await Chat.findById(chatId)
+          .select('messages participants type admins connectPageId title')
+          .populate('participants', 'fullName username profilePic profilePicStorageKey')
+          .lean();
+      } else {
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+      }
     }
 
     const { resolveGroupRole } = require('../utils/connectGroupAdmins');
 
     // Build participants map for sender info lookup (group chats)
     const participantsMap = {};
-    if (chat.type === 'connect_page' && chat.participants) {
+    const isGroupChat = chat.type === 'connect_page' || isCommunityChatType(chat.type);
+    if (isGroupChat && chat.participants) {
       for (const p of chat.participants) {
         const pId = (p._id || p).toString();
         const profilePic = await resolveProfilePic(p);
         participantsMap[pId] = {
           fullName: p.fullName || '',
           profilePic: profilePic || '',
-          groupRole: resolveGroupRole(chat.admins || [], pId),
+          groupRole:
+            chat.type === 'connect_page'
+              ? resolveGroupRole(chat.admins || [], pId)
+              : 'member',
         };
       }
     }
 
     const rawMessages = chat.messages || [];
-    const isGroupChat = chat.type === 'connect_page';
     const messages = await Promise.all(rawMessages.map(async (msg) => {
       const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
       const formatted = {
@@ -836,10 +890,20 @@ exports.sendMessageToRoom = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
     }
 
-    // Verify user is a participant
-    const participantIds = chat.participants.map(p => p.toString());
+    // Verify user is a participant (community rooms may soft-join first)
+    const { isCommunityChatType, ensureCommunityRoomAccess } = require('../utils/communityRoles');
+    let participantIds = chat.participants.map(p => p.toString());
     if (!participantIds.includes(userId.toString())) {
-      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+      if (isCommunityChatType(chat.type)) {
+        const access = await ensureCommunityRoomAccess(chat, userId);
+        if (!access.ok) {
+          return sendError(res, access.error[0], access.error[1]);
+        }
+        chat.participants.push(userId);
+        participantIds = chat.participants.map(p => p.toString());
+      } else {
+        return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+      }
     }
 
     // Enforce who-can-send for connect group chats
