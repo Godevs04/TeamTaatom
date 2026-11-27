@@ -111,6 +111,7 @@ export type CommunityGroupChat = {
 
 export type CommunityEvent = {
   _id: string;
+  connectPageId?: string;
   title: string;
   startsAt: string;
   endsAt?: string | null;
@@ -136,6 +137,12 @@ export type CommunityEvent = {
   location?: { address?: string };
   myTeam?: { _id?: string; chatId?: string; name?: string; isComplete?: boolean } | null;
   competition?: CommunityCompetition | null;
+  page?: {
+    _id?: string;
+    name?: string;
+    profileImage?: string;
+    category?: string;
+  } | null;
 };
 
 export async function searchCommunityMembers(pageId: string, q = "") {
@@ -222,6 +229,15 @@ export async function reviewGroupJoinRequest(requestId: string, action: "accept"
 export async function listCommunityEvents(pageId: string) {
   const res = await api.get(`/connect/page/${pageId}/events`);
   return unwrap<{ events: CommunityEvent[] }>(res);
+}
+
+/** Public events + events the current user has joined. */
+export async function listEventsFeed(page = 1, limit = 20) {
+  const res = await api.get(`/connect/events`, { params: { page, limit } });
+  return unwrap<{
+    events: CommunityEvent[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }>(res);
 }
 
 export async function createCommunityEvent(pageId: string, body: Record<string, unknown>) {

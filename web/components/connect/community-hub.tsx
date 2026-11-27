@@ -341,7 +341,7 @@ export function CommunityHub({
     <section className="relative mt-6 overflow-hidden rounded-3xl border border-white/80 bg-gradient-to-br from-white via-slate-50/80 to-sky-50/40 shadow-[0_12px_40px_rgba(28,115,180,0.08)] dark:border-zinc-800 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900/90 dark:shadow-none">
       <div className="flex items-start justify-between gap-3 border-b border-slate-100/80 px-4 py-4 dark:border-zinc-800/80 sm:px-5">
         <div className="min-w-0 pr-2">
-          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">Community</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">Event</p>
           <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-zinc-50">
             Spaces
           </h2>
@@ -1157,23 +1157,25 @@ export function CommunityHub({
                           !canCreateTeam ? (
                             <div
                               className={cn(
-                                "flex h-10 flex-1 items-center gap-2 rounded-xl px-3 text-sm font-bold",
+                                "flex h-11 flex-1 items-center justify-between gap-2 rounded-xl border px-2.5 text-sm font-bold",
                                 isWaitlisted
-                                  ? "bg-amber-500/10 text-amber-800 dark:text-amber-300"
-                                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                  ? "border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                                  : "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                               )}
                             >
-                              {isWaitlisted ? (
-                                <Hourglass className="h-4 w-4 shrink-0" />
-                              ) : (
-                                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                              )}
-                              <span className="min-w-0 flex-1 truncate">
-                                {isWaitlisted ? "On waitlist" : "You’re registered"}
-                              </span>
+                              <div className="flex min-w-0 items-center gap-2">
+                                {isWaitlisted ? (
+                                  <Hourglass className="h-4 w-4 shrink-0" />
+                                ) : (
+                                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                )}
+                                <span className="truncate">
+                                  {isWaitlisted ? "On waitlist" : "You’re registered"}
+                                </span>
+                              </div>
                               <button
                                 type="button"
-                                className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200"
+                                className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-slate-900/5 px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-900/10 hover:text-slate-900 dark:bg-white/10 dark:text-zinc-300 dark:hover:bg-white/15 dark:hover:text-zinc-100"
                                 onClick={async () => {
                                   try {
                                     await leaveCommunityEvent(ev._id);

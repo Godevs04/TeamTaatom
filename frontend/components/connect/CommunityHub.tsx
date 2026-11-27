@@ -670,7 +670,7 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
         />
         <View style={styles.shellHeader}>
           <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={[styles.shellEyebrow, { color: accent }]}>Community</Text>
+            <Text style={[styles.shellEyebrow, { color: accent }]}>Event</Text>
             <Text style={[styles.shellTitle, { color: ink }]}>Spaces</Text>
             <Text style={[styles.shellSubtitle, { color: muted }]}>
               Chats, events, and people — all in one place
@@ -1158,40 +1158,57 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                                   : isWaitlisted
                                     ? 'rgba(245,158,11,0.1)'
                                     : 'rgba(16,124,65,0.08)',
-                                flex: 1,
+                                borderColor: isDark
+                                  ? isWaitlisted
+                                    ? 'rgba(251,191,36,0.22)'
+                                    : 'rgba(125,222,163,0.22)'
+                                  : isWaitlisted
+                                    ? 'rgba(217,119,6,0.18)'
+                                    : 'rgba(16,124,65,0.16)',
                               },
                             ]}
                           >
-                            <Ionicons
-                              name={isWaitlisted ? 'hourglass-outline' : 'checkmark-circle'}
-                              size={16}
-                              color={
-                                isWaitlisted
-                                  ? isDark
-                                    ? '#FBBF24'
-                                    : '#D97706'
-                                  : isDark
-                                    ? '#7DDEA3'
-                                    : '#107C41'
-                              }
-                            />
-                            <Text
-                              style={{
-                                color: isWaitlisted
-                                  ? isDark
-                                    ? '#FBBF24'
-                                    : '#B45309'
-                                  : isDark
-                                    ? '#7DDEA3'
-                                    : '#107C41',
-                                fontWeight: '700',
-                                fontSize: 13,
-                                flex: 1,
-                              }}
-                            >
-                              {isWaitlisted ? 'On waitlist' : "You're registered"}
-                            </Text>
+                            <View style={styles.eventRegisteredStatus}>
+                              <Ionicons 
+                                name={isWaitlisted ? 'hourglass-outline' : 'checkmark-circle'}
+                                size={16}
+                                color={
+                                  isWaitlisted
+                                    ? isDark
+                                      ? '#FBBF24'
+                                      : '#D97706'
+                                    : isDark
+                                      ? '#7DDEA3'
+                                      : '#107C41'
+                                }
+                              />
+                              <Text
+                                style={[
+                                  styles.eventRegisteredLabel,
+                                  {
+                                    color: isWaitlisted
+                                      ? isDark
+                                        ? '#FBBF24'
+                                        : '#B45309'
+                                      : isDark
+                                        ? '#7DDEA3'
+                                        : '#107C41',
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {isWaitlisted ? 'On waitlist' : "You're registered"}
+                              </Text>
+                            </View>
                             <TouchableOpacity
+                              style={[
+                                styles.eventLeaveBtn,
+                                {
+                                  backgroundColor: isDark
+                                    ? 'rgba(255,255,255,0.08)'
+                                    : 'rgba(15,23,42,0.06)',
+                                },
+                              ]}
                               onPress={async () => {
                                 try {
                                   await leaveCommunityEvent(ev._id);
@@ -1200,9 +1217,11 @@ export default function CommunityHub({ pageId, canManage, isMember, isCommunity 
                                   setError(e?.message || 'Failed to leave');
                                 }
                               }}
-                              hitSlop={8}
+                              activeOpacity={0.75}
+                              hitSlop={6}
+                              accessibilityLabel={isWaitlisted ? 'Leave waitlist' : 'Leave event'}
                             >
-                              <Text style={{ color: muted, fontSize: 12, fontWeight: '600' }}>
+                              <Text style={[styles.eventLeaveBtnText, { color: muted }]}>
                                 Leave
                               </Text>
                             </TouchableOpacity>
@@ -3124,10 +3143,41 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
+    justifyContent: 'space-between',
+    gap: 10,
+    minHeight: 44,
     borderRadius: 14,
-    paddingVertical: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  eventRegisteredStatus: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    minWidth: 0,
+  },
+  eventRegisteredLabel: {
+    flexShrink: 1,
+    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.1,
+  },
+  eventLeaveBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  eventLeaveBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+    includeFontPadding: false,
+    textAlignVertical: 'center' as const,
   },
   eventIconRail: {
     flexDirection: 'row',

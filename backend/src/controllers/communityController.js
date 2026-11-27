@@ -926,6 +926,148 @@ const inviteToGroupChat = async (req, res) => {
 // Events
 // ─────────────────────────────────────────────
 
+/**
+ * Global event feed: all public published events + any event the user
+ * has joined (registered / waitlisted / team), including members/private.
+ */
+const listEventsFeed = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+    const uid = req.user._id;
+
+    const [myRegs, myTeams] = await Promise.all([
+      CommunityEventRegistration.find({
+        userId: uid,
+        status: { $in: ['active', 'waitlisted'] },
+      })
+        .select('eventId status')
+        .lean(),
+      CommunityEventTeam.find({
+        $or: [{ captainId: uid }, { memberIds: uid }],
+        status: { $ne: 'withdrawn' },
+      })
+        .select('_id eventId chatId name isComplete')
+        .lean(),
+    ]);
+
+    const joinedIds = [
+      ...new Set([
+        ...myRegs.map((r) => r.eventId.toString()),
+        ...myTeams.map((t) => t.eventId.toString()),
+      ]),
+    ]
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    const filter = {
+      status: { $nin: ['cancelled', 'draft'] },
+      $or: [{ visibility: 'public' }, ...(joinedIds.length ? [{ _id: { $in: joinedIds } }] : [])],
+    };
+
+    const [total, events] = await Promise.all([
+      CommunityEvent.countDocuments(filter),
+      CommunityEvent.find(filter).sort({ startsAt: 1 }).skip(skip).limit(limit).lean(),
+    ]);
+
+    const eventIds = events.map((e) => e._id);
+    const pageIds = [...new Set(events.map((e) => e.connectPageId.toString()))].filter(
+      (id) => mongoose.Types.ObjectId.isValid(id)
+    );
+
+    const [pages, competitions, teamRegs] = await Promise.all([
+      ConnectPage.find({ _id: { $in: pageIds } })
+        .select('name profileImage category status userId communityRoles')
+        .lean(),
+      eventIds.length
+        ? CommunityEventCompetition.find({ eventId: { $in: eventIds } }).lean()
+        : [],
+      // Team registrations for this user (regs above are userId-only)
+      CommunityEventRegistration.find({
+        eventId: { $in: eventIds },
+        status: { $in: ['active', 'waitlisted'] },
+        $or: [{ userId: uid }, { teamId: { $in: myTeams.map((t) => t._id) } }],
+      }).lean(),
+    ]);
+
+    const pageById = Object.fromEntries(pages.map((p) => [p._id.toString(), p]));
+    const competitionByEvent = Object.fromEntries(
+      competitions.map((c) => [c.eventId.toString(), c])
+    );
+    const teamByEvent = Object.fromEntries(
+      myTeams
+        .filter((t) => eventIds.some((id) => id.toString() === t.eventId.toString()))
+        .map((t) => [t.eventId.toString(), t])
+    );
+
+    const registeredEventIds = new Set();
+    const waitlistedEventIds = new Set();
+    const regStatusByEvent = {};
+    teamRegs.forEach((r) => {
+      const eid = r.eventId.toString();
+      if (r.userId && r.userId.toString() === uid.toString()) {
+        regStatusByEvent[eid] = r.status;
+        if (r.status === 'active') registeredEventIds.add(eid);
+        if (r.status === 'waitlisted') waitlistedEventIds.add(eid);
+      }
+      const myTeam = teamByEvent[eid];
+      if (r.teamId && myTeam && myTeam._id.toString() === r.teamId.toString() && r.status === 'active') {
+        registeredEventIds.add(eid);
+        regStatusByEvent[eid] = 'active';
+      }
+    });
+    Object.keys(teamByEvent).forEach((eid) => {
+      registeredEventIds.add(eid);
+      if (!regStatusByEvent[eid]) regStatusByEvent[eid] = 'active';
+    });
+
+    return sendSuccess(res, 200, 'Events feed', {
+      events: events.map((e) => {
+        const eid = e._id.toString();
+        const pageDoc = pageById[e.connectPageId.toString()] || null;
+        const competition = competitionByEvent[eid] || null;
+        const competitionOut = competition
+          ? {
+              ...competition,
+              allowedMedia: normalizeAllowedMedia(
+                competition.allowedMedia || e.allowedEntryMedia
+              ),
+            }
+          : null;
+        return serializeEvent(e, {
+          isRegistered: registeredEventIds.has(eid),
+          isWaitlisted: waitlistedEventIds.has(eid),
+          registrationStatus: regStatusByEvent[eid] || null,
+          isFull: isEventFull(e),
+          canManage: pageDoc
+            ? canManageCommunity(pageDoc, uid) || isEventHost(e, uid)
+            : isEventHost(e, uid),
+          myTeam: teamByEvent[eid] || null,
+          competition: competitionOut,
+          page: pageDoc
+            ? {
+                _id: pageDoc._id,
+                name: pageDoc.name,
+                profileImage: pageDoc.profileImage || '',
+                category: pageDoc.category,
+              }
+            : null,
+        });
+      }),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (error) {
+    logger.error('listEventsFeed error:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to list events');
+  }
+};
+
 const listEvents = async (req, res) => {
   try {
     const { pageId } = req.params;
@@ -2489,6 +2631,7 @@ module.exports = {
   listGroupJoinRequests,
   reviewGroupJoinRequest,
   inviteToGroupChat,
+  listEventsFeed,
   listEvents,
   createEvent,
   getEvent,

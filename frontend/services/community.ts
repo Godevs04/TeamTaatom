@@ -67,6 +67,13 @@ export type CommunityEvent = {
   canManage?: boolean;
   myTeam?: { _id?: string; chatId?: string; name?: string; isComplete?: boolean } | null;
   competition?: CommunityCompetition | null;
+  /** Present on global events feed */
+  page?: {
+    _id?: string;
+    name?: string;
+    profileImage?: string;
+    category?: string;
+  } | null;
 };
 
 export type CommunityCompetition = {
@@ -161,6 +168,13 @@ export const reviewGroupJoinRequest = (requestId: string, action: 'accept' | 're
 
 export const listCommunityEvents = (pageId: string) =>
   unwrap<{ events: CommunityEvent[] }>(api.get(`/api/v1/connect/page/${pageId}/events`));
+
+/** Public events + events the current user has joined. */
+export const listEventsFeed = (page = 1, limit = 20) =>
+  unwrap<{
+    events: CommunityEvent[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }>(api.get('/api/v1/connect/events', { params: { page, limit } }));
 
 export const createCommunityEvent = (pageId: string, body: Record<string, unknown>) =>
   unwrap<{ event: CommunityEvent }>(api.post(`/api/v1/connect/page/${pageId}/events`, body));

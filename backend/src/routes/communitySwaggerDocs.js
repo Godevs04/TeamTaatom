@@ -301,6 +301,35 @@
 
 /**
  * @swagger
+ * /api/v1/connect/events:
+ *   get:
+ *     summary: Global events feed
+ *     description: |
+ *       Returns published **public** events across communities, plus any event the
+ *       authenticated user has joined (registered, waitlisted, or on a team) even if
+ *       visibility is members/private. Sorted by startsAt ascending.
+ *     tags: [Community]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 50
+ *     responses:
+ *       200:
+ *         description: events[] (with page name/image, isRegistered, competition) + pagination
+ */
+
+/**
+ * @swagger
  * /api/v1/connect/page/{pageId}/events:
  *   get:
  *     summary: List community events

@@ -449,7 +449,7 @@ export default function ConnectPageDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 pb-28 lg:pb-10">
       <Link href="/connect" className="text-sm font-medium text-primary hover:underline">
-        ← {isCommunityPage ? "Community" : "Connect"}
+        ← {isCommunityPage ? "Event" : "Connect"}
       </Link>
 
       <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium dark:border-zinc-800 dark:bg-zinc-900/70">

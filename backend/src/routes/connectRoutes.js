@@ -196,6 +196,8 @@ router.post(
   authMiddleware,
   communityController.createEvent
 );
+/** Global feed: public events + events the caller has joined. Must be before /events/:eventId. */
+router.get('/events', authMiddleware, communityController.listEventsFeed);
 router.get(
   '/events/:eventId',
   validateEventId,

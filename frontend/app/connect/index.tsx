@@ -35,6 +35,7 @@ import {
   ConnectPageType,
   GeoItem,
 } from '../../services/connect';
+import { listEventsFeed, type CommunityEvent } from '../../services/community';
 import { getUserFromStorage } from '../../services/auth';
 import { getPlaceSuggestions, getStateSuggestions } from '../../utils/locationUtils';
 import logger from '../../utils/logger';
@@ -60,7 +61,35 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
   return 'Roboto';
 };
 
-type TabType = 'connect' | 'community' | 'find';
+type TabType = 'community' | 'event' | 'find';
+type CommunitySubTab = 'pages' | 'communities';
+
+function formatFeedEventCountdown(startsAt: string | Date): string | null {
+  const start = new Date(startsAt).getTime();
+  if (!Number.isFinite(start)) return null;
+  const diff = start - Date.now();
+  if (diff <= 0) return 'Started';
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `Starts in ${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `Starts in ${hours}h`;
+  const days = Math.round(hours / 24);
+  return `Starts in ${days}d`;
+}
+
+function formatFeedEventWhen(startsAt: string | Date): string {
+  try {
+    return new Date(startsAt).toLocaleString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
 
 interface FoundUser {
   _id: string;
@@ -209,21 +238,18 @@ export default function ConnectHubScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
-  const [activeTab, setActiveTab] = useState<TabType>('connect');
+  const [activeTab, setActiveTab] = useState<TabType>('community');
+  const [communitySubTab, setCommunitySubTab] = useState<CommunitySubTab>('communities');
 
-  // Page list state (Archived + Community tabs)
+  // Event tab list state
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [pages, setPages] = useState<ConnectPageType[]>([]);
+  const [feedEvents, setFeedEvents] = useState<CommunityEvent[]>([]);
   const [pageNum, setPageNum] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Connect tab state. `myPages` holds every user-created (non-admin) page;
-  // the backend orders followed entries first GLOBALLY across the whole
-  // collection (not just per fetched batch). `ownedPageIds` remembers which
-  // entries were created by the current user so the card hides the Follow
-  // button on those.
+  // Community → Pages: user-created (non-admin) pages. Backend ranks followed first.
   const [myPages, setMyPages] = useState<ConnectPageType[]>([]);
   const [myPagesLoading, setMyPagesLoading] = useState(false);
   const [ownedPageIds, setOwnedPageIds] = useState<Set<string>>(new Set());
@@ -231,6 +257,14 @@ export default function ConnectHubScreen() {
   const [connectHasMore, setConnectHasMore] = useState(true);
   const [connectLoadingMore, setConnectLoadingMore] = useState(false);
   const [connectRefreshing, setConnectRefreshing] = useState(false);
+
+  // Community → Communities: admin-created community pages (former Community tab).
+  const [adminCommunities, setAdminCommunities] = useState<ConnectPageType[]>([]);
+  const [adminCommunityPageNum, setAdminCommunityPageNum] = useState(1);
+  const [adminCommunityHasMore, setAdminCommunityHasMore] = useState(true);
+  const [adminCommunityLoading, setAdminCommunityLoading] = useState(false);
+  const [adminCommunityLoadingMore, setAdminCommunityLoadingMore] = useState(false);
+  const [adminCommunityRefreshing, setAdminCommunityRefreshing] = useState(false);
 
   // Bottom sheet state (Find tab user popup)
   const [selectedUser, setSelectedUser] = useState<FoundUser | null>(null);
@@ -471,45 +505,89 @@ export default function ConnectHubScreen() {
     }
   }, [connectLoadingMore, connectHasMore, myPagesLoading, connectPageNum, fetchMyPages]);
 
-  // Fetch pages for Community tab
-  const fetchPages = useCallback(async (pNum = 1, isRefresh = false) => {
-    if (activeTab !== 'community') return;
+  // Admin community pages (former Community tab features)
+  const fetchAdminCommunities = useCallback(async (pNum = 1, isRefresh = false) => {
     try {
       if (pNum === 1) {
-        if (isRefresh) setRefreshing(true);
-        else if (pages.length === 0) setLoading(true);
+        if (isRefresh) setAdminCommunityRefreshing(true);
+        else if (adminCommunities.length === 0) setAdminCommunityLoading(true);
+      } else {
+        setAdminCommunityLoadingMore(true);
       }
       const response = await getCommunities(pNum, 20);
       if (response) {
-        if (pNum === 1) setPages(response.pages);
-        else setPages(prev => [...prev, ...response.pages]);
+        if (pNum === 1) setAdminCommunities(response.pages || []);
+        else setAdminCommunities((prev) => [...prev, ...(response.pages || [])]);
+        setAdminCommunityHasMore(response.pagination.page < response.pagination.totalPages);
+        setAdminCommunityPageNum(pNum);
+      }
+    } catch (error) {
+      logger.error('Error fetching communities:', error);
+    } finally {
+      setAdminCommunityLoading(false);
+      setAdminCommunityRefreshing(false);
+      setAdminCommunityLoadingMore(false);
+    }
+  }, [adminCommunities.length]);
+
+  // Fetch public + joined events for Event tab
+  const fetchFeedEvents = useCallback(async (pNum = 1, isRefresh = false) => {
+    if (activeTab !== 'event') return;
+    try {
+      if (pNum === 1) {
+        if (isRefresh) setRefreshing(true);
+        else if (feedEvents.length === 0) setLoading(true);
+      }
+      const response = await listEventsFeed(pNum, 20);
+      if (response) {
+        if (pNum === 1) setFeedEvents(response.events || []);
+        else setFeedEvents((prev) => [...prev, ...(response.events || [])]);
         setHasMore(response.pagination.page < response.pagination.totalPages);
         setPageNum(pNum);
       }
     } catch (error) {
-      logger.error('Error fetching connect pages:', error);
+      logger.error('Error fetching events feed:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [activeTab, pages]);
+  }, [activeTab, feedEvents.length]);
 
   useFocusEffect(
     useCallback(() => {
-      if (activeTab === 'connect') fetchMyPages();
-      else if (activeTab === 'community') fetchPages(1);
-    }, [fetchMyPages, fetchPages, activeTab])
+      if (activeTab === 'community') {
+        if (communitySubTab === 'pages') fetchMyPages();
+        else fetchAdminCommunities(1);
+      } else if (activeTab === 'event') fetchFeedEvents(1);
+    }, [fetchMyPages, fetchAdminCommunities, fetchFeedEvents, activeTab, communitySubTab])
   );
 
   const handleTabChange = (tab: TabType) => {
     if (tab === activeTab) return;
     setActiveTab(tab);
-    if (tab === 'community' && pages.length === 0) {
-      setPages([]);
+    if (tab === 'event' && feedEvents.length === 0) {
+      setFeedEvents([]);
       setPageNum(1);
       setHasMore(true);
       setLoading(true);
+    }
+    if (tab === 'community') {
+      if (communitySubTab === 'pages' && myPages.length === 0) {
+        setMyPagesLoading(true);
+      }
+      if (communitySubTab === 'communities' && adminCommunities.length === 0) {
+        setAdminCommunityLoading(true);
+      }
+    }
+  };
+
+  const handleCommunitySubTabChange = (sub: CommunitySubTab) => {
+    if (sub === communitySubTab) return;
+    setCommunitySubTab(sub);
+    if (sub === 'pages' && myPages.length === 0) setMyPagesLoading(true);
+    if (sub === 'communities' && adminCommunities.length === 0) {
+      setAdminCommunityLoading(true);
     }
   };
 
@@ -718,7 +796,7 @@ export default function ConnectHubScreen() {
     setSelectedUser((prev) => (prev && prev._id === userId ? { ...prev, ...patch } : prev));
   }, []);
 
-  // Page follow toggle (Archived/Community tabs)
+  // Page follow toggle (Community → Pages & Communities cards)
   const handlePageFollowToggle = async (pageItem: ConnectPageType) => {
     // Defensive: never POST follow/unfollow against the user's own page.
     // Backend rejects it with "Cannot follow your own page", which surfaced
@@ -726,8 +804,6 @@ export default function ConnectHubScreen() {
     // weren't in sync with the rendered card.
     if (pageItem.isOwn || ownedPageIds.has(pageItem._id)) return;
     const wasFollowing = pageItem.isFollowing;
-    // Optimistic update for both the Community list and the Connect-tab list
-    // (they can both contain this page).
     const applyOptimistic = (list: ConnectPageType[]) =>
       list.map((p) =>
         p._id === pageItem._id
@@ -740,34 +816,187 @@ export default function ConnectHubScreen() {
           ? { ...p, isFollowing: pageItem.isFollowing, followerCount: pageItem.followerCount }
           : p
       );
-    setPages(applyOptimistic);
     setMyPages(applyOptimistic);
+    setAdminCommunities(applyOptimistic);
     try {
       if (wasFollowing) await unfollowConnectPage(pageItem._id);
       else await followConnectPage(pageItem._id);
     } catch (error) {
-      setPages(rollback);
       setMyPages(rollback);
+      setAdminCommunities(rollback);
       logger.error('Error toggling follow:', error);
     }
   };
 
-  const handleLoadMore = () => {
-    if (!loadingMore && hasMore && !loading && activeTab === 'community') {
-      setLoadingMore(true);
-      fetchPages(pageNum + 1);
+  const handleLoadMoreAdminCommunities = () => {
+    if (
+      !adminCommunityLoadingMore &&
+      adminCommunityHasMore &&
+      !adminCommunityLoading &&
+      activeTab === 'community' &&
+      communitySubTab === 'communities'
+    ) {
+      void fetchAdminCommunities(adminCommunityPageNum + 1);
     }
   };
 
-  const renderPageItem = ({ item }: { item: ConnectPageType }) => (
-    <ConnectCard
-      page={item}
-      onPress={() => router.push(`/connect/page/${item._id}`)}
-      onFollowPress={() => handlePageFollowToggle(item)}
-      isFollowing={item.isFollowing}
-      showFollowButton={activeTab === 'community'}
-    />
-  );
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore && !loading && activeTab === 'event') {
+      setLoadingMore(true);
+      fetchFeedEvents(pageNum + 1);
+    }
+  };
+
+  const renderFeedEventItem = ({ item }: { item: CommunityEvent }) => {
+    const pageId = String(item.connectPageId || item.page?._id || '');
+    const starts = new Date(item.startsAt);
+    const day = Number.isFinite(starts.getTime()) ? String(starts.getDate()) : '—';
+    const mon = Number.isFinite(starts.getTime())
+      ? starts.toLocaleString(undefined, { month: 'short' }).toUpperCase()
+      : '';
+    const countdown = formatFeedEventCountdown(item.startsAt);
+    const ink = theme.colors.text;
+    const muted = theme.colors.textSecondary;
+    const accent = isDark ? '#38BDF8' : '#1C73B4';
+    return (
+      <TouchableOpacity
+        activeOpacity={0.88}
+        onPress={() => {
+          if (!pageId) return;
+          router.push(`/connect/page/${pageId}`);
+        }}
+        style={{
+          marginBottom: 12,
+          borderRadius: 18,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF',
+          overflow: 'hidden',
+          shadowColor: '#0F172A',
+          shadowOpacity: isDark ? 0 : 0.06,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: isDark ? 0 : 2,
+        }}
+      >
+        <View style={{ flexDirection: 'row', padding: 14, gap: 12 }}>
+          <View
+            style={{
+              width: 56,
+              borderRadius: 14,
+              backgroundColor: isDark ? 'rgba(251,191,36,0.16)' : '#FEF3C7',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ color: isDark ? '#FBBF24' : '#B45309', fontWeight: '800', fontSize: 18, lineHeight: 22 }}>
+              {day}
+            </Text>
+            <Text style={{ color: isDark ? '#FCD34D' : '#D97706', fontWeight: '700', fontSize: 10, letterSpacing: 0.4 }}>
+              {mon}
+            </Text>
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+            <Text style={{ color: ink, fontWeight: '800', fontSize: 16, letterSpacing: -0.2 }} numberOfLines={2}>
+              {item.title}
+            </Text>
+            <Text style={{ color: muted, fontSize: 12 }} numberOfLines={1}>
+              {formatFeedEventWhen(item.startsAt)}
+              {item.location?.address ? ` · ${item.location.address}` : ''}
+            </Text>
+            {item.page?.name ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                {item.page.profileImage ? (
+                  <Image
+                    source={{ uri: item.page.profileImage }}
+                    style={{ width: 18, height: 18, borderRadius: 6 }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 6,
+                      backgroundColor: isDark ? 'rgba(56,189,248,0.2)' : 'rgba(28,115,180,0.12)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Ionicons name="people" size={10} color={accent} />
+                  </View>
+                )}
+                <Text style={{ color: accent, fontSize: 12, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                  {item.page.name}
+                </Text>
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {item.isRegistered ? (
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: isDark ? 'rgba(80,200,120,0.18)' : 'rgba(16,124,65,0.1)',
+                  }}
+                >
+                  <Text style={{ color: isDark ? '#7DDEA3' : '#107C41', fontSize: 11, fontWeight: '700' }}>
+                    You're in
+                  </Text>
+                </View>
+              ) : null}
+              {item.isWaitlisted ? (
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: isDark ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.12)',
+                  }}
+                >
+                  <Text style={{ color: isDark ? '#FBBF24' : '#B45309', fontSize: 11, fontWeight: '700' }}>
+                    Waitlist
+                  </Text>
+                </View>
+              ) : null}
+              {item.competition?.enabled ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: isDark ? 'rgba(251,191,36,0.16)' : 'rgba(234,88,12,0.1)',
+                  }}
+                >
+                  <Ionicons name="trophy" size={11} color={isDark ? '#FBBF24' : '#C2410C'} />
+                  <Text style={{ color: isDark ? '#FBBF24' : '#C2410C', fontSize: 11, fontWeight: '700' }}>
+                    Competition
+                  </Text>
+                </View>
+              ) : null}
+              {countdown ? (
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 999,
+                    backgroundColor: isDark ? 'rgba(56,189,248,0.14)' : 'rgba(28,115,180,0.08)',
+                  }}
+                >
+                  <Text style={{ color: accent, fontSize: 11, fontWeight: '700' }}>{countdown}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={muted} style={{ alignSelf: 'center' }} />
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderUserItem = (user: FoundUser) => (
     <TouchableOpacity
@@ -851,9 +1080,67 @@ export default function ConnectHubScreen() {
     );
   };
 
-  // Connect tab — every user-created (non-admin) page on the platform,
-  // followed entries first (global ranking from the backend), paginated.
-  const renderConnectTab = () => {
+  const renderCommunitySubTabs = () => {
+    const accent = isDark ? '#38BDF8' : '#1C73B4';
+    const muted = theme.colors.textSecondary;
+    const chips: { key: CommunitySubTab; label: string }[] = [
+      { key: 'communities', label: 'Communities' },
+      { key: 'pages', label: 'Pages' },
+    ];
+    return (
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: 8,
+          paddingHorizontal: isTablet ? themeConstants.spacing.md : 12,
+          paddingTop: 4,
+          paddingBottom: 8,
+        }}
+      >
+        {chips.map((chip) => {
+          const active = communitySubTab === chip.key;
+          return (
+            <TouchableOpacity
+              key={chip.key}
+              onPress={() => handleCommunitySubTabChange(chip.key)}
+              activeOpacity={0.85}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 999,
+                backgroundColor: active
+                  ? isDark
+                    ? 'rgba(56,189,248,0.18)'
+                    : 'rgba(28,115,180,0.12)'
+                  : isDark
+                    ? 'rgba(255,255,255,0.06)'
+                    : 'rgba(15,23,42,0.05)',
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: active
+                  ? accent
+                  : isDark
+                    ? 'rgba(255,255,255,0.08)'
+                    : 'rgba(15,23,42,0.08)',
+              }}
+            >
+              <Text
+                style={{
+                  color: active ? accent : muted,
+                  fontWeight: '700',
+                  fontSize: 13,
+                }}
+              >
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  // Community → Pages (former Connect tab) — user-created pages + follow + create FAB
+  const renderCommunityPagesList = () => {
     if (myPagesLoading && myPages.length === 0) {
       return (
         <View style={styles.loadingContainer}>
@@ -867,7 +1154,7 @@ export default function ConnectHubScreen() {
         <EmptyState
           icon="add-circle-outline"
           title="No pages yet"
-          description="Create your first Connect page to share with the community."
+          description="Create your first page to share with the community."
         />
       );
     }
@@ -876,9 +1163,6 @@ export default function ConnectHubScreen() {
       <FlashList
         data={myPages}
         renderItem={({ item }: { item: ConnectPageType }) => {
-          // Trust the backend's isOwn flag first; fall back to the
-          // ownedPageIds set populated from getMyPages in case isOwn isn't
-          // present (older backend, anonymous fetch path, etc.).
           const isOwned = !!item.isOwn || ownedPageIds.has(item._id);
           return (
             <ConnectCard
@@ -912,6 +1196,70 @@ export default function ConnectHubScreen() {
       />
     );
   };
+
+  // Community → Communities (former Community tab) — admin communities + follow
+  const renderAdminCommunitiesList = () => {
+    if (adminCommunityLoading && adminCommunities.length === 0) {
+      return (
+        <View style={styles.loadingContainer}>
+          <LoadingGlobe size="large" color={theme.colors.primary} />
+        </View>
+      );
+    }
+
+    if (adminCommunities.length === 0) {
+      return (
+        <EmptyState
+          icon="globe-outline"
+          title="No communities yet"
+          description="Community pages created by admins will appear here."
+        />
+      );
+    }
+
+    return (
+      <FlashList
+        data={adminCommunities}
+        renderItem={({ item }: { item: ConnectPageType }) => (
+          <ConnectCard
+            page={item}
+            onPress={() => router.push(`/connect/page/${item._id}`)}
+            onFollowPress={() => handlePageFollowToggle(item)}
+            isFollowing={!!item.isFollowing}
+            showFollowButton
+          />
+        )}
+        keyExtractor={(item: ConnectPageType) => item._id}
+        contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 8 } as any}
+        onEndReached={handleLoadMoreAdminCommunities}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          adminCommunityLoadingMore ? (
+            <View style={styles.footerLoader}>
+              <LoadingGlobe size="small" color={theme.colors.primary} />
+            </View>
+          ) : null
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={adminCommunityRefreshing}
+            onRefresh={() => fetchAdminCommunities(1, true)}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
+      />
+    );
+  };
+
+  const renderCommunityTab = () => (
+    <View style={{ flex: 1 }}>
+      {renderCommunitySubTabs()}
+      <View style={{ flex: 1 }}>
+        {communitySubTab === 'pages' ? renderCommunityPagesList() : renderAdminCommunitiesList()}
+      </View>
+    </View>
+  );
 
   // Bottom sheet for Find tab user actions
   const renderUserBottomSheet = () => {
@@ -1303,8 +1651,8 @@ export default function ConnectHubScreen() {
     </KeyboardAvoidingView>
   );
 
-  const renderPageListTab = () => {
-    if (loading && pages.length === 0) {
+  const renderEventFeedTab = () => {
+    if (loading && feedEvents.length === 0) {
       return (
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
@@ -1312,16 +1660,22 @@ export default function ConnectHubScreen() {
       );
     }
 
-    if (pages.length === 0) {
-      return <EmptyState icon="globe-outline" title="No communities yet" description="Community pages created by admins will appear here." />;
+    if (feedEvents.length === 0) {
+      return (
+        <EmptyState
+          icon="calendar-outline"
+          title="No events yet"
+          description="Public events and anything you’ve joined will show up here."
+        />
+      );
     }
 
     return (
       <FlashList
-        data={pages}
-        renderItem={renderPageItem}
-        keyExtractor={(item: ConnectPageType) => item._id}
-        contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 8 } as any}
+        data={feedEvents}
+        renderItem={renderFeedEventItem}
+        keyExtractor={(item: CommunityEvent) => item._id}
+        contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 12 } as any}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListFooterComponent={
@@ -1334,7 +1688,7 @@ export default function ConnectHubScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => fetchPages(1, true)}
+            onRefresh={() => fetchFeedEvents(1, true)}
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
           />
@@ -1344,8 +1698,8 @@ export default function ConnectHubScreen() {
   };
 
   const tabs: { key: TabType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-    { key: 'connect', label: 'Connect', icon: 'sparkles-outline' },
     { key: 'community', label: 'Community', icon: 'people-outline' },
+    { key: 'event', label: 'Event', icon: 'calendar-outline' },
     { key: 'find', label: 'Find', icon: 'compass-outline' },
   ];
 
@@ -1401,19 +1755,19 @@ export default function ConnectHubScreen() {
         <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
         {/* Tab Content */}
-        <View style={[styles.listSlot, activeTab === 'connect' ? null : styles.hidden]} pointerEvents={activeTab === 'connect' ? 'auto' : 'none'}>
-          {renderConnectTab()}
+        <View style={[styles.listSlot, activeTab === 'community' ? null : styles.hidden]} pointerEvents={activeTab === 'community' ? 'auto' : 'none'}>
+          {renderCommunityTab()}
         </View>
         <View style={[styles.listSlot, activeTab === 'find' ? null : styles.hidden]} pointerEvents={activeTab === 'find' ? 'auto' : 'none'}>
           {renderFindTab()}
         </View>
-        <View style={[styles.listSlot, activeTab === 'community' ? null : styles.hidden]} pointerEvents={activeTab === 'community' ? 'auto' : 'none'}>
-          {renderPageListTab()}
+        <View style={[styles.listSlot, activeTab === 'event' ? null : styles.hidden]} pointerEvents={activeTab === 'event' ? 'auto' : 'none'}>
+          {renderEventFeedTab()}
         </View>
       </View>
 
-      {/* FAB — Create Connect Page (Connect tab only) */}
-      {activeTab === 'connect' && (
+      {/* FAB — Create page (Community → Pages only) */}
+      {activeTab === 'community' && communitySubTab === 'pages' && (
         <TouchableOpacity
           style={{
             position: 'absolute',
